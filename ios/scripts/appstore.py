@@ -30,6 +30,7 @@ API = "https://api.appstoreconnect.apple.com"
 GROUP = "Public Preview"
 TESTER_LIMIT = 1000
 FEEDBACK_EMAIL = "admin@example.com"
+PRIVACY_URL = "https://github.com/ColinKOB/zero/blob/main/PRIVACY.md"
 DESCRIPTION = ("Zero is a team of AI coworkers called Zips that live on your own computer or our server and help "
                "with school, work, money and more.")
 WHAT_TO_TEST = ("Set up Zero, meet your first Zip and ask it for help with something real. Try a call with a Zip. "
@@ -166,7 +167,7 @@ def wait_for_build(app, version, minutes=60):
 
 def ensure_test_info(app):
     locs = must("GET", f"/v1/apps/{app}/betaAppLocalizations")["data"]
-    attrs = {"feedbackEmail": FEEDBACK_EMAIL, "description": DESCRIPTION}
+    attrs = {"feedbackEmail": FEEDBACK_EMAIL, "description": DESCRIPTION, "privacyPolicyUrl": PRIVACY_URL}
     mine = next((l for l in locs if l["attributes"]["locale"] == "en-US"), None)
     if mine:
         must("PATCH", f"/v1/betaAppLocalizations/{mine['id']}",

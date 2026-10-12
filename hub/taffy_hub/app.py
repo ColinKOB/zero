@@ -51,7 +51,8 @@ async def _watch_orders():
     await extract.watch_orders()
 
 
-app = FastAPI(title="Taffy hub", lifespan=lifespan)
+# No /docs, /redoc or /openapi.json: the hub's API listing stays off the Wi-Fi and the tailnet, like the front door's.
+app = FastAPI(title="Taffy hub", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.exception_handler(RequestValidationError)

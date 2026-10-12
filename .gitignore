@@ -1,4 +1,5 @@
-alien/shared/
+alien/shared/*
+!alien/shared/zip-templates.json
 *.pass
 .env
 # The renderer's golden files hold placeholders only (API_SERVER_KEY=<random>, a fake broker secret)

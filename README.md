@@ -10,7 +10,7 @@ The Zips run on a server you own, called the hub. They use your own Claude or Ch
 - `hub/` holds the hub, a FastAPI service the app talks to. It runs next to the Hermes agent gateway.
 - `alien/` holds the server side: the Hermes plugin with Zero's tools, the Zip sandbox, systemd units, and the scripts that set up a home on a Linux server. The folder is named after the author's server.
 - `oauth-relay/` holds a small optional service that finishes sign-in for apps that require a client secret.
-- `mac/` holds an optional job that copies the server's backups to a Mac.
+- `mac/` holds the engine the Mac app installs on first run (`mac/engine`), and an optional job that copies a server's backups to a Mac.
 - `docs/` holds design notes and specs.
 
 ## How Do I Build the iPhone and Mac App?

@@ -695,7 +695,7 @@ do_status() {
     printf '%-16s %s\n' "$u" "$(systemctl --user is-active "$u" 2>/dev/null || true)"
   done
   [ -n "${HUB_PORT:-}" ] && curl -fsSk "$(hub_url)/api/health" && echo
-  say "Address: ${PUBLIC_URL:-unknown} ($NETWORK)"
+  say "Address: ${PUBLIC_URL:-unknown} (${NETWORK:-not installed})"
 }
 
 do_uninstall() {
