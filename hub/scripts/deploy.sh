@@ -9,12 +9,38 @@
 #
 # --force restarts even if the hub is still busy after the wait.
 #
+# Tests run once per version of the code: a hash of the copied hub and the settings shape it was tested with is kept
+# in ~/taffy/hub-tested on alien after a pass, and the same code for the same shape skips straight to the restart.
+# Changed code always gets the full suite. --retest runs it anyway.
+#
+# Paused homes (PAUSED below) are never deployed or tested, by name or by `all`.
+#
 # Colin's home is his own user, so the copy goes straight into ~/taffy/hub-src. Another home belongs to its own Linux
 # user, which Colin's user cannot write to. Its copy is staged in /tmp on alien, the tests run there with the
 # Riley-shaped sample settings, and the home's own `zero-home-deploy` (installed by the home scripts, allowed by
 # /etc/sudoers.d/zero-homes) moves it into place as that user and restarts through that home's `taffy-hub restart`.
 set -e
 cd "$(dirname "$0")/.."
+
+# Riley's home is paused (Oct 12 2026): Riley decided she does not want her own Zero set up, so her home gets no more
+# deploys or test runs. Her home and its data are left as they are on alien; nothing was deleted. Remove her from this
+# list if she changes her mind.
+PAUSED="riley"
+
+retest=0
+for a in "$@"; do [ "$a" = --retest ] && retest=1; done
+args=""
+for a in "$@"; do [ "$a" = --retest ] || args="$args $a"; done
+set -- $args
+
+# Runs the suite in $1 on alien unless this exact code already passed for settings shape $2 (see above).
+run_tests() {
+  dir=$1; shape=$2; log=$3; env=$4
+  ssh alien "cd $dir && sum=\$(find . -type f ! -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)-$shape;
+    if [ $retest = 0 ] && grep -qx \"\$sum\" ~/taffy/hub-tested 2>/dev/null; then echo \"same code already passed its tests ($shape); skipping them\"; exit 0; fi;
+    $env ~/taffy/.venv/bin/python -m unittest discover -b -s tests >$log 2>&1 || { tail -30 $log; echo 'tests failed; not deploying'; exit 1; };
+    tail -1 $log; { echo \"\$sum\"; tail -n 49 ~/taffy/hub-tested 2>/dev/null || true; } > ~/taffy/hub-tested.new && mv ~/taffy/hub-tested.new ~/taffy/hub-tested"
+}
 
 home=colin
 case "$1" in
@@ -24,17 +50,18 @@ esac
 
 deploy_colin() {
   rsync -a --delete --exclude __pycache__ ./ alien:taffy/hub-src/
-  ssh alien 'cd ~/taffy/hub-src && ~/taffy/.venv/bin/python -m unittest discover -b -s tests >/tmp/hub-tests.log 2>&1 || { tail -30 /tmp/hub-tests.log; echo "tests failed; not restarting"; exit 1; }; tail -1 /tmp/hub-tests.log'
+  run_tests "~/taffy/hub-src" colin /tmp/hub-tests.log ""
   ssh alien "~/taffy/bin/taffy-hub restart $*"
 }
 
 deploy_other() {
   name=$1; shift
   case "$name" in *[!a-z0-9]*|"") echo "not a home name: $name"; exit 1 ;; esac
+  case " $PAUSED " in *" $name "*) echo "[$name] paused; not deployed or tested (see PAUSED in deploy.sh)"; return 0 ;; esac
   stage="/tmp/zero-deploy-hub-$name"
   ssh alien "rm -rf $stage && mkdir -p $stage"
   rsync -a --delete --exclude __pycache__ ./ "alien:$stage/"
-  ssh alien "cd $stage && ZERO_HOME=$stage/tests/homes/riley.json ~/taffy/.venv/bin/python -m unittest discover -b -s tests >/tmp/hub-tests-$name.log 2>&1 || { tail -30 /tmp/hub-tests-$name.log; echo 'tests failed; not deploying'; exit 1; }; tail -1 /tmp/hub-tests-$name.log"
+  run_tests "$stage" other "/tmp/hub-tests-$name.log" "ZERO_HOME=$stage/tests/homes/riley.json"
   if ! ssh alien "command -v zero-home-deploy >/dev/null || test -x /srv/zero/bin/zero-home-deploy"; then
     echo "zero-home-deploy is not installed on alien yet; the copy is staged in $stage but not deployed."
     exit 1

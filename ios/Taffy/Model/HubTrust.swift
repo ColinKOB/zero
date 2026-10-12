@@ -63,6 +63,16 @@ enum HubTrust {
         case refuse(String)
     }
 
+    /// When a certificate was last refused, so the cancelled request that follows reads as a trust problem
+    /// (HubClient.describe) instead of "Something went wrong".
+    nonisolated(unsafe) private static var refusedAt: Date?
+    static func noteRefusal() { candidateLock.lock(); refusedAt = Date(); candidateLock.unlock() }
+    static var refusedJustNow: Bool {
+        candidateLock.lock(); defer { candidateLock.unlock() }
+        return refusedAt.map { Date().timeIntervalSince($0) < 15 } ?? false
+    }
+    static let notYourMac = "Zero couldn't confirm this is your Mac. If you reinstalled Zero there, pair again from Settings."
+
     static let mismatch = "This doesn't match the Mac you paired before. If you reinstalled Zero there, remove it in Settings first."
     static let insecure = "That address isn't secure. Scan the code on your Mac to connect."
     static let unpinned = "Scan the code on your Mac to connect, so Zero can check it is really your Mac."
@@ -127,9 +137,10 @@ enum HubTrust {
         -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         if let pin {
             if let fp = leafFingerprint(trust), fp == pin { return (.useCredential, URLCredential(trust: trust)) }
+            noteRefusal()
             return (.cancelAuthenticationChallenge, nil)
         }
-        if local { return (.cancelAuthenticationChallenge, nil) }
+        if local { noteRefusal(); return (.cancelAuthenticationChallenge, nil) }
         return (.performDefaultHandling, nil)
     }
 }

@@ -3,7 +3,8 @@ page that hides which model is which.
 
 Each scenario has an opening message, a brief for the simulated user (who they are, what they want, facts to give
 only when asked, a change of mind to make partway through), and the files that make up the end product. {d} is the
-run's own copy of the sample files (tools/model-bench/fix plus fix/trip).
+run's fresh copy of the sample files (tools/model-bench/fix plus fix-trip), inside the lead Zip's work folder where
+its sandbox can read and write them; every run uses the same path, so both sides of the blind page read the same.
 """
 
 SCENARIOS = [

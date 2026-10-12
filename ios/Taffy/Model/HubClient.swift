@@ -47,6 +47,9 @@ final class HubClient {
             switch u.code {
             case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost:
                 return "Can't reach Zero right now. Check that your computer is on and connected to the internet."
+            case .cancelled, .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+                 .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
+                if HubTrust.refusedJustNow { return HubTrust.notYourMac }
             default: break
             }
         }

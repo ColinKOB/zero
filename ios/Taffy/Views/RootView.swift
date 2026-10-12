@@ -581,7 +581,7 @@ struct PairingView: View {
                         Text(e).font(Theme.text(14)).foregroundStyle(Theme.danger).multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                         if state.pairUnreachable {
-                            Text("If you reach Zero through a private network app, turn it on and try again.")
+                            Text("Check that your phone is on the same Wi-Fi as the computer running Zero, or that your private network app is on, and try again.")
                                 .font(Theme.text(14)).foregroundStyle(Theme.inkSoft).multilineTextAlignment(.center)
                                 .padding(.horizontal, 40)
                         }

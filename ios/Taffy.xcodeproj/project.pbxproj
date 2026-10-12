@@ -69,6 +69,7 @@
 		6F138F394D0F52975C87CD64 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4036A8BB6F35A55E1EB6C5E3 /* CallView.swift */; };
 		72316BF0CD5162EDCCF220D8 /* zero-ding.caf in Resources */ = {isa = PBXBuildFile; fileRef = 393EBC4319134A4F0BB0A1E2 /* zero-ding.caf */; };
 		72EDABCA95B5E4E9243BAD70 /* MacEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E77E6F95F7D39E1D205C6C0C /* MacEngine.swift */; };
+		73D532BBA275A6F7A75FCB38 /* WorkLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6B3635A2B39D64C9373C31 /* WorkLog.swift */; };
 		7664BCC2D541863F7FCC1B7A /* ZipLooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF89C8638A39EA71354EAA1 /* ZipLooks.swift */; };
 		7727F3FDE09F2037A91119C9 /* Fluid.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9745708F7154C485A80B078 /* Fluid.swift */; };
 		7DC00383C30703B29100F330 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE273471E8F026EB6C395E7A /* Support.swift */; };
@@ -87,6 +88,7 @@
 		9811C7669662C72E9EEFCA1F /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = EDCEF66C4A39F94589B90DB7 /* WebRTC */; };
 		98A2E95CADDB7CCCFC003EE4 /* Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8D325E936940E1B077AFE0 /* Push.swift */; };
 		9974B2E2355ABC16F52507CC /* Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF311819236135226C122C7 /* Harness.swift */; };
+		9A173981DE0104E8A5475FB4 /* AppLogos-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 16AEB53BDF3AD9E77A87A8FE /* AppLogos-NOTICE.txt */; };
 		9C083F29E9AF904B9074CD91 /* AIConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916FA002E01703E7F61A3CA6 /* AIConsent.swift */; };
 		9CF58BD19E4E0465E8695B48 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBEB2BCEEA076C5AED7AB789 /* OnboardingView.swift */; };
 		A247E3B39C2FF8A2F3480698 /* GoogleSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = F571814E3F856526D8B01B5A /* GoogleSignIn.swift */; };
@@ -202,6 +204,7 @@
 		1613530972038146908CF6FD /* GuideScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideScript.swift; sourceTree = "<group>"; };
 		161F6D79BE70E54DD09B8969 /* zero-knock.caf */ = {isa = PBXFileReference; path = "zero-knock.caf"; sourceTree = "<group>"; };
 		165189DCBD03F9BB05BF75E3 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		16AEB53BDF3AD9E77A87A8FE /* AppLogos-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AppLogos-NOTICE.txt"; sourceTree = "<group>"; };
 		16E18E652FE8C322CD560B41 /* OnDeviceAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceAudio.swift; sourceTree = "<group>"; };
 		1762CA48ECECA33B0DA20EA0 /* OnDeviceHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceHub.swift; sourceTree = "<group>"; };
 		18909824CA22C2B3A034BAA7 /* NotificationTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTapTests.swift; sourceTree = "<group>"; };
@@ -273,6 +276,7 @@
 		A7E79A19189F1A632BE4FFF6 /* VoiceSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSetupView.swift; sourceTree = "<group>"; };
 		A908EA177F4A6E790CCF0A50 /* LookEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookEditor.swift; sourceTree = "<group>"; };
 		A93AC79808956453133D83C8 /* MacApprover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacApprover.swift; sourceTree = "<group>"; };
+		AD6B3635A2B39D64C9373C31 /* WorkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkLog.swift; sourceTree = "<group>"; };
 		AE70F5656B42878ACC2E8A7C /* TaffyMacBridge.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TaffyMacBridge.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF24A4CEA0779C60ABF1D69C /* zero-harp.caf */ = {isa = PBXFileReference; path = "zero-harp.caf"; sourceTree = "<group>"; };
 		AF8D325E936940E1B077AFE0 /* Push.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Push.swift; sourceTree = "<group>"; };
@@ -391,6 +395,7 @@
 				23DF95934BBD360297F10A64 /* PairLink.swift */,
 				AF8D325E936940E1B077AFE0 /* Push.swift */,
 				BE273471E8F026EB6C395E7A /* Support.swift */,
+				AD6B3635A2B39D64C9373C31 /* WorkLog.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -583,6 +588,7 @@
 		C9167A8ADA43768D9418A91A /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				16AEB53BDF3AD9E77A87A8FE /* AppLogos-NOTICE.txt */,
 				4F8EFE400CB91756A937B1A1 /* Assets.xcassets */,
 				A9DDF2CD5DA8EE76C354A525 /* Fonts */,
 				DCF54F4704CB5E1B7885F206 /* Licenses */,
@@ -761,6 +767,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9A173981DE0104E8A5475FB4 /* AppLogos-NOTICE.txt in Resources */,
 				3A44F7B77C627C3F33E34E81 /* Assets.xcassets in Resources */,
 				D79B350A6ACF98FFBFEDD2EB /* GoogleSans-OFL.txt in Resources */,
 				1EE0EBBBB4C47755C9A13262 /* GoogleSans.ttf in Resources */,
@@ -934,6 +941,7 @@
 				16930DDEF240D8EB83C85BE1 /* Theme.swift in Sources */,
 				E1E7A415EDC60D2E302B91C9 /* VoiceSetupView.swift in Sources */,
 				E5CD0823A2CE8B6606BC4D61 /* WelcomeView.swift in Sources */,
+				73D532BBA275A6F7A75FCB38 /* WorkLog.swift in Sources */,
 				6C2A93B0F0F02A54880AA2F4 /* WorkView.swift in Sources */,
 				7664BCC2D541863F7FCC1B7A /* ZipLooks.swift in Sources */,
 				3594204E7D9FF0BF1EE368BE /* ZipNotify.swift in Sources */,

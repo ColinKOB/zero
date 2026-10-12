@@ -106,6 +106,8 @@ def db() -> sqlite3.Connection:
             with _lock:
                 conn.executescript(SCHEMA)
                 for stmt in ("ALTER TABLE feed ADD COLUMN changed_at REAL",          # items edited in place
+                             "ALTER TABLE feed ADD COLUMN step_of INTEGER",         # a step of a teammate's answer
+                             "ALTER TABLE feed ADD COLUMN plain_title TEXT",        # a step's short label (teamvoice.py)
                              "ALTER TABLE devices ADD COLUMN mac_link INTEGER",      # the one Mac bots may use
                              "ALTER TABLE devices ADD COLUMN last_used_at INTEGER",
                              "ALTER TABLE notices ADD COLUMN prep TEXT"):            # a prepared action (prepared.py)
@@ -191,12 +193,14 @@ def set_session(bot_id: str, session_id: str) -> None:
 
 
 def add_feed(kind: str, bot_id: str | None, task_id: str | None, title: str, body: str,
-             at: float | None = None) -> int:
-    """`at`: when it happened, if not now (a call is placed where it started, like the Phone app's Recents)."""
+             at: float | None = None, step_of: int | None = None) -> int:
+    """`at`: when it happened, if not now (a call is placed where it started, like the Phone app's Recents).
+    `step_of`: the teammate's question (team_msgs id) this sign-in or action was part of answering; the app shows it
+    as a small work row between the question and the answer instead of a message."""
     with _lock:
         cur = db().execute(
-            "INSERT INTO feed (kind, bot_id, task_id, title, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (kind, bot_id, task_id, title, body, int(time.time() if at is None else at)))
+            "INSERT INTO feed (kind, bot_id, task_id, title, body, created_at, step_of) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (kind, bot_id, task_id, title, body, int(time.time() if at is None else at), step_of))
         db().commit()
         return cur.lastrowid
 
@@ -205,6 +209,13 @@ def update_feed(feed_id: int, title: str, body: str) -> None:
     with _lock:
         db().execute("UPDATE feed SET title = ?, body = ?, changed_at = ? WHERE id = ?",
                      (title, body, time.time(), feed_id))
+        db().commit()
+
+
+def set_plain_title(feed_id: int, label: str) -> None:
+    """A step's short label for the work log; its title stays as it was for Show Original."""
+    with _lock:
+        db().execute("UPDATE feed SET plain_title = ?, changed_at = ? WHERE id = ?", (label, time.time(), feed_id))
         db().commit()
 
 

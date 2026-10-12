@@ -36,6 +36,8 @@ async def lifespan(app: FastAPI):
     if BACKGROUND:   # the running hub reads the Zips' chats and spends Haiku; a test never does (it turns them on)
         from . import extract
         extract.ENABLED = voice.CONTEXT_ON = True
+        from . import teamvoice
+        teamvoice.ENABLED = True   # Zip-to-Zip messages get a plain version for the chat
     tasks = [asyncio.create_task(watcher.run()), asyncio.create_task(team.keep_souls_current()),
              asyncio.create_task(health.run()), asyncio.create_task(accounts.run()),
              asyncio.create_task(calllog.run()), asyncio.create_task(usage.run()),

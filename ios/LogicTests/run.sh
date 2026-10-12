@@ -11,5 +11,8 @@ swiftc -O -o "$dir/macgrant-tests" "$here/../Shared/MacGrant.swift" "$here/MacGr
 # Certificate pinning (Model/HubTrust.swift), offline checks; LogicTests/HubTrust/main.swift also takes a live home.
 swiftc -O -o "$dir/hubtrust-tests" "$here/../Taffy/Model/HubTrust.swift" "$here/../Taffy/Model/PairLink.swift" "$here/HubTrust/main.swift" \
   -module-name HubTrustTests 2>&1 && "$dir/hubtrust-tests" || status=1
+# Zip-to-Zip threads: steps fold into one work log between the question and the answer (Model/WorkLog.swift).
+swiftc -O -o "$dir/worklog-tests" "$here/../Taffy/Model/WorkLog.swift" "$here/WorkLog/main.swift" -module-name WorkLogTests 2>&1 \
+  && "$dir/worklog-tests" || status=1
 rm -rf "$dir"
 exit $status

@@ -65,7 +65,7 @@ struct SignInView: View {
                             }
                             .accessibilityIdentifier("macSetUpHere")
                         } else {
-                            OnboardingButton("Create an Account") { state.onboarding = true }
+                            OnboardingButton("Get Started") { state.onboarding = true }
                                 .accessibilityIdentifier("createAccount")
                         }
                         OnboardingSecondaryButton("Sign In") { go(.password) }

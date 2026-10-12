@@ -43,12 +43,23 @@ struct ClaudeSignInPanel: View {
                         .padding(.horizontal, 14).frame(height: 50)
                         .onboardingCard(selected: typing, radius: 14)
                         .accessibilityIdentifier("claudeCode")
-                    PasteButton(payloadType: String.self) { strings in
-                        if let s = strings.first { code = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    if Theme.onMac {
+                        // SwiftUI's PasteButton draws nothing on Mac Catalyst; a Mac reads the clipboard without asking.
+                        Button { code = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines) } label: {
+                            Image(systemName: "doc.on.clipboard").font(.system(size: 16, weight: .medium))
+                                .frame(width: 44, height: 44)
+                                .background(Theme.bubble, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Paste")
+                    } else {
+                        PasteButton(payloadType: String.self) { strings in
+                            if let s = strings.first { code = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonBorderShape(.capsule)
+                        .tint(Theme.ink)
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonBorderShape(.capsule)
-                    .tint(Theme.ink)
                 }
                 Button { Task { await finish() } } label: {
                     HStack(spacing: 10) {

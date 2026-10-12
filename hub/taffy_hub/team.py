@@ -19,7 +19,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from . import chatter, config, facts, hermes, home, store, who
+from . import chatter, config, facts, hermes, home, store, teamvoice, who
 
 log = logging.getLogger("taffy.team")
 ET = home.TZ   # the home's time zone, followed live
@@ -118,13 +118,28 @@ def resolve(name_or_id: str) -> config.Bot:
     return _bot(key, f"'{name_or_id}'")
 
 
-def _feed(chat_bot: str, kind: str, from_bot: str, to_bot: str, text: str, question: str = "") -> None:
-    """A team message in the chat Colin sees with chat_bot. Never a notification."""
+def _feed(chat_bot: str, kind: str, from_bot: str, to_bot: str, text: str, question: str = "",
+          msg: int | None = None) -> int:
+    """A team message in the chat Colin sees with chat_bot. Never a notification. `msg`: the question's team_msgs id,
+    so the app can put the answering Zip's work (feed items with step_of) between the question and its answer. A
+    question, answer or heads-up also gets a plain version for the chat in the background (teamvoice.py)."""
     body = {"from": from_bot, "to": to_bot, "kind": kind, "text": text[:4000]}
     if question:
         body["question"] = question[:600]
-    body = json.dumps(body)
-    store.add_feed("team", chat_bot, None, _caption(kind, from_bot, to_bot), body)
+    if msg:
+        body["msg"] = msg
+    fid = store.add_feed("team", chat_bot, None, _caption(kind, from_bot, to_bot), json.dumps(body))
+    if kind in teamvoice.KINDS:
+        teamvoice.schedule(fid)
+    return fid
+
+
+def answering(bot_id: str, at: float, window: int = 900) -> int | None:
+    """The teammate's question `bot_id` was working on at `at` (asked within `window` seconds before), for marking a
+    sign-in or an action it took as a step of that answer."""
+    r = _db().execute("SELECT id FROM team_msgs WHERE kind='ask' AND to_bot=? AND created_at<=? AND created_at>=? "
+                      "ORDER BY id DESC LIMIT 1", (bot_id, int(at) + 5, int(at) - window)).fetchone()
+    return r["id"] if r else None
 
 
 def _caption(kind: str, from_bot: str, to_bot: str) -> str:
@@ -552,7 +567,7 @@ async def ask(from_bot: str, to: str, question: str, session_id: str | None) -> 
         mid = c.execute("INSERT INTO team_msgs (kind, from_bot, to_bot, session_id, text, created_at) VALUES "
                         "('ask',?,?,?,?,?)", (from_bot, target.id, session_id, question, now)).lastrowid
         c.commit()
-    _feed(target.id, "ask", from_bot, target.id, question)
+    _feed(target.id, "ask", from_bot, target.id, question, msg=mid)
 
     lock = _answer_locks.setdefault(target.id, asyncio.Lock())
     try:
@@ -607,8 +622,8 @@ async def _answer(from_bot: str, target: config.Bot, question: str, mid: int) ->
         _db().execute("UPDATE team_msgs SET answer=? WHERE id=?", (answer or "(no answer)", mid))
         _db().commit()
     if answer:
-        _feed(target.id, "answer", target.id, from_bot, answer)    # under the question, in the answering bot's chat
-        _feed(from_bot, "reply", target.id, from_bot, answer, question)   # in the asker's chat, with what it asked
+        _feed(target.id, "answer", target.id, from_bot, answer, msg=mid)    # under the question, in the answering bot's chat
+        _feed(from_bot, "reply", target.id, from_bot, answer, question, msg=mid)   # in the asker's chat, with what it asked
     return answer
 
 
@@ -676,8 +691,8 @@ async def finish_after_signin(bot_id: str, site: str, asked_at: float) -> str | 
         _db().execute("INSERT INTO team_msgs (kind, from_bot, to_bot, text, created_at) VALUES ('tell',?,?,?,?)",
                       (target.id, q["from_bot"], note, int(time.time())))
         _db().commit()
-    _feed(target.id, "answer", target.id, q["from_bot"], answer)
-    _feed(q["from_bot"], "reply", target.id, q["from_bot"], answer, q["text"])
+    _feed(target.id, "answer", target.id, q["from_bot"], answer, msg=q["id"])
+    _feed(q["from_bot"], "reply", target.id, q["from_bot"], answer, q["text"], msg=q["id"])
     return answer
 
 

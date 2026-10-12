@@ -510,6 +510,14 @@ final class AppState {
                         return m
                     }
                     var text = item.body ?? ""
+                    if let of = item.step_of, ["signin", "action"].contains(item.kind) {
+                        // Work done to answer a teammate: a row in the work log, not a message (ChatTimeline).
+                        var m = ChatMessage(id: "feed-\(item.id)", kind: .step, text: text, date: item.date,
+                                            label: item.title, botID: item.bot_id)
+                        m.stepOf = of
+                        m.plainLabel = item.plain_title
+                        return m
+                    }
                     if item.kind.hasPrefix("task_"), let r = text.range(of: "\n\n") { text = String(text[r.upperBound...]) }
                     return ChatMessage(id: "feed-\(item.id)", kind: .checkin, text: text, date: item.date,
                                        label: Self.activityLabel(item), botID: item.bot_id)
@@ -1293,6 +1301,34 @@ struct SharedPicture: Decodable {
 
 #if DEBUG
 extension AppState {
+    /// Zero asking School for the morning brief, as School's chat shows it: the question, School's work folded into a
+    /// work log, and the answer, each message with its plain version (hub teamvoice.py) over the exact words.
+    static func fixtureTeamThread(_ at: (Double) -> Date) -> [ChatMessage] {
+        let askText = "Morning brief prep (10/12): check elearning.lakeview.test for assignments due today or tomorrow and confirm whether last night's ENG 102 submission went through. Reply with status only, no formatting."
+        var ask = ChatMessage(id: "feed-t1", kind: .team, text: askText, date: at(3.0), label: "Zero asked School", botID: "default")
+        ask.team = TeamItem(from: "default", to: "school", kind: "ask", text: askText,
+                            plain: "Hey School, can you check eLearning for anything due today or tomorrow, and whether last night's ENG 102 work went in?",
+                            msg: 41)
+        var signin = ChatMessage(id: "feed-t2", kind: .step, text: "Answering Zero's question", date: at(2.6),
+                                 label: "Signed in to elearning.lakeview.test", botID: "school")
+        signin.stepOf = 41
+        signin.plainLabel = "Signed in to eLearning"
+        var done = ChatMessage(id: "feed-t3", kind: .step, text: "Signed in to elearning.lakeview.test to answer Zero",
+                               date: at(2.5), label: "Done", botID: "school")
+        done.stepOf = 41
+        done.plainLabel = "Signed in to eLearning"
+        var mail = ChatMessage(id: "feed-t4", kind: .step, text: "Checked Mail for notes from instructors", date: at(2.0),
+                               label: "Done", botID: "school")
+        mail.stepOf = 41
+        mail.plainLabel = "Checked Mail"
+        let answerText = "STATUS: ENG 102 Essay 2 submission confirmed (submitted 10/11 9:40 PM). Due 10/13: MATH 151 Problem Set 5. Due 10/12: none. No new instructor announcements."
+        var answer = ChatMessage(id: "feed-t5", kind: .team, text: answerText, date: at(1.58), label: "Replied to Zero", botID: "school")
+        answer.team = TeamItem(from: "school", to: "default", kind: "answer", text: answerText,
+                               plain: "Your ENG 102 essay went in last night at 9:40 PM. Nothing is due today, and MATH 151 Problem Set 5 is due tomorrow.",
+                               msg: 41)
+        return [ask, signin, done, mail, answer]
+    }
+
     /// A sample team and one chat with every kind of message, so screens can be checked in the simulator
     /// without pairing. Only in debug builds; nothing here talks to the hub.
     func loadFixture() {
@@ -1386,12 +1422,17 @@ extension AppState {
                                      created_at: t - 20, sensitive: false, why: "asked", kind: "write",
                                      target: "fix-flaky-test", details: "git push origin fix-flaky-test",
                                      paused_by: "Builder asks before pushing code to any repo.")])
+        // -threadShots: School's chat without its open cards, so the Zip-to-Zip thread is what shows (screenshots).
+        if CommandLine.arguments.contains("-threadShots") {
+            board.needs_you = board.needs_you.filter { $0.assignee != "school" }
+            board.requests = (board.requests ?? []).filter { $0.bot_id != "school" }
+        }
         chats["school"] = [
             ChatMessage(id: "s1", kind: .colin, text: "What's due this week?", date: at(30)),
             ChatMessage(id: "s2", kind: .bot, text: "Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each. Here is the reading plan for this week, section by section, with the pages and what to look for in each.", date: at(29)),
             ChatMessage(id: "s3", kind: .colin, text: "Thanks", date: at(5)),
             ChatMessage(id: "s4", kind: .bot, text: "Anytime.", date: at(4)),
-        ]
+        ] + Self.fixtureTeamThread(at)
         chats["default"] = [
             ChatMessage(id: "1", kind: .colin, text: "Can you build my Walmart pickup cart? Coke and an ice maker.", date: at(45)),
             ChatMessage(id: "2", kind: .bot, text: "On it. I'll put the cart together and you'll place the order yourself.",

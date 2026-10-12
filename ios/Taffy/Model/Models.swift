@@ -43,7 +43,7 @@ struct Bot: Codable, Identifiable, Hashable {
 }
 
 struct ChatMessage: Identifiable, Hashable, Codable {
-    enum Kind: String, Hashable, Codable { case colin, bot, boardUpdate, checkin, status, error, image, call, team, note, choices, login, account, event, macAsk }
+    enum Kind: String, Hashable, Codable { case colin, bot, boardUpdate, checkin, status, error, image, call, team, note, choices, login, account, event, macAsk, step, workLog }
     let id: String
     var kind: Kind
     var text: String
@@ -58,6 +58,14 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     var reactions: [Reaction] = []
     /// For messages between bots: who sent it to whom, and how.
     var team: TeamItem? = nil
+    /// A step (a sign-in or action) a Zip took while answering a teammate: the team_msgs id of that question
+    /// (feed step_of). ChatTimeline folds steps into one work log row between the question and its answer.
+    var stepOf: Int? = nil
+    /// A work log row: the steps it lists and how long the answer took (ChatTimeline).
+    var steps: [WorkStep]? = nil
+    var workedFor: TimeInterval? = nil
+    /// A step's short label from the hub ("Signed in to eLearning"); its raw title stays in `label` for Show Original.
+    var plainLabel: String? = nil
     /// For quiet notes with more to show: each step, listed when Colin taps the note.
     var details: [String] = []
     /// For a choice card or a sign-in card: the hub's feed id, to answer it.
@@ -241,6 +249,38 @@ struct TeamItem: Codable, Hashable {
     let kind: String        // ask | reply | answer | tell | note
     let text: String
     var question: String? = nil
+    /// The same message as two coworkers would say it (hub teamvoice.py); `text` stays the exact original.
+    var plain: String? = nil
+    /// The question's id, shared by the question, its answer and the steps taken to answer it.
+    var msg: Int? = nil
+}
+
+/// One row of a work log: what a Zip did while answering a teammate, like "Signed in to elearning.lakeview.test".
+struct WorkStep: Codable, Hashable {
+    let symbol: String
+    var label: String
+    /// The raw line, when a short label stands in for it (Show Original).
+    var raw: String? = nil
+
+    /// A short label and an SF Symbol for a step, from the feed item's title and text. The action line repeats the
+    /// sign-in ("Signed in to x.com to answer Zero"), so its tail is dropped and the two read the same.
+    static func from(title: String?, text: String) -> WorkStep {
+        var label = (title ?? "").hasPrefix("Done") || (title ?? "").isEmpty ? text : (title ?? text)
+        if let r = label.range(of: " to answer ", options: .backwards) { label = String(label[..<r.lowerBound]) }
+        label = label.replacingOccurrences(of: "://www.", with: "://").replacingOccurrences(of: " www.", with: " ")
+        label = label.trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        let low = label.lowercased()
+        let symbol: String
+        if low.hasPrefix("signed in") { symbol = "key" }
+        else if low.hasPrefix("opened") || low.contains("website") { symbol = "safari" }
+        else if low.contains("mail") || low.contains("inbox") { symbol = "envelope" }
+        else if low.hasPrefix("sent") { symbol = "paperplane" }
+        else if low.hasPrefix("ran") || low.contains("command") { symbol = "terminal" }
+        else if low.contains("calendar") { symbol = "calendar" }
+        else if low.contains("file") || low.hasPrefix("saved") { symbol = "doc" }
+        else { symbol = "checkmark.circle" }
+        return WorkStep(symbol: symbol, label: label)
+    }
 }
 
 /// A tapback, like in Apple Messages.
@@ -473,6 +513,10 @@ struct FeedItem: Codable, Identifiable, Hashable {
     let title: String?
     let body: String?
     let created_at: Double
+    /// A sign-in or action taken to answer a teammate's question: that question's id (hub feed.step_of).
+    var step_of: Int? = nil
+    /// That step's short label (hub teamvoice.py); `title` keeps the raw one.
+    var plain_title: String? = nil
 
     var date: Date { Date(timeIntervalSince1970: created_at) }
 }

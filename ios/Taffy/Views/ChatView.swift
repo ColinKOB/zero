@@ -729,6 +729,16 @@ struct MessageRow: View {
         case .team:
             TeamMessage(message: message, size: Self.size, hPad: Self.hPad, vPad: Self.vPad, radius: Self.radius,
                         gap: Self.gap, botID: botID)
+        case .workLog:
+            WorkLogRow(message: message)
+        case .step:
+            // Steps are folded into a work log (ChatTimeline); one on its own still shows as a quiet row.
+            WorkLogRow(message: {
+                var m = message
+                m.steps = [WorkStep.from(title: message.label, text: message.text)]
+                m.text = WorkLog.header(nil)
+                return m
+            }())
         case .image:
             HStack {
                 SharedPictureView(message: message)
@@ -840,6 +850,7 @@ struct ChatTimeline {
     let answers: [String: ChatMessage]
 
     init(_ all: [ChatMessage]) {
+        let all = Self.foldingWork(all)
         let lines = all.map { m in
             CardAnswers.Line(id: m.id, mine: m.kind == .colin, text: m.text, date: m.date,
                              answer: m.kind == .choices ? m.answer.map {
@@ -852,6 +863,41 @@ struct ChatTimeline {
         let hidden = Set(pairs.values)
         messages = all.filter { !hidden.contains($0.id) }
         answers = pairs.compactMapValues { byID[$0] }
+    }
+}
+
+extension ChatTimeline {
+    /// The steps a Zip took to answer a teammate, folded into one work log row between the question and the answer
+    /// (WorkLog.fold). Repeated steps (a sign-in and its "Done" line) show once.
+    static func foldingWork(_ all: [ChatMessage]) -> [ChatMessage] {
+        guard all.contains(where: { $0.kind == .step || $0.team?.msg != nil }) else { return all }
+        let items = all.map { m in
+            WorkLog.Item(id: m.id, date: m.date, stepOf: m.kind == .step ? (m.stepOf ?? -1) : nil,
+                         teamMsg: m.team?.msg, teamKind: m.team?.kind)
+        }
+        let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return WorkLog.fold(items).compactMap { entry -> ChatMessage? in
+            switch entry {
+            case .keep(let id): return byID[id]
+            case .log(let id, let stepIDs, let seconds):
+                var rows: [WorkStep] = []
+                for sid in stepIDs {
+                    guard let m = byID[sid] else { continue }
+                    var row = WorkStep.from(title: m.label, text: m.text)
+                    if let plain = m.plainLabel?.trimmingCharacters(in: .whitespaces), !plain.isEmpty, plain != row.label {
+                        row.raw = row.label
+                        row.label = plain
+                    }
+                    if !rows.contains(where: { $0.label.lowercased() == row.label.lowercased() }) { rows.append(row) }
+                }
+                let date = stepIDs.last.flatMap { byID[$0]?.date }
+                var m = ChatMessage(id: id, kind: .workLog, text: WorkLog.header(seconds), date: date,
+                                    botID: stepIDs.first.flatMap { byID[$0]?.botID })
+                m.steps = rows
+                m.workedFor = seconds
+                return m
+            }
+        }
     }
 }
 

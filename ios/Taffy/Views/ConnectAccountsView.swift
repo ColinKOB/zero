@@ -551,41 +551,48 @@ struct AccountAskCard: View {
 
 // MARK: Connect Apps
 
-/// Connect Apps, laid out like Grok Bot's: the apps already connected up top with their icons and a count, a search
-/// field, category chips, and every app with a Connect button (docs/specs/2026-10-11-native-connectors-design.md).
+/// Connect Apps, laid out like ChatGPT's Plugins page (Colin, Oct 12): the title and one plain line, a rounded search
+/// field, the connected apps as a row of logo tiles, then Popular and each category as a list of rows (two columns on
+/// iPad and Mac, one on iPhone). Each row has the app's real logo on a white tile, its name, a few gray words, and a
+/// plus to connect it, or a "..." for details and Disconnect once it is connected. Logos are bundled in the app
+/// (Assets.xcassets/AppLogos: Simple Icons in each brand's color, and Slack's and Outlook's official app icons).
 /// Trello, Google Drive, Outlook, Dropbox, Notion, Linear and GitHub connect in Zero itself; Gmail and Google Calendar
 /// use Sign In with Google; the rest work through the person's Claude or ChatGPT account until Zero connects them
-/// directly.
+/// directly, and look the same.
 ///
-/// DEBUG: `-fixture -open apps` with `-apps none | some | expired`; `-trello paste | done` opens the Trello walkthrough.
+/// DEBUG: `-fixture -open apps` with `-apps none | some | expired`; `-trello paste | done` opens the Trello walkthrough;
+/// `-appDetail <id>` opens an app's details.
 struct ConnectAppsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
-    @State private var category: String?
     @State private var notice: String?
     @State private var trello: TrelloConnectView.Phase?
     @State private var device: DeviceConnectView.Sheet?
     @State private var managingMail = false
     @State private var confirmDisconnect: AppsCatalog.App?
+    @State private var detail: AppsCatalog.App?
     private var model: AppsModel { AppsModel.shared }
+    /// Two columns where there is room (iPad and Mac), one on iPhone.
+    private var wide: Bool { Theme.onMac || sizeClass == .regular }
 
     var body: some View {
+        ScrollViewReader { scroller in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                if let c = model.catalog, !c.connectedApps.isEmpty { connectedStrip(c).padding(.top, 20) }
-                if let notice { noteCard(notice).padding(.top, 16) }
                 search.padding(.top, 20)
-                chips.padding(.top, 12)
+                if let notice { noteCard(notice).padding(.top, 16) }
                 if let c = model.catalog {
+                    if query.isEmpty && !c.connectedApps.isEmpty { connectedRow(c).padding(.top, 28) }
                     let groups = sections(c)
                     if groups.isEmpty {
                         Text("No apps match \u{201C}\(query)\u{201D}.")
                             .font(Theme.text(15)).foregroundStyle(Theme.inkSoft).padding(.top, 28)
                     }
                     ForEach(groups, id: \.0) { name, apps in
-                        section(name, apps).padding(.top, 24)
+                        section(name, apps).padding(.top, 30).id(name)
                     }
                 } else if let e = model.error {
                     noteCard(e).padding(.top, 24)
@@ -595,12 +602,22 @@ struct ConnectAppsView: View {
                 Text("Your Zips read what you connect here. They ask you on a card before they change anything, and you can disconnect an app at any time.")
                     .font(Theme.text(13)).foregroundStyle(Theme.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 28)
+                    .padding(.top, 32)
             }
-            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: wide ? 960 : 600, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.vertical, Theme.onMac ? 28 : 20)
+            .padding(.vertical, Theme.onMac ? 28 : 16)
             .frame(maxWidth: .infinity)
+        }
+        #if DEBUG
+        .task {   // -appsScroll <section>: that section at the top, for screenshots
+            let a = CommandLine.arguments
+            if let i = a.firstIndex(of: "-appsScroll"), i + 1 < a.count {
+                try? await Task.sleep(for: .milliseconds(1200))
+                scroller.scrollTo(a[i + 1], anchor: .top)
+            }
+        }
+        #endif
         }
         .background(Theme.canvas)
         .navigationTitle("")
@@ -614,6 +631,7 @@ struct ConnectAppsView: View {
             if let i = a.firstIndex(of: "-trello"), i + 1 < a.count {
                 trello = a[i + 1] == "done" ? .done("Sam Rivera") : a[i + 1] == "paste" ? .paste : .intro
             }
+            if let i = a.firstIndex(of: "-appDetail"), i + 1 < a.count { detail = model.catalog?.app(a[i + 1]) }
             #endif
         }
         .sheet(item: $trello) { phase in
@@ -624,6 +642,19 @@ struct ConnectAppsView: View {
         }
         .sheet(isPresented: $managingMail) {
             NavigationStack { MailAndCalendarView(modal: true) }
+        }
+        .sheet(item: $detail) { app in
+            AppDetailSheet(app: model.catalog?.app(app.id) ?? app, working: model.working == app.id) { action in
+                detail = nil
+                switch action {
+                case .connect: connect(app)
+                case .claude: openClaude()
+                case .disconnect: confirmDisconnect = app
+                case .manageMail: managingMail = true
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackground(Theme.canvas)
         }
         .confirmationDialog(confirmDisconnect.map { "Disconnect \($0.name)?" } ?? "", isPresented: Binding(
             get: { confirmDisconnect != nil }, set: { if !$0 { confirmDisconnect = nil } }), titleVisibility: .visible) {
@@ -639,44 +670,17 @@ struct ConnectAppsView: View {
     // MARK: Pieces
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(ConnectAccountsView.charcoal)
-                .frame(width: 52, height: 52)
-                .background(ConnectAccountsView.yellow, in: Circle())
-                .padding(.bottom, 16)
-                .accessibilityHidden(true)
-            Text("Connect Apps").font(Theme.text(28, .bold)).foregroundStyle(Theme.ink)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Connect Apps").font(Theme.text(30, .bold)).foregroundStyle(Theme.ink)
                 .accessibilityAddTraits(.isHeader)
-            Text("Connect the apps you use, and your Zips can read them and help with them.")
-                .font(Theme.text(16)).foregroundStyle(Theme.ink.opacity(0.85))
+            Text("Connect the apps you use, and your Zips can work across them.")
+                .font(Theme.text(16)).foregroundStyle(Theme.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)
         }
-    }
-
-    private func connectedStrip(_ c: AppsCatalog) -> some View {
-        HStack(spacing: 12) {
-            HStack(spacing: -8) {
-                ForEach(c.connectedApps.prefix(5)) { app in
-                    Image(systemName: app.symbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                        .frame(width: 32, height: 32)
-                        .background(Theme.bubble, in: Circle())
-                        .overlay(Circle().stroke(Theme.canvas, lineWidth: 2))
-                }
-            }
-            .accessibilityHidden(true)
-            Text("\(c.connectedApps.count) Connected").font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private var search: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "magnifyingglass").foregroundStyle(Theme.inkSoft).accessibilityHidden(true)
             TextField("Search Apps", text: $query)
                 .font(Theme.text(16))
@@ -687,127 +691,124 @@ struct ConnectAppsView: View {
                     .buttonStyle(.plain).accessibilityLabel("Clear Search")
             }
         }
-        .padding(.horizontal, 14).frame(height: 44)
-        .background(Theme.bubble, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16).frame(height: 46)
+        .background(Theme.raised, in: Capsule())
+        .overlay(Capsule().stroke(Theme.rule, lineWidth: 1))
     }
 
-    private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip(nil, "All")
-                ForEach(model.catalog?.categories ?? [], id: \.self) { chip($0, $0) }
+    /// The connected apps' logos only, each opening that app's details.
+    private func connectedRow(_ c: AppsCatalog) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Connected")
+            Divider()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(c.connectedApps) { app in
+                        Button { detail = app } label: { AppLogoTile(app: app, size: 48) }
+                            .buttonStyle(PressStyle())
+                            .accessibilityLabel("\(app.name), connected")
+                            .accessibilityHint("Shows its details")
+                    }
+                }
+                .padding(.vertical, 2)
             }
         }
     }
 
-    private func chip(_ value: String?, _ title: String) -> some View {
-        let on = category == value
-        return Button { withAnimation(.smooth) { category = value } } label: {
-            Text(title).font(Theme.text(14, .medium))
-                .foregroundStyle(on ? Theme.actionGlyph : Theme.ink)
-                .padding(.horizontal, 14).frame(height: 34)
-                .background(on ? Theme.action : Theme.bubble, in: Capsule())
-        }
-        .buttonStyle(PressStyle())
-        .accessibilityAddTraits(on ? .isSelected : [])
+    private func sectionTitle(_ name: String) -> some View {
+        Text(name).font(Theme.text(20, .semibold)).foregroundStyle(Theme.ink).accessibilityAddTraits(.isHeader)
     }
 
+    /// Popular first, then every other app under its category. A search shows the matches by name in one list.
     private func sections(_ c: AppsCatalog) -> [(String, [AppsCatalog.App])] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let shown = c.apps.filter { a in
-            (category == nil || a.category == category) &&
-            (q.isEmpty || a.name.lowercased().contains(q) || a.category.lowercased().contains(q))
+        if !q.isEmpty {
+            let found = c.apps.filter { $0.name.lowercased().contains(q) }
+            return found.isEmpty ? [] : [("Results", found)]
         }
-        return c.categories.compactMap { name in
-            let apps = shown.filter { $0.category == name }
-            return apps.isEmpty ? nil : (name, apps)
+        let popular = c.apps.filter(\.isPopular)
+        var out: [(String, [AppsCatalog.App])] = popular.isEmpty ? [] : [("Popular", popular)]
+        for name in c.categories {
+            let apps = c.apps.filter { $0.category == name && !$0.isPopular }
+            if !apps.isEmpty { out.append((name, apps)) }
         }
+        return out
     }
 
     private func section(_ name: String, _ apps: [AppsCatalog.App]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(name).font(Theme.text(17, .semibold)).foregroundStyle(Theme.ink).accessibilityAddTraits(.isHeader)
-            VStack(spacing: 0) {
-                ForEach(Array(apps.enumerated()), id: \.element.id) { i, app in
-                    row(app)
-                    if i < apps.count - 1 { Divider().padding(.leading, 66) }
-                }
+            sectionTitle(name)
+            LazyVGrid(columns: wide ? [GridItem(.flexible(), spacing: 32), GridItem(.flexible())] : [GridItem(.flexible())],
+                      alignment: .leading, spacing: 4) {
+                ForEach(apps) { app in row(app) }
             }
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.rule, lineWidth: 1))
         }
     }
 
     private func row(_ app: AppsCatalog.App) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: app.symbol)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(Theme.ink)
-                .frame(width: 40, height: 40)
-                .background(Theme.bubble, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(app.name).font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
-                if app.state == "connected", let account = app.account, !account.isEmpty {
-                    Text(account).font(Theme.text(13)).foregroundStyle(Theme.inkSoft)
-                        .lineLimit(1).truncationMode(.middle)
-                } else {
-                    Text(app.isConnected || app.needsYou || !app.detail.isEmpty && !app.native ? app.detail : app.can)
-                        .font(Theme.text(13))
+        HStack(spacing: 14) {
+            HStack(spacing: 14) {
+                AppLogoTile(app: app, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.name).font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
+                    Text(subtitle(app))
+                        .font(Theme.text(14))
                         .foregroundStyle(app.needsYou ? ConnectAccountsView.orange : Theme.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
                 }
+                Spacer(minLength: 8)
             }
-            Spacer(minLength: 8)
+            .contentShape(Rectangle())
+            .onTapGesture { detail = app }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Shows its details")
             trailing(app)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.vertical, 10)
+    }
+
+    /// The gray words under the name: the account for an app connected here, a problem to fix, or what it is for.
+    private func subtitle(_ app: AppsCatalog.App) -> String {
+        if app.needsYou { return "Connect it again" }
+        if app.state == "connected", let account = app.account, !account.isEmpty { return account }
+        if app.state == "elsewhere" { return app.via == "chatgpt" ? "Connected in ChatGPT" : "Connected in Claude" }
+        return app.blurbText
     }
 
     @ViewBuilder private func trailing(_ app: AppsCatalog.App) -> some View {
         if model.working == app.id {
-            ProgressView().controlSize(.small).frame(width: 44)
-        } else if app.state == "connected" {
+            ProgressView().controlSize(.small).frame(width: 40, height: 40)
+        } else if app.isConnected {
             Menu {
-                if app.id == "gmail" || app.id == "google_calendar" {
-                    Button("Manage Email and Calendars") { managingMail = true }
+                Button("Details") { detail = app }
+                if app.state == "connected" {
+                    if app.id == "gmail" || app.id == "google_calendar" {
+                        Button("Manage Email and Calendars") { managingMail = true }
+                    } else {
+                        Button("Disconnect", role: .destructive) { confirmDisconnect = app }
+                    }
                 } else {
-                    Button("Disconnect", role: .destructive) { confirmDisconnect = app }
+                    Button(app.via == "chatgpt" ? "Manage in ChatGPT" : "Manage in Claude") { openClaude() }
                 }
             } label: {
-                Label("Connected", systemImage: "checkmark")
-                    .labelStyle(.titleAndIcon)
-                    .font(Theme.text(13, .semibold)).foregroundStyle(ConnectAccountsView.green)
-                    .padding(.horizontal, 12).frame(height: 32)
-                    .background(ConnectAccountsView.green.opacity(0.12), in: Capsule())
+                Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.ink)
+                    .frame(width: 40, height: 40).contentShape(Rectangle())
             }
-        } else if app.state == "elsewhere" {
-            tag(app.via == "chatgpt" ? "In ChatGPT" : "In Claude")
+            .accessibilityLabel("More for \(app.name)")
         } else if app.state == "unavailable" || app.state == "not_set_up" || app.action == "none" {
-            tag("Soon")
-        } else if app.action == "claude" {
-            button("Add", filled: false) { openClaude() }
-                .accessibilityLabel("Add \(app.name) in your Claude account")
+            Text("Soon").font(Theme.text(13, .medium)).foregroundStyle(Theme.inkSoft).frame(minWidth: 40)
         } else {
-            button(app.needsYou ? "Reconnect" : "Connect", filled: true) { connect(app) }
-                .accessibilityLabel("\(app.needsYou ? "Reconnect" : "Connect") \(app.name)")
+            Button { app.action == "claude" ? openClaude() : connect(app) } label: {
+                Image(systemName: app.needsYou ? "arrow.clockwise" : "plus")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(app.needsYou ? ConnectAccountsView.orange : Theme.ink)
+                    .frame(width: 40, height: 40).contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel(app.action == "claude" ? "Add \(app.name) in your Claude account"
+                                : "\(app.needsYou ? "Reconnect" : "Connect") \(app.name)")
         }
-    }
-
-    private func button(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(Theme.text(14, .semibold))
-                .foregroundStyle(filled ? Theme.actionGlyph : Theme.ink)
-                .padding(.horizontal, 16).frame(height: 32)
-                .background(filled ? Theme.action : Theme.bubble, in: Capsule())
-        }
-        .buttonStyle(PressStyle())
-    }
-
-    private func tag(_ title: String) -> some View {
-        Text(title).font(Theme.text(13, .medium)).foregroundStyle(Theme.inkSoft)
-            .padding(.horizontal, 12).frame(height: 32)
-            .background(Theme.bubble.opacity(0.6), in: Capsule())
     }
 
     private func noteCard(_ text: String) -> some View {
@@ -835,6 +836,103 @@ struct ConnectAppsView: View {
             case .closed, .paste: break
             }
         }
+    }
+}
+
+/// An app's real logo on a rounded white tile. Simple Icons glyphs sit inside the tile in the brand's color; full app
+/// icons (Slack, Outlook) fill it. An app with no bundled logo shows its SF Symbol.
+struct AppLogoTile: View {
+    let app: AppsCatalog.App
+    var size: CGFloat = 44
+    /// Logos that are whole app icons, drawn edge to edge.
+    static let fullIcons: Set<String> = ["slack", "outlook"]
+
+    var body: some View {
+        let radius = size * 0.24
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        Group {
+            if UIImage(named: "AppLogo-\(app.id)") != nil {
+                if Self.fullIcons.contains(app.id) {
+                    Image("AppLogo-\(app.id)").resizable().renderingMode(.original).scaledToFill()
+                } else {
+                    Image("AppLogo-\(app.id)").resizable().renderingMode(.original).scaledToFit()
+                        .padding(size * 0.22)
+                }
+            } else {
+                Image(systemName: app.symbol).font(.system(size: size * 0.42, weight: .medium)).foregroundStyle(Theme.ink)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(Color.white)
+        .clipShape(shape)
+        .overlay(shape.stroke(Color.black.opacity(0.08), lineWidth: 1))
+        .accessibilityHidden(true)
+    }
+}
+
+/// One app's details: its logo and name, what the Zips do with it, how it is connected, and the one thing to do.
+struct AppDetailSheet: View {
+    enum Action { case connect, claude, disconnect, manageMail }
+    let app: AppsCatalog.App
+    let working: Bool
+    let act: (Action) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 14) {
+                        AppLogoTile(app: app, size: 64)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(app.name).font(Theme.text(24, .bold)).foregroundStyle(Theme.ink)
+                                .accessibilityAddTraits(.isHeader)
+                            Text(app.blurbText).font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                        }
+                    }
+                    Text(app.can).font(Theme.text(16)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !status.isEmpty {
+                        Label(status, systemImage: app.isConnected ? "checkmark.circle.fill" : app.needsYou ? "exclamationmark.circle" : "info.circle")
+                            .font(Theme.text(15))
+                            .foregroundStyle(app.isConnected ? ConnectAccountsView.green : app.needsYou ? ConnectAccountsView.orange : Theme.inkSoft)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let primary {
+                        Button { act(primary.0) } label: {
+                            Text(primary.1).font(Theme.text(16, .semibold))
+                                .foregroundStyle(primary.0 == .disconnect ? Theme.danger : Theme.actionGlyph)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(primary.0 == .disconnect ? Theme.danger.opacity(0.1) : Theme.action, in: Capsule())
+                        }
+                        .buttonStyle(PressStyle())
+                        .disabled(working)
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(24)
+            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    /// How it is connected now, in one sentence.
+    private var status: String {
+        if app.state == "connected" {
+            return (app.account ?? "").isEmpty ? "Connected." : "Connected as \(app.account ?? "")."
+        }
+        return app.detail
+    }
+
+    private var primary: (Action, String)? {
+        if app.state == "connected" {
+            return app.id == "gmail" || app.id == "google_calendar" ? (.manageMail, "Manage Email and Calendars")
+                                                                      : (.disconnect, "Disconnect")
+        }
+        if app.state == "elsewhere" { return (.claude, app.via == "chatgpt" ? "Manage in ChatGPT" : "Manage in Claude") }
+        if app.state == "unavailable" || app.state == "not_set_up" || app.action == "none" { return nil }
+        if app.action == "claude" { return (.claude, "Add in Claude") }
+        return (.connect, app.needsYou ? "Connect Again" : "Connect")
     }
 }
 

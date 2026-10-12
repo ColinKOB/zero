@@ -1,0 +1,8 @@
+App logos in Connect Apps
+
+Most logos come from Simple Icons (https://simpleicons.org, https://github.com/simple-icons/simple-icons),
+released under CC0 1.0 Universal. Each is drawn in its brand's color from Simple Icons' data.
+
+The Slack and Microsoft Outlook logos are their official app icons, bundled with the app.
+
+Every logo is a trademark of its owner and is used only to name the app it stands for.

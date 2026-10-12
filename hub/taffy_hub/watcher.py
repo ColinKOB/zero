@@ -458,8 +458,15 @@ async def scan_consent() -> None:
         with consent.db() as c:
             sign_cursor = c.execute("SELECT COALESCE(MAX(id), 0) FROM signins").fetchone()[0]
         store.set_cursor("consent_signin", sign_cursor)
+    from . import team
     for s in consent.signins_after(sign_cursor):
-        store.add_feed("signin", s["bot_id"], None, f"Signed in to {s['site']}", s["reason"])
+        # A sign-in made to answer a teammate is a step of that answer (gate.py's reason "Answering Zero's question").
+        step = team.answering(s["bot_id"], float(s.get("at") or time.time())) \
+            if str(s.get("reason") or "").startswith("Answering ") else None
+        fid = store.add_feed("signin", s["bot_id"], None, f"Signed in to {s['site']}", s["reason"], step_of=step)
+        if step:
+            from . import teamvoice
+            teamvoice.schedule_step(fid)
         store.set_cursor("consent_signin", s["id"])
     # What the Zips did and mention (the "tell" tier), and actions Colin approved, one line each in that Zip's chat.
     act_cursor = store.get_cursor("consent_action", -1)
@@ -478,7 +485,11 @@ async def scan_consent() -> None:
             how = {"tell": "Done", "button": "Done with your okay", "rule": "Done under a rule you set",
                    "review": "Done as you approved"}.get(a["how"], "Done")
             text = a["summary"][:1].upper() + a["summary"][1:]
-            store.add_feed("action", a["bot_id"], None, how, text)
+            step = team.answering(a["bot_id"], float(a["at"] or time.time())) if " to answer " in text else None
+            fid = store.add_feed("action", a["bot_id"], None, how, text, step_of=step)
+            if step:
+                from . import teamvoice
+                teamvoice.schedule_step(fid)
             notices.on_action(a)
         store.set_cursor("consent_action", a["id"])
     # Cards that ran out of time without an answer. The cursor is the latest expiry seen, in milliseconds.

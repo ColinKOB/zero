@@ -12,7 +12,7 @@ struct ConsentScreen: View {
         OnboardingPage {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    AgentStage(look: model.draft.look, size: 120)
+                    AgentStage(look: model.draft.look, size: 88)
                         .frame(maxWidth: .infinity)
                     OnboardingHeadline("Who Gets What You Say?")
                     Text(AIDataSharing.intro(owner: HomeModel.shared.planOwner, shared: HomeModel.shared.isShared, speaker: "I", server: HomeModel.shared.serverHome))
@@ -26,7 +26,7 @@ struct ConsentScreen: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 12)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.visible)   // the closing lines run under the buttons on small phones; show there's more
         } footer: {
             OnboardingButton("Agree") { choose(.agreed) }
             OnboardingSecondaryButton("Not Now") { choose(.declined) }

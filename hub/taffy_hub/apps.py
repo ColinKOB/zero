@@ -58,10 +58,26 @@ class App:
     id: str
     name: str
     category: str
-    symbol: str          # an SF Symbol: the app draws no provider marks it has no right to
+    symbol: str          # an SF Symbol, for an app build that has no logo for it yet
     native: bool
-    can: str             # what the Zips can do with it, said once, for the row
+    can: str             # what the Zips can do with it, said once, for the app's detail
     connector: str = ""  # the matching service in accounts.py (Claude or ChatGPT), when there is one
+    blurb: str = ""      # a few gray words under the name in the list
+    popular: bool = False
+
+
+# The list's short lines, and the apps shown first under Popular (Oct 12, Connect Apps redesign). The app shows each
+# app's real logo, bundled in the app (Assets.xcassets/AppLogos, from Simple Icons and the official app icons).
+BLURBS = {
+    "gmail": "Read and sort your mail", "google_calendar": "See and add your events",
+    "outlook": "Read your mail and calendar", "google_drive": "Search Docs, Sheets and Slides",
+    "dropbox": "Search and read your files", "trello": "Read and update your boards",
+    "notion": "Search and read your pages", "todoist": "Read and add your tasks",
+    "atlassian": "Read Jira issues and Confluence pages", "linear": "Find and read your issues",
+    "slack": "Read the channels you can see", "github": "Read repos, issues and pull requests",
+    "figma": "Read design files and comments", "onepassword": "Use logins from a shared vault",
+}
+POPULAR = ("gmail", "google_calendar", "google_drive", "outlook", "github", "notion")
 
 
 CATEGORIES = ("Email and Calendar", "Files", "Productivity", "Communication", "Code", "Design", "Password Managers")
@@ -93,6 +109,7 @@ CATALOG = (
     App("onepassword", "1Password", "Password Managers", "key", False,
         "Use the logins you keep in a vault you share with Zero.", "1password"),
 )
+CATALOG = tuple(App(**{**a.__dict__, "blurb": BLURBS.get(a.id, ""), "popular": a.id in POPULAR}) for a in CATALOG)
 BY_ID = {a.id: a for a in CATALOG}
 
 
@@ -342,7 +359,7 @@ def _elsewhere(accounts_result: dict | None) -> dict[str, str]:
 def describe(app_id: str, accounts_result: dict | None = None, google_rows: dict | None = None) -> dict:
     a = BY_ID[app_id]
     row = {"id": a.id, "name": a.name, "category": a.category, "symbol": a.symbol, "native": a.native, "can": a.can,
-           "account": "", "via": ""}
+           "blurb": a.blurb, "popular": a.popular, "account": "", "via": ""}
     elsewhere = _elsewhere(accounts_result).get(a.connector) if a.connector else None
     if a.id == "trello":
         data, st = _load("trello"), stored_state("trello")

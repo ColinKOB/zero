@@ -284,7 +284,7 @@ struct AppsCatalog: Decodable, Equatable {
         let id: String
         let name: String
         let category: String
-        /// An SF Symbol. Zero draws no provider's logo.
+        /// An SF Symbol, shown only when the app has no bundled logo (AppLogoTile).
         let symbol: String
         let native: Bool
         /// What the Zips can do with it, in one sentence.
@@ -298,8 +298,13 @@ struct AppsCatalog: Decodable, Equatable {
         let action: String
         var account: String? = nil
         var via: String? = nil
+        /// A few gray words for the list, and whether it is listed under Popular. Older hubs leave both out.
+        var blurb: String? = nil
+        var popular: Bool? = nil
 
         var isConnected: Bool { state == "connected" || state == "elsewhere" }
+        var blurbText: String { (blurb?.isEmpty == false ? blurb : AppsCatalog.blurbs[id]) ?? can }
+        var isPopular: Bool { popular ?? AppsCatalog.popularIDs.contains(id) }
         var needsYou: Bool { state == "needs_sign_in" }
     }
 
@@ -314,6 +319,18 @@ struct AppsCatalog: Decodable, Equatable {
     var trello: TrelloSetup? = nil
 
     func app(_ id: String) -> App? { apps.first { $0.id == id } }
+
+    /// The same short lines and Popular apps as the hub's apps.py, for a hub from before they were sent.
+    static let blurbs: [String: String] = [
+        "gmail": "Read and sort your mail", "google_calendar": "See and add your events",
+        "outlook": "Read your mail and calendar", "google_drive": "Search Docs, Sheets and Slides",
+        "dropbox": "Search and read your files", "trello": "Read and update your boards",
+        "notion": "Search and read your pages", "todoist": "Read and add your tasks",
+        "atlassian": "Read Jira issues and Confluence pages", "linear": "Find and read your issues",
+        "slack": "Read the channels you can see", "github": "Read repos, issues and pull requests",
+        "figma": "Read design files and comments", "onepassword": "Use logins from a shared vault",
+    ]
+    static let popularIDs: Set<String> = ["gmail", "google_calendar", "google_drive", "outlook", "github", "notion"]
     var connectedApps: [App] { apps.filter(\.isConnected) }
 }
 
@@ -638,7 +655,8 @@ extension AppsCatalog {
                 some ? "Connected through your Claude account." : "For now, connect it in your Claude or ChatGPT account, and your Zips can use it from there."),
             row("github", "GitHub", "Code", "chevron.left.forwardslash.chevron.right", true,
                 "Your Zips read your repositories, issues and pull requests. They don't change anything.",
-                "not_connected", "connect"),
+                some ? "connected" : "not_connected", some ? "disconnect" : "connect",
+                some ? "Connected as samrivera." : "", some ? "samrivera" : nil),
             row("figma", "Figma", "Design", "paintpalette", false, "Read your design files and comments.", "not_connected",
                 "claude", "For now, connect it in your Claude or ChatGPT account, and your Zips can use it from there."),
             row("onepassword", "1Password", "Password Managers", "key", false,

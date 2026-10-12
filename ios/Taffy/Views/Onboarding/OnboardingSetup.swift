@@ -163,6 +163,7 @@ struct CodeScreen: View {
                     Text(Theme.onMac ? "Make one in Zero on a device that is already signed in, under Settings and Add a Device. If someone set up Zero for you, open the link they sent."
                                      : "Make one in Zero on a device that is already signed in, under Settings and Add a Device. If someone set up Zero for you, scan the code they gave you.")
                         .font(Theme.text(18)).foregroundStyle(Theme.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)   // never cut short; the art below gives way
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                     Spacer(minLength: 0)
@@ -200,7 +201,7 @@ struct CodeScreen: View {
                             VStack(spacing: 6) {
                                 Text(e).foregroundStyle(Theme.danger)
                                 if state.pairUnreachable {
-                                    Text("If you reach Zero through a private network app, turn it on and try again.")
+                                    Text("Check that your phone is on the same Wi-Fi as the computer running Zero, or that your private network app is on, and try again.")
                                         .foregroundStyle(Theme.inkSoft)
                                 }
                             }

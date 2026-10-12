@@ -16,8 +16,16 @@ struct TeamMessage: View {
     /// The chat this shows in, for Reply (Replies.swift); nil where replies don't apply.
     var botID: String? = nil
     @State private var expanded = false
+    /// Showing the exact words instead of the plain version.
+    @State private var original = false
 
     private var item: TeamItem? { message.team }
+    /// The plain version the hub wrote for the chat (teamvoice.py), when there is one that differs.
+    private var plain: String? {
+        guard let p = item?.plain?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty, p != message.text else { return nil }
+        return p
+    }
+    private var shown: String { original ? message.text : (plain ?? message.text) }
     /// A question or heads-up sent to this chat's bot.
     private var fromSide: Bool { item?.kind == "ask" || item?.kind == "tell" }
     private static let longText = 420
@@ -80,24 +88,35 @@ struct TeamMessage: View {
         let sender = state.bot(item?.from ?? "")
         let tint = sender.map { Color(hex: $0.color) } ?? Theme.taffy
         let isAnswer = item?.kind == "answer"
-        let long = message.text.count > Self.longText
+        let long = shown.count > Self.longText
         return VStack(alignment: .leading, spacing: 6) {
             if let q = item?.question, !q.isEmpty {
                 Text("Asked: \u{201C}\(q)\u{201D}")
                     .font(Theme.text(13)).foregroundStyle(Theme.inkSoft).lineLimit(2)
             }
-            Text(markdown(message.text))
+            Text(markdown(shown))
                 .font(Theme.text(size))
                 .lineSpacing(Theme.onMac ? 3 : 0)
                 .foregroundStyle(Theme.ink)
                 .lineLimit(long && !expanded ? 7 : nil)
                 .bubbleSelection()
+                .contentShape(Rectangle())
+                // A tap shows the exact words the Zips sent each other, and another tap goes back.
+                .onTapGesture { if plain != nil { withAnimation(.easeOut(duration: 0.2)) { original.toggle() } } }
             if long {
                 Button(expanded ? "Show less" : "Show more") {
                     withAnimation(.easeOut(duration: 0.2)) { expanded.toggle() }
                 }
                 .font(Theme.text(14, .medium)).foregroundStyle(isAnswer ? Theme.inkSoft : tint)
                 .buttonStyle(.plain)
+            }
+            if plain != nil {
+                Button(original ? "Show Plain Version" : "Show Original") {
+                    withAnimation(.easeOut(duration: 0.2)) { original.toggle() }
+                }
+                .font(Theme.text(13, .medium)).foregroundStyle(Theme.inkSoft)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("teamShowOriginal")
             }
         }
         .padding(.horizontal, hPad).padding(.vertical, vPad)
@@ -111,6 +130,76 @@ struct TeamMessage: View {
     }
 
     private func markdown(_ raw: String) -> AttributedString { ChatText.render(raw) }
+}
+
+
+/// What a Zip did while answering a teammate, between the question and the answer: one quiet gray line, "Worked for
+/// 1m 25s" with a chevron, that opens into a short list of steps, each with a small symbol ("Signed in to
+/// elearning.lakeview.test"). No bubble, like ChatGPT's work log; everything else in the chat keeps its bubbles.
+struct WorkLogRow: View {
+    let message: ChatMessage
+    @State private var open: Bool = {
+        #if DEBUG
+        return CommandLine.arguments.contains("-workLogOpen")
+        #else
+        return false
+        #endif
+    }()
+
+    private var steps: [WorkStep] { message.steps ?? [] }
+    /// Showing each step's raw line instead of its short label.
+    @State private var raw = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                if !steps.isEmpty { withAnimation(.snappy(duration: 0.25)) { open.toggle() } }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(message.text)
+                    if !steps.isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(open ? 90 : 0))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(message.text)
+            .accessibilityHint(steps.isEmpty ? "" : (open ? "Hides the steps" : "Shows each step"))
+            .accessibilityIdentifier("workLog")
+            if open {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(steps, id: \.self) { step in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: step.symbol)
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 16)
+                            Text(raw ? (step.raw ?? step.label) : step.label)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    if steps.contains(where: { $0.raw != nil }) {
+                        Button(raw ? "Show Short Labels" : "Show Original") {
+                            withAnimation(.easeOut(duration: 0.2)) { raw.toggle() }
+                        }
+                        .font(Theme.text(13, .medium))
+                        .buttonStyle(.plain)
+                        .padding(.leading, 24)
+                    }
+                }
+                .padding(.leading, 2)
+                .transition(.opacity)
+            }
+        }
+        .font(Theme.text(14))
+        .foregroundStyle(Theme.inkSoft)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+    }
 }
 
 
