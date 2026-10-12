@@ -1,0 +1,44 @@
+#!/bin/sh
+# Pulls every Zero home's encrypted backup from alien to this Mac each morning and checks each copy, so a
+# dead alien loses at most a day. The repositories are encrypted; their passwords are in the login keychain:
+# the owner's home as "Taffy backup", every other home as "Zero backup <home>" (account zero-backup).
+# Run by ~/Library/LaunchAgents/com.example.taffy-backup-pull.plist. Restore steps: docs/backup.md.
+#
+#   the owner's home:  alien:backups/taffy-restic       -> ~/Backups/Taffy/restic
+#   other homes:       alien:/srv/zero/backups/<home>/  -> ~/Backups/Zero/<home>/
+set -eu
+RESTIC="$HOME/.local/bin/restic"
+
+DEST="$HOME/Backups/Taffy/restic"
+mkdir -p "$DEST"
+chmod 700 "$HOME/Backups/Taffy"
+/usr/bin/rsync -a --delete alien:backups/taffy-restic/ "$DEST/"
+RESTIC_REPOSITORY="$DEST" \
+RESTIC_PASSWORD_COMMAND="/usr/bin/security find-generic-password -s 'Taffy backup' -a taffy-backup -w" \
+  "$RESTIC" check -q
+# Tell the owner's hub the Mac copy is fresh; it alerts when this goes stale.
+/usr/bin/ssh -o BatchMode=yes alien 'printf "{\"at\": %s}" "$(date +%s)" > ~/taffy/hub-state/backup-mac.json'
+echo "$(date '+%Y-%m-%d %H:%M') owner's home pulled and checked"
+
+HOMES=$(/usr/bin/ssh -o BatchMode=yes alien 'ls -1 /srv/zero/backups 2>/dev/null' || true)
+for home in $HOMES; do
+  case "$home" in *[!a-z0-9]*|"") continue ;; esac
+  dest="$HOME/Backups/Zero/$home"
+  mkdir -p "$dest"
+  chmod 700 "$HOME/Backups/Zero"
+  if ! /usr/bin/rsync -a --delete "alien:/srv/zero/backups/$home/" "$dest/"; then
+    echo "$(date '+%Y-%m-%d %H:%M') $home: pull failed"
+    continue
+  fi
+  if /usr/bin/security find-generic-password -s "Zero backup $home" -a zero-backup >/dev/null 2>&1; then
+    if RESTIC_REPOSITORY="$dest" \
+       RESTIC_PASSWORD_COMMAND="/usr/bin/security find-generic-password -s 'Zero backup $home' -a zero-backup -w" \
+       "$RESTIC" check -q; then
+      echo "$(date '+%Y-%m-%d %H:%M') $home: pulled and checked"
+    else
+      echo "$(date '+%Y-%m-%d %H:%M') $home: pulled, but the check failed"
+    fi
+  else
+    echo "$(date '+%Y-%m-%d %H:%M') $home: pulled (no keychain password saved, so not checked)"
+  fi
+done

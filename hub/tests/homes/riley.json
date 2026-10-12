@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "home_id": "riley",
+  "person": {
+    "name": "Riley Ellis", "first_name": "Riley",
+    "timezone": "America/New_York",
+    "quiet_hours": {"start": 23, "end": 7},
+    "pronoun_free": true
+  },
+  "locale": {"units": "us", "spelling": "american", "clock": "12h"},
+  "paths": {
+    "hermes_home": "~/.taffy", "hermes_bin": "~/taffy/bin/taffy",
+    "hub_state": "~/taffy/hub-state", "work": "~/taffy/work", "shared": "~/taffy/shared",
+    "plugin": "~/taffy/plugins/taffy-tools", "owner": "~/taffy/owner",
+    "background_docs": []
+  },
+  "ports": {"hub": 8651, "hermes_api": 8643, "broker_http": 8660,
+            "preview": {"base": 18300, "per_zip": 10, "count": 6}, "docker_subnet_base": "172.31"},
+  "network": {"public_url": "https://alien.tail0000.ts.net:6444", "serve_port": 6444},
+  "host": {"name": "alien", "kind": "server", "sandbox_image": "taffy/zip-sandbox:2026-10-08-v1",
+           "lead_backend": "docker"},
+  "plan": {
+    "claude": {"mode": "broker", "command": "/srv/zero/broker/claude-client"},
+    "chatgpt": {"mode": "broker", "codex_command": "/srv/zero/broker/codex-client",
+                "codex_base_url": "http://127.0.0.1:8660/riley"},
+    "connectors": "none",
+    "frugal": true
+  },
+  "mail": {"accounts": [{"id": "gmail", "address": "riley.example@gmail.com", "label": "Personal",
+                         "default": true, "owner_zip": "default", "provider": "gmail", "kind": "google_oauth"}]},
+  "calendars": [{"id": "google", "kind": "google_oauth", "address": "riley.example@gmail.com", "calendar_id": "primary", "label": "Calendar"}],
+  "integrations": {"tally": null, "trello": null, "whisper_url": "http://10.0.0.65:11437"},
+  "judge": {"enabled": false},
+  "google": {"client_id": "000000000000-yourgoogleclientid.apps.googleusercontent.com"},
+  "push": {"key_dir": "~/.config/taffy-push", "team_id": "YOUR_TEAM_ID", "topic": "com.example.Taffy"},
+  "backup": {"repo": "~/backups/taffy-restic", "drop": "/srv/zero/backups/riley", "mac_copy_expected": false},
+  "zips": {"max": 4, "container_memory_mb": 2048}
+}

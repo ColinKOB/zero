@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Bot screen</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #17130F; overflow: hidden; }
+  #screen { position: absolute; inset: 0; }
+  #note { position: absolute; left: 0; right: 0; top: 45%; text-align: center; color: #A89C90;
+          font: 500 13px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.06em; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="note">CONNECTING</div>
+<script type="module">
+  import RFB from "./novnc/core/rfb.js";
+  const q = new URLSearchParams(location.search);
+  const ticket = q.get("ticket");
+  const control = q.get("control") === "1";
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${location.host}/api/screen/ws?ticket=${encodeURIComponent(ticket)}`;
+  const note = document.getElementById("note");
+  const rfb = new RFB(document.getElementById("screen"), url);
+  rfb.viewOnly = !control;
+  rfb.scaleViewport = true;
+  rfb.resizeSession = false;
+  rfb.background = "#17130F";
+  rfb.addEventListener("connect", () => { note.style.display = "none"; post("connected"); });
+  rfb.addEventListener("disconnect", (e) => {
+    note.style.display = "block";
+    note.textContent = e.detail.clean ? "SCREEN CLOSED" : "SCREEN NOT RUNNING";
+    post("disconnected");
+  });
+  // The app catches trackpad, mouse-wheel and swipe scrolling itself (WebKit does not reliably
+  // hand them to the canvas) and calls this with the distance in points.
+  // Scroll events WebKit delivers on its own are dropped so each scroll counts once.
+  document.getElementById("screen").addEventListener("wheel", (e) => {
+    if (e.isTrusted) { e.stopPropagation(); e.preventDefault(); }
+  }, { capture: true, passive: false });
+  window.taffyScroll = (dx, dy, x, y) => {
+    if (rfb.viewOnly) { post("scroll-needs-control"); return; }
+    const canvas = document.querySelector("#screen canvas");
+    if (!canvas) return;
+    canvas.dispatchEvent(new WheelEvent("wheel", {
+      deltaX: dx, deltaY: dy, deltaMode: 0, clientX: x, clientY: y, bubbles: true, cancelable: true,
+    }));
+  };
+  // The iPhone's keyboard bar types through these (a phone can't bring up its keyboard for a canvas).
+  window.taffyType = (text) => {
+    if (rfb.viewOnly) return;
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (ch === "\n") rfb.sendKey(0xff0d);          // line breaks and tabs are keys, not characters
+      else if (ch === "\t") rfb.sendKey(0xff09);
+      else rfb.sendKey(c < 0x100 ? c : 0x01000000 + c);   // X keysyms: Latin-1 as is, other Unicode offset
+    }
+  };
+  window.taffyKey = (name) => {
+    if (rfb.viewOnly) return;
+    const keys = { Return: 0xff0d, Tab: 0xff09, BackSpace: 0xff08, Escape: 0xff1b };
+    if (keys[name]) rfb.sendKey(keys[name]);
+  };
+  // Zoom: the bot's screen at full size instead of shrunk to fit; with move on, a drag pans instead of clicking.
+  window.taffyZoom = (on) => { rfb.scaleViewport = !on; rfb.clipViewport = on; if (!on) rfb.dragViewport = false; };
+  window.taffyMove = (on) => { rfb.dragViewport = on; };
+  // The iPhone app sets taffyPhone before this page runs. The Mac keeps everything above as it is.
+  if (window.taffyPhone === true) phoneViewport();
+
+  // On the iPhone the screen fits the width and Colin zooms and pans it like a photo: pinch or drag with two
+  // fingers, double tap to switch between fit and zoomed in. One finger taps click, a long press right-clicks and a
+  // swipe scrolls. When the app's keyboard opens, the view zooms in on the last place he tapped and keeps it showing.
+  function phoneViewport() {
+    const box = rfb._screen, canvas = rfb._canvas, display = rfb._display;
+    rfb._gestures.detach();                     // touches are handled below instead
+    rfb.scaleViewport = false;
+    rfb.clipViewport = false;
+    rfb._updateScale = () => layout();          // noVNC calls this on resizes; the scale is set here
+    box.style.position = "relative";
+    box.style.overflow = "hidden";
+    box.style.touchAction = "none";
+    canvas.style.position = "absolute";
+    canvas.style.margin = "0";
+    const MAX_ZOOM = 5;
+    let zoom = 1;                 // 1 is the full width of the screen
+    let ox = 0, oy = 0;           // the screen point at the top left corner of the view, in screen pixels
+    let anchor = null;            // a screen point kept in view while the keyboard is open
+    let lastTap = null;           // the screen point Colin last tapped
+    let wasZoomed = null;         // so the first layout tells the app
+
+    const scale = () => box.clientWidth / display.width * zoom;
+    const toScreen = (cx, cy) => {
+      const r = box.getBoundingClientRect(), s = scale();
+      return { x: ox + (cx - r.left) / s, y: oy + (cy - r.top) / s };
+    };
+    // Comfortable to read: about 0.75 of a point per screen pixel, between 1.5x and 3x.
+    const readable = () => Math.min(3, Math.max(1.5, 0.75 / (box.clientWidth / display.width)));
+
+    function layout() {
+      const W = box.clientWidth, H = box.clientHeight, fw = display.width, fh = display.height;
+      if (!W || !H || !fw || !fh) return;
+      zoom = Math.min(MAX_ZOOM, Math.max(1, zoom));
+      const s = scale();
+      if (display.scale !== s) display.scale = s;
+      if (anchor) { ox = anchor.x - W / s / 2; oy = anchor.y - H / s * 0.4; }
+      // A screen smaller than the view sits centered across and at the top (in control) or middle (watching).
+      ox = fw * s <= W ? -(W - fw * s) / 2 / s : Math.min(Math.max(ox, 0), fw - W / s);
+      oy = fh * s <= H ? (control ? 0 : -(H - fh * s) / 2 / s) : Math.min(Math.max(oy, 0), fh - H / s);
+      canvas.style.left = (-ox * s) + "px";
+      canvas.style.top = (-oy * s) + "px";
+      const zoomed = zoom > 1.01;
+      if (zoomed !== wasZoomed) { wasZoomed = zoomed; post(zoomed ? "zoomed" : "fitted"); }
+    }
+
+    // Zooms to z keeping the screen point p under the view point (vx, vy).
+    function zoomAt(z, p, vx, vy) {
+      zoom = Math.min(MAX_ZOOM, Math.max(1, z));
+      const s = scale();
+      ox = p.x - vx / s; oy = p.y - vy / s;
+      layout();
+    }
+
+    function gesture(type, phase, x, y) {
+      canvas.dispatchEvent(new CustomEvent(phase, { detail: { type, clientX: x, clientY: y } }));
+    }
+
+    let one = null, two = null, lastTapAt = 0, lastTapXY = null;
+    const point = (t) => ({ x: t.clientX, y: t.clientY });
+    const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+    const apart = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    box.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      if (e.touches.length >= 2) {
+        if (one) { clearTimeout(one.timer); if (one.pressed) gesture("longpress", "gestureend", one.x, one.y); one = null; }
+        const [a, b] = e.touches, c = mid(a, b), r = box.getBoundingClientRect();
+        two = { d0: Math.max(apart(a, b), 1), zoom0: zoom, p0: toScreen(c.x, c.y), r };
+        anchor = null;
+        return;
+      }
+      if (two || one) return;
+      const p = point(e.touches[0]);
+      one = { ...p, sx: p.x, sy: p.y, moved: false, pressed: false };
+      one.timer = setTimeout(() => {
+        if (!one || one.moved || rfb.viewOnly) return;
+        one.pressed = true;
+        gesture("longpress", "gesturestart", one.x, one.y);   // right button down until the finger lifts
+      }, 700);
+    }, { passive: false });
+
+    box.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      if (two && e.touches.length >= 2) {
+        const [a, b] = e.touches, c = mid(a, b);
+        zoomAt(two.zoom0 * apart(a, b) / two.d0, two.p0, c.x - two.r.left, c.y - two.r.top);
+        return;
+      }
+      if (!one || one.pressed) return;
+      const p = point(e.touches[0]);
+      if (!one.moved && Math.hypot(p.x - one.sx, p.y - one.sy) < 10) return;
+      one.moved = true;
+      clearTimeout(one.timer);
+      window.taffyScroll(one.x - p.x, one.y - p.y, p.x, p.y);
+      one.x = p.x; one.y = p.y;
+    }, { passive: false });
+
+    const lift = (e, cancelled) => {
+      e.preventDefault();
+      if (two) { if (e.touches.length === 0) two = null; return; }
+      if (!one) return;
+      const t = one;
+      one = null;
+      clearTimeout(t.timer);
+      if (t.pressed) { gesture("longpress", "gestureend", t.x, t.y); return; }
+      if (t.moved || cancelled) return;
+      const now = Date.now();
+      const twice = now - lastTapAt < 350 && lastTapXY && Math.hypot(t.x - lastTapXY.x, t.y - lastTapXY.y) < 40;
+      lastTapAt = twice ? 0 : now;
+      lastTapXY = { x: t.x, y: t.y };
+      anchor = null;
+      if (twice) {
+        // The first tap already clicked; the second switches between fit and zoomed in at that point.
+        const r = box.getBoundingClientRect(), p = toScreen(t.x, t.y);
+        zoomAt(zoom > 1.01 ? 1 : Math.max(2, readable()), p, t.x - r.left, t.y - r.top);
+        return;
+      }
+      lastTap = toScreen(t.x, t.y);
+      gesture("onetap", "gesturestart", t.x, t.y);
+      gesture("onetap", "gestureend", t.x, t.y);
+    };
+    box.addEventListener("touchend", (e) => lift(e, false), { passive: false });
+    box.addEventListener("touchcancel", (e) => lift(e, true), { passive: false });
+
+    // The app's keyboard opened (true) or closed (false). Opening zooms in on the last tap and keeps it in view
+    // above the keyboard while the view shrinks; closing leaves the zoom where it is.
+    window.taffyFocus = (on) => {
+      if (!on) { anchor = null; return; }
+      if (!lastTap) return;
+      zoom = Math.max(zoom, readable());
+      anchor = lastTap;
+      layout();
+    };
+    // The zoom button: fit, or zoomed in on the last tap (or the middle of the view).
+    window.taffyZoom = (on) => {
+      anchor = null;
+      const r = box.getBoundingClientRect();
+      if (!on) { zoomAt(1, toScreen(r.left, r.top), 0, 0); return; }
+      const p = lastTap || toScreen(r.left + r.width / 2, r.top + r.height / 2);
+      zoom = Math.max(2, readable());
+      anchor = p;
+      layout();
+      anchor = null;
+    };
+    window.taffyMove = () => {};
+    // Taps a point given in the Zip's screen pixels, as a finger there would. The app's test hooks use it.
+    window.taffyTapAt = (x, y) => {
+      const r = box.getBoundingClientRect(), s = scale(), cx = r.left + (x - ox) * s, cy = r.top + (y - oy) * s;
+      lastTap = { x, y };
+      anchor = null;
+      gesture("onetap", "gesturestart", cx, cy);
+      gesture("onetap", "gestureend", cx, cy);
+    };
+    new ResizeObserver(() => layout()).observe(box);
+    layout();
+    post("phone-gestures");
+  }
+  function post(state) {
+    try { window.webkit.messageHandlers.screen.postMessage(state); } catch (_) {}
+  }
+</script>
+</body>
+</html>

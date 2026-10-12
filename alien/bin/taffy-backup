@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Nightly encrypted backup of everything that makes a Zero home itself: every Zip's history, memories,
+SOULs, scheduled jobs, the person's sign-in permissions, saved logins, the board, the hub's data and the
+Zips' files. One run per home, as that home's user.
+
+Run by taffy-backup.timer at 3:30 a.m. in the home's time zone. Databases are copied with SQLite's backup
+API, which is safe while the gateway and hub run. Everything goes into a restic repository (encrypted,
+deduplicated, versioned) at backup.repo in ~/taffy/home.json (default ~/backups/taffy-restic). When
+backup.drop is set (/srv/zero/backups/<home> for homes other than the owner's), the encrypted repository
+is then copied there, and the owner's Mac pulls every home's copy each morning, so a dead disk loses at
+most a day. The repository password lives in ~/.config/taffy-backup/restic-password and in the owner's
+Mac keychain; the repository is useless without it.
+
+Each run also restores the newest snapshot's databases into a scratch folder and compares them with what
+was backed up, so a backup that can't be restored is noticed the same night. The result goes to
+~/taffy/hub-state/backup.json, and the hub alerts the person when a run failed or none ran for 36 hours.
+
+Restore: see docs/backup.md in the repo.
+"""
+
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HOME = Path.home()
+
+
+def _settings() -> dict:
+    path = Path(os.environ.get("ZERO_HOME") or HOME / "taffy" / "home.json")
+    try:
+        data = json.loads(path.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _path(value: str | None, default: Path) -> Path:
+    if not value:
+        return default
+    return HOME / value[2:] if value.startswith("~/") else Path(value)
+
+
+SETTINGS = _settings()
+BACKUP = SETTINGS.get("backup") or {}
+TAFFY = _path((SETTINGS.get("paths") or {}).get("hermes_home"), HOME / ".taffy")
+STAGE = HOME / "taffy" / "backup-stage"
+REPO = _path(BACKUP.get("repo"), HOME / "backups" / "taffy-restic")
+DROP = Path(BACKUP["drop"]) if BACKUP.get("drop") else None
+PASSWORD = HOME / ".config" / "taffy-backup" / "restic-password"
+STATUS = HOME / "taffy" / "hub-state" / "backup.json"
+RESTIC = next((str(p) for p in (HOME / ".local" / "bin" / "restic", Path("/srv/zero/bin/restic")) if p.exists()),
+              shutil.which("restic") or str(HOME / ".local" / "bin" / "restic"))
+
+# Files and folders kept as they are, for Taffy and for every bot profile.
+PER_PROFILE = ["config.yaml", ".env", "profile.yaml", "SOUL.md", "memories", "cron/jobs.json", "vault", "scripts"]
+EXTRA = [TAFFY / "auth.json", TAFFY / "channel_directory.json",
+         HOME / "taffy" / "hub-state", HOME / "taffy" / "work", HOME / "taffy" / "shared", HOME / "taffy" / "state",
+         HOME / "taffy" / "bin", HOME / "taffy" / "plugins", HOME / ".config" / "systemd" / "user",
+         # Mail and the app's notification key: secrets, safe here because the repository is encrypted.
+         HOME / ".config" / "himalaya", HOME / ".config" / "taffy-push", HOME / "taffy" / "home.json",
+         HOME / ".config" / "zero-broker",
+         # Calendars added in the app: CalDAV passwords and private iCal addresses (hub mailboxes.py).
+         HOME / ".config" / "zero-calendars"]
+# Live databases are backed up from STAGE instead; caches and browsers are rebuilt, not restored.
+EXCLUDE = [f"{HOME}/.taffy/**/*.db", f"{HOME}/taffy/hub-state/*.db", "*.db-wal", "*.db-shm", "*.db-journal",
+           "bot-desktop", "cache", "*.tmp", f"{HOME}/taffy/hub-state/outbox", f"{HOME}/taffy/bin/uv*",
+           # Saved calls are kept 30 days only (hub calllog.py); snapshots would keep them for months.
+           f"{HOME}/taffy/hub-state/calls"]
+SKIP_DIRS = {"bot-desktop", "cache", "installs", "logs", "sandboxes", "image_cache", "audio_cache"}
+
+
+def profiles() -> list[Path]:
+    return [TAFFY] + sorted(p for p in (TAFFY / "profiles").iterdir() if p.is_dir() and not p.name.startswith("."))
+
+
+def databases() -> list[Path]:
+    found = []
+    for root in (TAFFY, HOME / "taffy" / "hub-state", HOME / "taffy" / "state"):
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".deleted")]
+            found += [Path(dirpath) / f for f in filenames if f.endswith(".db")]
+    return sorted(found)
+
+
+def snapshot_databases() -> list[Path]:
+    if STAGE.exists():
+        shutil.rmtree(STAGE)
+    STAGE.mkdir(mode=0o700, parents=True)
+    out = []
+    for db in databases():
+        dest = STAGE / db.relative_to(HOME)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        src = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30)
+        dst = sqlite3.connect(dest)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        out.append(dest)
+    (STAGE / "hermes-commit.txt").write_text(hermes_commit())
+    return out
+
+
+def hermes_commit() -> str:
+    """The Hermes commit this home runs. A home on the shared read-only checkout reads the commit file the
+    checkout was copied with (git refuses a repository owned by another user)."""
+    hermes = (HOME / "taffy" / "hermes").resolve()
+    pinned = hermes.parent / "hermes.commit"
+    if pinned.exists():
+        return pinned.read_text()
+    return subprocess.run(["git", "-C", str(hermes), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+
+
+def copy_to_drop() -> None:
+    """The encrypted repository, copied where the owner's Mac pulls it. Group-readable for the owner only:
+    the drop folder is setgid to the owner's group and closed to everyone else."""
+    if DROP is None:
+        return
+    # No -p or -g: copying the repository's own modes and group (as -a did) took the drop folder's setgid bit and
+    # the owner's group away on the first run, so the owner could no longer read it. New files and folders get
+    # rw-r----- and rwxr-x--- and keep the owner's group from the setgid folder; existing ones are left as they are.
+    p = subprocess.run(["rsync", "-rlt", "--delete", "--no-perms", "--no-group", "--chmod=ugo=rwX",
+                        f"{REPO}/", f"{DROP}/"], capture_output=True, text=True, preexec_fn=lambda: os.umask(0o027))
+    if p.returncode != 0:
+        raise RuntimeError(f"copy to {DROP} failed: {(p.stderr or '').strip()[-300:]}")
+
+
+def restic(*args: str, capture: bool = True) -> str:
+    env = dict(os.environ, RESTIC_REPOSITORY=str(REPO), RESTIC_PASSWORD_FILE=str(PASSWORD))
+    p = subprocess.run([RESTIC, *args], capture_output=capture, text=True, env=env)
+    if p.returncode != 0:
+        raise RuntimeError(f"restic {args[0]} failed: {(p.stderr or '').strip()[-400:]}")
+    return p.stdout
+
+
+def counts(db: Path) -> dict[str, int]:
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                          "AND name NOT LIKE 'sqlite_%'")]
+        return {t: c.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] for t in tables}
+    finally:
+        c.close()
+
+
+def check_restore(staged: list[Path], snapshot: str) -> None:
+    """Restores the snapshot's databases and compares every table's row count with what was backed up."""
+    with tempfile.TemporaryDirectory(prefix="taffy-restore-") as tmp:
+        restic("restore", snapshot, "--target", tmp, "--include", str(STAGE))
+        for db in staged:
+            restored = Path(tmp) / db.relative_to("/")
+            if not restored.exists():
+                raise RuntimeError(f"restore test: {db.name} missing from the snapshot")
+            if counts(restored) != counts(db):
+                raise RuntimeError(f"restore test: {db.relative_to(STAGE)} differs after restore")
+
+
+def main() -> int:
+    started = time.time()
+    status = {"ok": False, "at": started}
+    try:
+        if not (REPO / "config").exists():
+            restic("init")
+        staged = snapshot_databases()
+        paths = [str(STAGE)] + [str(p / rel) for p in profiles() for rel in PER_PROFILE if (p / rel).exists()]
+        paths += [str(p) for p in EXTRA if p.exists()]
+        args = ["backup", "--json", "--tag", "nightly", *paths]
+        for pattern in EXCLUDE:
+            args += ["--exclude", pattern]
+        summary = [json.loads(l) for l in restic(*args).splitlines() if '"message_type":"summary"' in l][-1]
+        snapshot = summary["snapshot_id"]
+        restic("forget", "--tag", "nightly", "--keep-daily", "7", "--keep-weekly", "4", "--keep-monthly", "6",
+               "--prune")
+        restic("check")
+        check_restore(staged, snapshot)
+        copy_to_drop()
+        status.update(ok=True, snapshot=snapshot[:8], files=summary.get("total_files_processed"),
+                      added_bytes=summary.get("data_added"), seconds=round(time.time() - started))
+        return 0
+    except Exception as e:
+        status["error"] = str(e)[:500]
+        print(status["error"], file=sys.stderr)
+        return 1
+    finally:
+        if STAGE.exists():
+            shutil.rmtree(STAGE)
+        STATUS.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATUS.with_suffix(".tmp")
+        tmp.write_text(json.dumps(status))
+        tmp.replace(STATUS)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

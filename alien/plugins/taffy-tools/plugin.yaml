@@ -1,0 +1,38 @@
+name: taffy-tools
+version: 0.1.0
+description: "Tools for a Zero home's Zips: connectors through the home's own plan, mail, calendars, Tally where it is set up, the Mac, teammates, and the permission gate. Which tools a home gets comes from its home.json."
+author: Taffy build
+provides_tools:
+  # connectors, tally, email and calendar are registered only when the home's settings say it can use them (home.py).
+  - connectors
+  - tally
+  - email
+  - calendar
+  # trello, drive and the read-only app tools reach apps connected in Zero's Connect Apps (apps_tool.py).
+  - trello
+  - drive
+  - outlook
+  - dropbox
+  - notion
+  - linear
+  - github
+  # browser_steps is registered only while Colin has paid calls on (fast_steps.paid_calls_on), so it is not listed.
+  - react
+  - mac_start
+  - mac_open
+  - mac_run
+  - mac_screenshot
+  - mac_ui
+  - mac_press
+  - mac_click
+  - mac_type
+  - mac_key
+  - mac_scroll
+  - mac_steps
+  - mac_done
+  - ask_teammate
+  - tell_teammate
+  - team_note
+  - save_fact
+  - recall
+  - offer_choices

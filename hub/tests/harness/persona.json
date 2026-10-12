@@ -1,0 +1,36 @@
+{
+ "person_name": "Sam Rivera",
+ "agent_name": "Nova",
+ "about": {
+  "work": "I run a small bakery",
+  "home": "Providence, Rhode Island",
+  "age": "34",
+  "family": "My partner Alex and our dog Pepper"
+ },
+ "extra_answers": {
+  "sleep": "10 p.m. to 6 a.m.",
+  "email": "sam@zero.test"
+ },
+ "voice": "Puck",
+ "picks": [
+  "inbox",
+  "todo"
+ ],
+ "mailbox": {
+  "provider": "Other Email",
+  "address": "sam@zero.test",
+  "password": "zero-test-mail",
+  "imap_host": "127.0.0.1",
+  "imap_port": 18551,
+  "smtp_host": "127.0.0.1",
+  "smtp_port": 18550
+ },
+ "calendar": "skip",
+ "inbox_probe": "Which messages are in my inbox right now? List their subjects.",
+ "about_mailbox": "WP3's GreenMail in the test home: sam@zero.test with the fixed local password zero-test-mail (not a secret), SMTP on the home's preview base + 50 and IMAP on + 51 (18550 and 18551 today). zero-e2e.sh fills the ports from zero-home-test up's output.",
+ "timezone": "America/New_York",
+ "quiet_hours": {
+  "start": 22,
+  "end": 6
+ }
+}

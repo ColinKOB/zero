@@ -1,0 +1,26 @@
+{
+ "about": "Mail seeded into the test home's GreenMail mailbox before the onboarding run. Every name and address is invented. The noticers should find one reply owed (Priya's question) and one renewal (the domain). Subjects are what the Inbox Zip must list.",
+ "messages": [
+  {
+   "key": "reply_owed",
+   "from": "Priya Shah <priya.shah@example.org>",
+   "subject": "Saturday order for the school fair",
+   "days_ago": 2,
+   "body": "Hi Sam,\n\nCould you confirm whether you can do four dozen cinnamon rolls for the school fair on Saturday? I need to tell the committee by Thursday.\n\nThanks,\nPriya"
+  },
+  {
+   "key": "renewal",
+   "from": "Domain Desk <billing@example-registrar.test>",
+   "subject": "Your domain riverabakes.test renews in 7 days",
+   "days_ago": 1,
+   "body": "Your domain riverabakes.test will renew automatically in 7 days for $18.00. To change or cancel the renewal, sign in to your account before then."
+  },
+  {
+   "key": "newsletter",
+   "from": "Flour Weekly <news@flourweekly.test>",
+   "subject": "Flour Weekly: five ways to keep sourdough starter alive",
+   "days_ago": 3,
+   "body": "This week: feeding schedules, fridge storage, and what to do when your starter smells like nail polish."
+  }
+ ]
+}

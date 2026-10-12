@@ -1,0 +1,10 @@
+# Lets the Taffy bots' Chromium (Hermes PM tool under ~/.taffy/tools) use Chrome's own sandbox
+# instead of running with --no-sandbox. Same pattern as t3-chrome-headless-shell.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile taffy-chromium /home/jdoe/.taffy/tools/chromium-*/chrome-linux64/chrome flags=(unconfined) {
+  userns,
+
+  include if exists <local/taffy-chromium>
+}

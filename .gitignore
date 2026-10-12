@@ -1,0 +1,28 @@
+alien/shared/
+*.pass
+.env
+# The renderer's golden files hold placeholders only (API_SERVER_KEY=<random>, a fake broker secret)
+!alien/broker/tests/golden/**/.env
+hub/.venv/
+ios/build/
+ios/*.xcodeproj/xcuserdata/
+__pycache__/
+alien/profiles/*/memories/
+# Third-party video transcripts and metadata, kept locally for research
+docs/research/videos/
+# Generated concept art and renders (large); the scripts that make them are kept
+docs/design/**/*.png
+docs/design/**/*.mp4
+docs/design/**/*.log
+docs/design/zip-concepts/motion/out/
+docs/research/voice-test/.venv/
+docs/research/voice-test/*.pcm
+docs/research/voice-test/*.wav
+docs/research/voice-test/*.aiff
+
+# Other companies' captured assets and recordings: reference only, kept on disk, never in git
+docs/design/website-reference/*/assets/
+docs/design/website-reference/*/video/
+
+# Release builds made by ios/scripts/release.sh (Zero.dmg)
+/release/

@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "filename": "pebble-sporty-look-left.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

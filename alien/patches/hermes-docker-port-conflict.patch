@@ -1,0 +1,110 @@
+diff --git a/tools/environments/docker.py b/tools/environments/docker.py
+index aec68cd58a..988924de59 100644
+--- a/tools/environments/docker.py
++++ b/tools/environments/docker.py
+@@ -117,6 +117,29 @@ def _get_active_profile_name() -> str:
+         return "default"
+ 
+ 
++
++def _port_conflict(e: subprocess.CalledProcessError) -> bool:
++    """docker run refused because a published host port is already taken."""
++    text = f"{e.stderr or ''} {e.stdout or ''}".lower()
++    return "port is already allocated" in text or "address already in use" in text
++
++
++def _without_published_ports(argv: list[str]) -> list[str]:
++    """``argv`` with every ``-p``/``--publish`` option removed."""
++    out, skip = [], False
++    for arg in argv:
++        if skip:
++            skip = False
++            continue
++        if arg in ("-p", "--publish"):
++            skip = True
++            continue
++        if arg.startswith("--publish=") or (arg.startswith("-p") and not arg.startswith("--") and len(arg) > 2
++                                            and arg[2] in "0123456789"):
++            continue
++        out.append(arg)
++    return out
++
+ def _container_identity(shared_key: str = "") -> str:
+     """Profile label used for container reuse and orphan reaping. Profiles are isolated by default; an
+     explicit shared key lets trusted profiles share one Docker identity. Label sanitization is lossy
+@@ -1011,8 +1034,75 @@ class DockerEnvironment(BaseEnvironment):
+         """Start a fresh container and return its id. A failed ``docker run`` (exit 125, timeout
+         mid-pull) can leave a "Created" orphan the exited-only reaper never catches, so it is
+         removed by name before re-raising."""
++        try:
++            return self._docker_run_once(cwd)
++        except subprocess.CalledProcessError as e:
++            if not _port_conflict(e):
++                raise
++        # The fixed preview ports are held, usually by this profile's container from before a config
++        # change (a new environment fingerprint means it can never be reused). Taffy, Oct 10: a Zip's
++        # tools failed with exit 125 until that old container was removed.
++        if self._remove_stale_siblings():
++            try:
++                return self._docker_run_once(cwd)
++            except subprocess.CalledProcessError as e:
++                if not _port_conflict(e):
++                    raise
++        # Another live session of this profile holds them: run without preview ports rather than
++        # without a terminal at all.
++        logger.warning("Preview ports are in use by another container of this profile; starting "
++                       "this one without published ports (profile=%s).", self._labels.get("hermes-profile"))
++        return self._docker_run_once(cwd, publish=False)
++
++    def _remove_stale_siblings(self) -> bool:
++        """Remove this profile's idle containers built for another environment fingerprint (an older
++        configuration). Their home and workspace are host mounts, so only the writable layer goes.
++        True if any went."""
++        mine = self._labels.get(_ENVIRONMENT_LABEL_KEY)
++        profile = self._labels.get("hermes-profile")
++        if not mine or not profile:
++            return False
++        listed = _docker_query(
++            [self._docker_exe, "ps", "-aq", "--filter", "label=hermes-agent=1",
++             "--filter", f"label=hermes-profile={profile}"], timeout=10,
++            fail="docker ps for stale siblings failed: %s", nonzero="docker ps for stale siblings returned %d: %s")
++        removed = False
++        for cid in (listed.stdout.split() if listed is not None else []):
++            got = _docker_query(
++                [self._docker_exe, "inspect", "-f", "{{json .Config.Labels}}", cid], timeout=10,
++                fail="docker inspect failed: %s", nonzero="docker inspect returned %d: %s")
++            try:
++                labels = json.loads(got.stdout) if got is not None else None
++            except ValueError:
++                labels = None
++            if not isinstance(labels, dict) or labels.get(_ENVIRONMENT_LABEL_KEY) in (None, mine):
++                continue
++            # Each task's mounts are part of its fingerprint, so a live sibling task differs too: only a
++            # container running nothing but its idle init is safe to remove.
++            top = _docker_query(
++                [self._docker_exe, "top", cid, "-o", "args"], timeout=10,
++                fail="docker top failed: %s", nonzero="docker top returned %d: %s")
++            running = [ln.strip() for ln in (top.stdout.splitlines()[1:] if top is not None else ["?"])
++                       if ln.strip()]
++            if top is not None and running and not all(
++                    ln in ("sleep infinity", "/sbin/docker-init -- sleep infinity") for ln in running):
++                continue
++            if top is None:
++                continue
++            logger.warning("Removing container %s of profile %s: it was built for an older configuration "
++                           "and holds this profile's ports.", cid[:12], profile)
++            try:
++                run_capture([self._docker_exe, "rm", "-f", cid], timeout=30)
++                removed = True
++            except (subprocess.TimeoutExpired, OSError) as e:
++                logger.warning("Failed to remove stale container %s: %s", cid[:12], e)
++        return removed
++
++    def _docker_run_once(self, cwd: str, publish: bool = True) -> str:
+         container_name = f"hermes-{uuid.uuid4().hex[:8]}"
+         run_cmd = self._run_command(container_name, cwd)
++        if not publish:
++            run_cmd = _without_published_ports(run_cmd)
+         logger.debug("Starting container: %s", ' '.join(run_cmd))
+         try:
+             result = run_capture(

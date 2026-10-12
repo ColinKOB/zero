@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Egress rules for the Zips' containers. Runs as ExecStartPost of the rootless
+# docker.service (user unit). The rules live in the rootless daemon's own
+# network namespace, so the host firewall is never touched and no root is used.
+# Containers keep the internet; private, LAN, tailnet and loopback ranges are
+# rejected, with one exception: Whisper (speech to text) at the address in the
+# home's settings, integrations.whisper_url (default http://10.0.0.65:11437).
+# Set it to null in home.json to allow no exception at all.
+set -euo pipefail
+
+home_json="${ZERO_HOME:-$HOME/taffy/home.json}"
+whisper=$(python3 - "$home_json" <<'PY'
+import json, sys
+from urllib.parse import urlsplit
+url = "http://10.0.0.65:11437"
+try:
+    url = json.load(open(sys.argv[1])).get("integrations", {}).get("whisper_url", url)
+except (OSError, ValueError):
+    pass
+if url:
+    u = urlsplit(url)
+    if u.hostname and all(p.isdigit() for p in u.hostname.split(".")):
+        print(f"{u.hostname} {u.port or 80}")
+PY
+)
+
+state="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dockerd-rootless"
+pid=""
+for _ in $(seq 1 60); do
+  if [ -s "$state/child_pid" ]; then pid=$(cat "$state/child_pid"); fi
+  if [ -n "$pid" ] && nsenter -U --preserve-credentials -n -m -t "$pid" \
+       iptables -w -S DOCKER-USER >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+[ -n "$pid" ] || { echo "zip-egress-rules: rootless child pid not found" >&2; exit 1; }
+
+ns() { nsenter -U --preserve-credentials -n -m -t "$pid" "$@"; }
+ns iptables -w -S DOCKER-USER >/dev/null || { echo "zip-egress-rules: DOCKER-USER chain missing" >&2; exit 1; }
+
+ns iptables -w -F DOCKER-USER
+ns iptables -w -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+if [ -n "$whisper" ]; then
+  read -r whisper_host whisper_port <<<"$whisper"
+  ns iptables -w -A DOCKER-USER -d "$whisper_host" -p tcp --dport "$whisper_port" -j RETURN   # Whisper
+fi
+for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 127.0.0.0/8; do
+  ns iptables -w -A DOCKER-USER -d "$net" -j REJECT
+done
+ns iptables -w -A DOCKER-USER -j RETURN
+
+# Containers get no IPv6, but reject any forwarded IPv6 in case that changes.
+if ns ip6tables -w -S DOCKER-USER >/dev/null 2>&1; then
+  ns ip6tables -w -F DOCKER-USER
+  ns ip6tables -w -A DOCKER-USER -j REJECT
+fi
+
+echo "zip-egress-rules: applied in rootless namespace of pid $pid"

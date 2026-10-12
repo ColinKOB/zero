@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""zip-test-cards: the cards a Zip raised in test mode, which never reach Colin's app (Zip sandbox plan, stage 3).
+
+Raise them by running a Zip from the Hermes command line with the test flag, for example:
+
+    TAFFY_TEST_CARDS=1 hermes -p school chat --oneshot -q "..."
+
+In that process the gate records every card, sign-in and "tell" line as a test, tools that would reach Colin (his app,
+his accounts, his Mac, the board) are off, and the email tool only reports what it would send. Then:
+
+    zip-test-cards                 list the open test cards
+    zip-test-cards all             list every test card, answered or not
+    zip-test-cards show ID         one card in full, as the app would show it
+    zip-test-cards allow ID        answer it as Allow Once (the same call then goes through once, in test mode only)
+    zip-test-cards deny ID         answer it as Not Now
+    zip-test-cards clear           close every open test card
+
+Real cards are never listed or touched. --db PATH reads another consent.db (tests).
+"""
+
+import argparse
+import importlib.util
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+HERE = Path(__file__).resolve().parent
+# Deployed as ~/taffy/bin/zip-test-cards beside ~/taffy/plugins/taffy-tools; in the repo, alien/bin beside alien/plugins.
+CONSENT = HERE.parent / "plugins" / "taffy-tools" / "consent.py"
+
+
+def _zone() -> ZoneInfo:
+    """The home's time zone (person.timezone in its settings), for showing when each card was raised."""
+    try:
+        spec = importlib.util.spec_from_file_location("taffy_plugin_home_cli", CONSENT.with_name("home.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return ZoneInfo(mod.timezone())
+    except Exception:
+        return ZoneInfo("America/New_York")
+
+
+ET = _zone()
+
+
+def consent(db: str | None):
+    spec = importlib.util.spec_from_file_location("taffy_consent_cli", CONSENT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if db:
+        mod.DB_PATH = Path(db)
+    return mod
+
+
+def when(t) -> str:
+    return datetime.fromtimestamp(t, ET).strftime("%b %d %I:%M %p") if t else ""
+
+
+def line(r: dict) -> str:
+    what = r.get("reason") or ""
+    if (r.get("kind") or "signin") in ("signin", "navigate"):
+        what = f"{'open' if r.get('kind') == 'navigate' else 'sign in to'} {r['site']}" + (f" ({what})" if what else "")
+    return f"{r['id']:>5}  {when(r['created'])}  {r['bot_id']:<8} {r.get('kind') or 'signin':<8} {r['status']:<8} {what}"
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Cards raised in test mode (TAFFY_TEST_CARDS=1).")
+    ap.add_argument("command", nargs="?", default="list", choices=["list", "all", "show", "allow", "deny", "clear"])
+    ap.add_argument("id", nargs="?", type=int)
+    ap.add_argument("--db")
+    a = ap.parse_args(argv)
+    c = consent(a.db)
+    if a.command in ("list", "all"):
+        rows = c.test_cards(None if a.command == "all" else "pending")
+        print("\n".join(line(r) for r in rows) if rows else "No test cards.")
+        return 0
+    if a.command == "clear":
+        print(f"Closed {c.clear_test_cards()} test cards.")
+        return 0
+    if a.id is None:
+        ap.error(f"{a.command} needs a card id")
+    card = next((r for r in c.test_cards(None) if r["id"] == a.id), None)
+    if card is None:
+        print(f"{a.id} is not a test card.", file=sys.stderr)
+        return 1
+    if a.command == "show":
+        keep = ("id", "bot_id", "kind", "status", "reason", "site", "target", "why", "inputs", "details", "excerpt",
+                "scope", "session_id", "task_id", "routine_name")
+        print(json.dumps({k: card.get(k) for k in keep if card.get(k) not in (None, "")}, indent=2,
+                         ensure_ascii=False))
+        return 0
+    r = c.decide_test(a.id, a.command == "allow")
+    if r is None:
+        print(f"{a.id} is already answered.", file=sys.stderr)
+        return 1
+    print(f"{'Allowed once' if a.command == 'allow' else 'Not now'}: {line(card)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

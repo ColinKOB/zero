@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""zero-usage: what the plan's usage went to, per Zip per day, from the per-call usage log.
+
+The taffy-tools plugin writes one line per model call to <hub_state>/usage/YYYY-MM-DD.jsonl (usage_log.py), and the
+hub adds the plan's own percentages every half hour (lines with "kind": "plan"). This sums them:
+
+    zero-usage                    the last 7 days of this home (paths from $ZERO_HOME or ~/taffy/home.json)
+    zero-usage --days 1 --origins also split each Zip's day by origin (chat, team, cron, keep-warm, compression ...)
+    zero-usage --dir PATH         another usage folder (for example /tmp copies)
+    zero-usage --json             the same numbers as JSON
+
+Weighted usage counts each token by what it costs against the plan, relative to an uncached input token: a cache
+read 0.1, a cache write 2 (the one-hour cache), uncached input 1, output 5. A cold start is a call that wrote at
+least half of a prompt of 10,000 tokens or more to the cache: the cache had expired (or the prompt changed), so the
+whole prefix was paid again.
+"""
+
+import argparse
+import json
+import os
+import pwd
+import sys
+import time
+from collections import defaultdict
+from datetime import date, timedelta
+from pathlib import Path
+
+WEIGHTS = {"read": 0.1, "write": 2.0, "uncached": 1.0, "out": 5.0}
+COLD_MIN_PROMPT = 10_000
+
+
+def weighted(r: dict) -> float:
+    return sum(float(r.get(k) or 0) * w for k, w in WEIGHTS.items())
+
+
+def cold(r: dict) -> bool:
+    prompt = (r.get("read") or 0) + (r.get("write") or 0) + (r.get("uncached") or 0)
+    return prompt >= COLD_MIN_PROMPT and (r.get("write") or 0) >= prompt / 2
+
+
+def default_dir() -> Path:
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    settings = Path(os.environ.get("ZERO_HOME") or home / "taffy" / "home.json")
+    hub_state = "~/taffy/hub-state"
+    try:
+        hub_state = json.loads(settings.read_text()).get("paths", {}).get("hub_state") or hub_state
+    except (OSError, ValueError):
+        pass
+    return Path(hub_state.replace("~", str(home), 1)) / "usage"
+
+
+def read(folder: Path, days: int) -> tuple[list[dict], list[dict]]:
+    first = date.today() - timedelta(days=days - 1)
+    calls, plan = [], []
+    for f in sorted(folder.glob("*.jsonl")):
+        try:
+            if date.fromisoformat(f.stem) < first:
+                continue
+        except ValueError:
+            continue
+        for line in f.read_text(errors="replace").splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            r["day"] = f.stem
+            (plan if r.get("kind") == "plan" else calls if not r.get("kind") else []).append(r)
+    return calls, plan
+
+
+def summarize(calls: list[dict], by_origin: bool) -> dict:
+    out: dict = defaultdict(lambda: defaultdict(lambda: {"calls": 0, "read": 0, "write": 0, "uncached": 0, "out": 0,
+                                                          "weighted": 0.0, "cold_starts": 0}))
+    for r in calls:
+        keys = [(r["day"], r.get("zip") or "?", "all")]
+        if by_origin:
+            keys.append((r["day"], r.get("zip") or "?", r.get("origin") or "?"))
+        for day, z, origin in keys:
+            s = out[(day, z)][origin]
+            s["calls"] += 1
+            for k in ("read", "write", "uncached", "out"):
+                s[k] += int(r.get(k) or 0)
+            s["weighted"] += weighted(r)
+            s["cold_starts"] += cold(r)
+    return out
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--dir", type=Path, default=None)
+    ap.add_argument("--origins", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    folder = a.dir or default_dir()
+    if not folder.is_dir():
+        print(f"No usage log at {folder} yet.")
+        return 1
+    calls, plan = read(folder, a.days)
+    table = summarize(calls, a.origins)
+    if a.json:
+        print(json.dumps({"days": [{"day": d, "zip": z, **{o: dict(v) for o, v in per.items()}}
+                                   for (d, z), per in sorted(table.items())],
+                          "plan": plan[-1] if plan else None, "weights": WEIGHTS}, indent=1))
+        return 0
+    head = f"{'day':10} {'zip':9} {'origin':18} {'calls':>5} {'read':>10} {'write':>9} {'uncached':>8} {'out':>7} " \
+           f"{'weighted':>10} {'cold':>4}"
+    print(head)
+    print("-" * len(head))
+    totals = defaultdict(float)
+    for (d, z), per in sorted(table.items()):
+        for origin, s in sorted(per.items(), key=lambda kv: (kv[0] != "all", -kv[1]["weighted"])):
+            print(f"{d:10} {z:9} {origin:18} {s['calls']:5} {s['read']:10,} {s['write']:9,} {s['uncached']:8,} "
+                  f"{s['out']:7,} {s['weighted']:10,.0f} {s['cold_starts']:4}")
+            if origin == "all":
+                totals["weighted"] += s["weighted"]
+                totals["cold"] += s["cold_starts"]
+                totals["calls"] += s["calls"]
+    print("-" * len(head))
+    print(f"{a.days} days: {int(totals['calls'])} calls, {totals['weighted']:,.0f} weighted, "
+          f"{int(totals['cold'])} cold starts")
+    if plan:
+        p = plan[-1]
+        print(f"Plan at {p.get('at', '?')}: weekly {p.get('weekly')}% used, five-hour {p.get('five_hour')}% used")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

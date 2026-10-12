@@ -1,0 +1,183 @@
+name: Taffy
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 154.0.0
+  # The On-Device Voice (Kyutai Pocket TTS through Core ML), pinned to the commit the call test ran on Colin's
+  # iPhone 14 Pro (docs/research/2026-10-08-kokoro-call-test.md). Unpatched: the app tells sentences apart by
+  # each frame's utterance index. The voice model and the Smart Turn end-of-turn model download on first use
+  # (about 472 MB) and are not in the app.
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    revision: 0c0f113e8db4b862b19a99ce9fd7c9da73324f5f
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Taffy:
+    type: application
+    platform: iOS
+    sources:
+      - path: Taffy
+      - path: Shared
+      - path: PushShared
+    dependencies:
+      - package: WebRTC
+      - package: FluidAudio
+        product: FluidAudio
+      # Native macOS helper for bots using Colin's Mac; only the Mac build carries it.
+      - target: TaffyMacBridge
+        embed: true
+        platformFilter: macOS
+        copy:
+          destination: plugins
+      # The notification extension (each notification as a message from its Zip, with its avatar) is off until the
+      # developer account has the App Groups and Communication Notifications capabilities (Oct 10: Xcode on the Mac
+      # has no account signed in, so it cannot add them, and the signed iPhone build failed). To turn it on: sign the
+      # team account into Xcode (Settings, Accounts) or add both capabilities and the App ID
+      # com.example.Taffy.NotificationService in the developer portal, then uncomment these four lines and point
+      # the iphoneos entitlements below at Taffy/Taffy-Communication.entitlements.
+      - target: ZeroNotificationService
+        embed: true
+        platformFilter: iOS
+    info:
+      path: Taffy/Info.plist
+      properties:
+        CFBundleDisplayName: Zero
+        # The Mac menu bar, About and Quit use this (Oct 10: it still said Taffy). The bundle id stays.
+        CFBundleName: Zero
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: Canvas
+        # Landscape is only used on a Zip's screen; everywhere else the app delegate keeps the iPhone in portrait.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        LSApplicationCategoryType: public.app-category.productivity
+        NSMicrophoneUsageDescription: Zero uses the microphone when you call a Zip and when you dictate a message. During a call with ChatGPT Voice, your voice is sent to ChatGPT. With On-Device Voice, it stays on this device.
+        NSSpeechRecognitionUsageDescription: Zero turns your words into text when you dictate a message and during calls with On-Device Voice. This happens on your device when it can. If it cannot, the audio is sent to Apple to be turned into text.
+        # voip: CallKit refuses an app's calls (unentitled) without the Voice over IP background mode.
+        UIBackgroundModes: [audio, voip]
+        # INSendMessageIntent: notifications show as messages from a Zip (Communication Notifications).
+        NSUserActivityTypes: [INStartCallIntent, INSendMessageIntent]
+        NSLocalNetworkUsageDescription: Zero uses your local network to find the best route for a call and to reach your computer when it is on the same Wi-Fi.
+        NSCameraUsageDescription: Zero uses the camera to scan the code that connects this iPhone to your home.
+        # A Mac home is reached on the same Wi-Fi by its local name or address, without TLS for now
+        # (docs/plans/2026-10-08-mac-home-packaging-plan.md pins a certificate at pairing later).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # zero://pair?server=...&code=... opens the code screen filled in. The second scheme is the reversed client id
+        # of the Zero iOS OAuth client, the redirect for Sign In with Google (CONFIGURE.md).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.example.Taffy.pair
+            CFBundleURLSchemes: [zero]
+          - CFBundleURLName: com.example.Taffy.google
+            CFBundleURLSchemes: [com.googleusercontent.apps.000000000000-yourgoogleclientid]
+        # The app's Google client id, used when the home's settings don't name one. Public; iOS clients have no secret.
+        GIDClientID: 000000000000-yourgoogleclientid.apps.googleusercontent.com
+        # Google Sans (SIL Open Font License, unmodified from github.com/google/fonts ofl/googlesans; license in
+        # Taffy/Resources/Fonts/GoogleSans-OFL.txt), only for the Sign In with Google button, as Google's spec asks.
+        UIAppFonts: [GoogleSans.ttf]
+    # The Mac app carries Zero's engine installer (mac/engine): Contents/Resources/Engine, run by the Mac bridge on
+    # first run to set Zero up on the person's own Mac. Only the Mac build gets it.
+    postBuildScripts:
+      - name: Stage the Mac engine installer
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${IS_MACCATALYST:-NO}" = "YES" ] || [ "${EFFECTIVE_PLATFORM_NAME:-}" = "-maccatalyst" ]; then
+            "${SRCROOT}/../mac/engine/stage-engine.sh" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Engine"
+          fi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Taffy
+        SUPPORTS_MACCATALYST: YES
+        # The engine staging script reads the repo (mac/engine, hub, alien) outside the project folder.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Taffy/Taffy-Mac.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": Taffy/Taffy-Communication.entitlements
+        # The simulator too, so the App Group the notification extension reads works there (Oct 10).
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Taffy/Taffy.entitlements
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        TARGETED_DEVICE_FAMILY: "1,2,6"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../Frameworks"
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-ClayFace AppIcon-Twist"
+        ENABLE_PREVIEWS: YES
+
+  # Runs before each notification shows (NotificationService/NotificationService.swift).
+  ZeroNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: PushShared
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Zero Notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Taffy.NotificationService
+        CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  # The end-to-end onboarding harness (docs/plans/2026-10-09-zero-for-anyone-plan.md, WP5): XCUITest on the
+  # simulator, driven by tools/zero-e2e.sh. Not part of the app; nothing in Taffy depends on it.
+  TaffyUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: TaffyUITests
+    dependencies:
+      - target: Taffy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Taffy.UITests
+        TEST_TARGET_NAME: Taffy
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+
+  TaffyMacBridge:
+    type: bundle
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: MacBridge
+      - path: Shared
+    info:
+      path: MacBridge/Info.plist
+      properties:
+        NSPrincipalClass: TaffyMacBridge
+        CFBundleDisplayName: Taffy Mac Bridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Taffy.MacBridge
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        SWIFT_VERSION: "5.10"

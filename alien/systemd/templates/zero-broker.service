@@ -1,0 +1,19 @@
+# The plan broker, a user unit of the owner (jdoe). Installed by zero-home-sudo-prep host --broker.
+# It runs the real claude and codex with the owner's sign-ins for homes on a shared plan, and never hands a
+# token to them. See alien/broker/zero_broker.py.
+[Unit]
+Description=Zero plan broker (shares the owner's Claude and ChatGPT plans without sharing a token)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=HERMES_HOME=%h/.taffy
+Environment=PYTHONPATH=%h/taffy/hermes
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/taffy/.venv/bin/python /srv/zero/broker/zero_broker.py serve
+Restart=always
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target

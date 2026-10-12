@@ -1,0 +1,15 @@
+[project]
+name = "taffy-hub"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.118.0", "uvicorn[standard]==0.37.0", "httpx[http2]==0.28.1", "pyjwt[crypto]>=2.8"]
+
+[project.scripts]
+taffy-hub = "taffy_hub.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["taffy_hub"]

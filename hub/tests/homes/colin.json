@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "home_id": "colin",
+  "person": {
+    "name": "Colin O'Brien",
+    "first_name": "Colin",
+    "timezone": "America/New_York",
+    "quiet_hours": {
+      "start": 23,
+      "end": 7
+    },
+    "pronoun_free": false
+  },
+  "locale": {
+    "units": "us",
+    "spelling": "american",
+    "clock": "12h"
+  },
+  "paths": {
+    "hermes_home": "~/.taffy",
+    "hermes_bin": "~/taffy/bin/taffy",
+    "hub_state": "~/taffy/hub-state",
+    "work": "~/taffy/work",
+    "shared": "~/taffy/shared",
+    "plugin": "~/taffy/plugins/taffy-tools",
+    "owner": "~/taffy/owner",
+    "background_docs": [
+      "~/taffy/shared/background-notes.md",
+      "~/taffy/shared/background-record.txt"
+    ]
+  },
+  "ports": {
+    "hub": 8650,
+    "hermes_api": 8642,
+    "broker_http": 8660,
+    "preview": {
+      "base": 18200,
+      "per_zip": 10,
+      "count": 6
+    },
+    "docker_subnet_base": "172.30"
+  },
+  "network": {
+    "public_url": "https://alien.tail0000.ts.net:6443",
+    "serve_port": 6443
+  },
+  "host": {
+    "name": "alien",
+    "kind": "server",
+    "sandbox_image": "taffy/zip-sandbox:2026-10-08-v1",
+    "lead_backend": "local"
+  },
+  "plan": {
+    "claude": {
+      "mode": "own",
+      "command": "claude"
+    },
+    "chatgpt": {
+      "mode": "own",
+      "codex_command": "~/.local/bin/codex",
+      "codex_base_url": null
+    },
+    "connectors": "claude",
+    "frugal": false,
+    "owner_name": null
+  },
+  "mail": {
+    "accounts": [
+      {
+        "id": "personal",
+        "address": "jdoe1@example.com",
+        "label": "personal",
+        "default": true,
+        "owner_zip": "default",
+        "kind": "imap",
+        "provider": "gmail",
+        "all_mail_folder": "[Gmail]/All Mail",
+        "signoff": "Colin"
+      },
+      {
+        "id": "lakeview",
+        "address": "jd910@lakeview.test",
+        "label": "school",
+        "owner_zip": "school",
+        "kind": "imap",
+        "provider": "gmail",
+        "all_mail_folder": "[Gmail]/All Mail",
+        "signoff": "Best,\nColin O'Brien"
+      },
+      {
+        "id": "goodworks",
+        "address": "colin@goodworks.test",
+        "label": "Good Works work",
+        "owner_zip": "clients",
+        "kind": "imap",
+        "provider": "gmail",
+        "signoff": "Colin"
+      }
+    ],
+    "owner_by_domain": {
+      "lakeview.test": "school",
+      "brightpath.test": "clients",
+      "goodworks.test": "clients",
+      "blueheron.test": "clients",
+      "theblueheron.test": "clients",
+      "netlify.com": "builder",
+      "railway.app": "builder",
+      "cloudflare.com": "builder",
+      "vercel.com": "builder",
+      "namecheap.com": "builder",
+      "porkbun.com": "builder"
+    }
+  },
+  "calendars": [],
+  "integrations": {
+    "tally": {
+      "url": "http://127.0.0.1:18930",
+      "env_file": "~/tally/server/.env"
+    },
+    "trello": {
+      "board_id": "AbCd1234",
+      "name": "Colin | School & Projects",
+      "url": "https://trello.com/b/AbCd1234/colin-school-projects",
+      "lists": [
+        "Doing (one task)",
+        "Next"
+      ]
+    },
+    "whisper_url": "http://10.0.0.65:11437"
+  },
+  "judge": {
+    "enabled": true
+  },
+  "google": {
+    "client_id": "000000000000-yourgoogleclientid.apps.googleusercontent.com"
+  },
+  "push": {
+    "key_dir": "~/.config/taffy-push",
+    "team_id": "YOUR_TEAM_ID",
+    "topic": "com.example.Taffy"
+  },
+  "backup": {
+    "repo": "~/backups/taffy-restic",
+    "drop": null,
+    "mac_copy_expected": true
+  },
+  "zips": {
+    "max": null,
+    "container_memory_mb": null,
+    "owner_keywords": {
+      "school": "lakeview",
+      "career": "acme",
+      "clients": "karen|ken|jake|matt|josh|heron|brightpath|maple grove|good works|gwi|bloomerang",
+      "builder": "lumenly|fernhill"
+    }
+  },
+  "cache": {
+    "keep_warm": true
+  },
+  "apps": {
+    "trello": {
+      "key": "YOUR_TRELLO_API_KEY"
+    },
+    "github": {
+      "client_id": "YOUR_GITHUB_CLIENT_ID"
+    },
+    "dropbox": {
+      "app_key": "YOUR_DROPBOX_APP_KEY"
+    },
+    "linear": {
+      "client_id": "YOUR_LINEAR_CLIENT_ID"
+    },
+    "microsoft": {
+      "client_id": "YOUR_MICROSOFT_CLIENT_ID"
+    },
+    "relay": {
+      "url": "https://relay.example.com"
+    },
+    "notion": {
+      "client_id": "YOUR_NOTION_CLIENT_ID"
+    }
+  }
+}

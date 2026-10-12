@@ -1,0 +1,12 @@
+# Fake secrets the tests use on purpose. Each entry is file:rule:line, written by the export.
+
+# a fake 32-hex Trello key; the hub only accepts keys of that shape
+hub/tests/test_native_apps.py:generic-api-key:31
+# a fake reset token the browser steps must strip from page addresses
+hub/tests/test_fixes_r7.py:generic-api-key:193
+# a fake bearer token the secret scrubber must remove
+hub/tests/test_fixes_r3.py:curl-auth-header:413
+# a fake Netlify token the secret scrubber must remove
+hub/tests/test_fixes_r3.py:generic-api-key:414
+# a fake AWS key id the secret scrubber must remove
+hub/tests/test_fixes_r3.py:aws-access-token:420

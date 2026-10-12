@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""zero-account-home: the only root step the account service (alien/frontdoor) takes, kept to two fixed commands.
+
+    sudo -n /srv/zero/bin/zero-account-home create u-sam      the Linux user zero-u-sam and its root steps:
+                                                              zero-home-sudo-prep home u-sam --all --own-plan
+    sudo -n /srv/zero/bin/zero-account-home remove qa-test1   zero-home-sudo-prep remove-home qa-test1
+                                                              --confirm-delete-home qa-test1
+
+It accepts only home ids made by the account service ("u-<slug>" for people, "qa-<slug>" for test accounts), so it
+can never touch the owner's home, Riley's or the test home. A home made here is on the person's own plan: it is not
+in the zero-plans group and never reaches the owner's Claude or ChatGPT through the broker.
+
+/etc/sudoers.d/zero-accounts lets the owner run this one file as root without a password (zero-home-sudo-prep
+host --sudoers writes it).
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import importlib.util  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[0] not in ("create", "remove"):
+        print("usage: zero-account-home create|remove HOME_ID", file=sys.stderr)
+        return 2
+    what, home = argv
+    if not lib.ACCOUNT_HOME_RE.match(home):
+        print(f"{home!r} is not a home the account service makes (u-<slug> or qa-<slug>).", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("Run this with sudo.", file=sys.stderr)
+        return 2
+    prep = [sys.executable, str(HERE / "zero-home-sudo-prep")]
+    if what == "create":
+        cmd = prep + ["home", home, "--all", "--own-plan"]
+    else:
+        cmd = prep + ["remove-home", home, "--confirm-delete-home", home]
+    return subprocess.run(cmd).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

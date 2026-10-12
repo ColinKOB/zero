@@ -1,0 +1,79 @@
+Hermes patch: an unqualified computer_use capture skips desktop panels and docks.
+Base: ~/taffy/hermes at 74943bb889 (Oct 9, 2026). Apply: cd ~/taffy/hermes && git apply ~/taffy/patches/hermes-computer-use-skip-panels.patch
+
+Why (docs/qa/2026-10-09-school-browser.md): on the Bot Desktop (Xfce) the window manager stacks the two
+xfce4-panel windows above every normal window, and cua-driver reports that stacking as z_index. capture()
+with no app took the frontmost window, the 88x44 launcher dock at the bottom of the screen, so School's
+capture came back "88x44 app=Xfce4-panel, 0 interactable elements" while Chromium was open behind it.
+The fix adds panel and dock app names to the existing "not a real app window" filter that implicit Linux
+captures already apply. Asking for the panel by name (app="Xfce4-panel") still captures it.
+Tests: tests/tools/test_computer_use_capture_panel_window.py (fails before, passes after); all
+tests/tools/test_computer_use*.py pass (251 passed, 8 skipped).
+
+diff --git a/tests/tools/test_computer_use_capture_panel_window.py b/tests/tools/test_computer_use_capture_panel_window.py
+new file mode 100644
+index 00000000..f3e0e2df
+--- /dev/null
++++ b/tests/tools/test_computer_use_capture_panel_window.py
+@@ -0,0 +1,37 @@
++"""Unqualified Linux captures skip desktop panels and docks (Xfce on the Bot Desktop), which the window manager
++stacks above every normal window: on Oct 9 a capture returned the 88x44 launcher dock instead of the browser."""
++
++from unittest import mock
++
++from tools.computer_use import cua_backend_capture
++from tools.computer_use.cua_backend_capture import _select_capture_target
++
++
++def _window(app_name, title, window_id, z_index):
++    return {"app_name": app_name, "pid": 100 + window_id, "window_id": window_id, "title": title,
++            "off_screen": False, "z_index": z_index}
++
++
++# list_windows on the School Bot Desktop, Oct 9, sorted frontmost first as capture() sorts it.
++DOCK = _window("Xfce4-panel", "xfce4-panel", 6291468, 3)
++TOP_PANEL = _window("Xfce4-panel", "xfce4-panel", 6291459, 2)
++BROWSER = _window("Chromium-browser", "Course | eLearning - Google Chrome for Testing", 10485763, 1)
++DESKTOP = _window("Xfdesktop", "Desktop", 8388648, 0)
++
++
++def test_implicit_linux_capture_picks_the_browser_not_the_dock():
++    with mock.patch.object(cua_backend_capture.sys, "platform", "linux"):
++        target = _select_capture_target([DOCK, TOP_PANEL, BROWSER, DESKTOP], app_requested=False)
++    assert target == BROWSER
++
++
++def test_only_shell_windows_still_capture_something():
++    with mock.patch.object(cua_backend_capture.sys, "platform", "linux"):
++        target = _select_capture_target([DOCK, TOP_PANEL, DESKTOP], app_requested=False)
++    assert target == DOCK
++
++
++def test_asking_for_the_panel_by_name_still_gets_it():
++    with mock.patch.object(cua_backend_capture.sys, "platform", "linux"):
++        target = _select_capture_target([DOCK, BROWSER], app_requested=True)
++    assert target == DOCK
+diff --git a/tools/computer_use/cua_backend_parse.py b/tools/computer_use/cua_backend_parse.py
+index 0800df90..fcb46a2a 100644
+--- a/tools/computer_use/cua_backend_parse.py
++++ b/tools/computer_use/cua_backend_parse.py
+@@ -14,6 +14,10 @@ from tools.computer_use.backend import ActionResult, UIElement, image_dimensions
+ # Linux/X11 surfaces GNOME Shell / desktop backdrop windows ahead of real app windows with no useful z-order; they
+ # are targetable but capture as empty, so default capture skips them.
+ _NON_APP_WINDOW_TITLE_PREFIXES = ("@!", "Desktop", "gnome-shell", "GNOME Shell")  # "@!" = GNOME helpers
++# Panels and docks of Linux desktop shells. The window manager stacks them above every normal window, so an
++# unqualified capture on the Bot Desktop (Xfce) picked the 88x44 launcher dock instead of the browser.
++_PANEL_APP_NAMES = frozenset({"xfce4-panel", "plank", "tint2", "polybar", "lxpanel", "lxqt-panel",
++                              "mate-panel", "budgie-panel", "cairo-dock", "latte-dock"})
+ 
+ _ELEMENT_LINE_RE = re.compile(
+     r'^\s*(?:-\s+)?\[(\d+)\]\s+(\w+)'
+@@ -77,6 +81,8 @@ def _parse_xprop_net_active_window(stdout: str) -> Optional[int]:
+ def _is_real_app_window(w: Dict[str, Any]) -> bool:
+     """Return False for desktop/shell helper windows that capture as empty."""
+     title = w.get("title", "")
++    if str(w.get("app_name", "")).strip().lower() in _PANEL_APP_NAMES or title.strip().lower() in _PANEL_APP_NAMES:
++        return False
+     return not any(title.startswith(p) or title.lower().startswith(p.lower()) for p in _NON_APP_WINDOW_TITLE_PREFIXES)
+ 
+ def _parse_elements_from_tree(markdown: str) -> List[UIElement]:

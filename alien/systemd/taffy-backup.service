@@ -1,0 +1,8 @@
+[Unit]
+Description=Taffy nightly encrypted backup (restic, ~/backups/taffy-restic)
+
+[Service]
+Type=oneshot
+ExecStart=%h/taffy/bin/taffy-backup
+Nice=10
+IOSchedulingClass=idle

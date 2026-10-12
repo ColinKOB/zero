@@ -1,0 +1,3 @@
+# The plan broker's environment for this home. Written by zero-home-render. Mode 600.
+CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND=/srv/zero/broker/claude-client
+HERMES_CODEX_BASE_URL=http://127.0.0.1:8660/test/golden-secret-not-real

@@ -1,0 +1,167 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 38d4eef..164f4cc 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -95,6 +95,7 @@ _CAPABILITY_ENDPOINTS = (
+     ("session_fork", ("POST", "/api/sessions/{session_id}/fork")),
+     ("session_chat", ("POST", "/api/sessions/{session_id}/chat")),
+     ("session_chat_stream", ("POST", "/api/sessions/{session_id}/chat/stream")),
++    ("session_keepwarm", ("POST", "/api/sessions/{session_id}/keepwarm")),
+     ("session_model_lock", ("POST", "/api/sessions/{session_id}/model")),
+     ("browser_control_register", ("POST", "/v1/browser-control/register")),
+     ("browser_control_ws", ("GET", "/v1/browser-control/ws")),
+@@ -1742,6 +1743,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             ("POST", "/api/sessions/{session_id}/fork", self._handle_fork_session),
+             ("POST", "/api/sessions/{session_id}/chat", self._handle_session_chat),
+             ("POST", "/api/sessions/{session_id}/chat/stream", self._handle_session_chat_stream),
++            ("POST", "/api/sessions/{session_id}/keepwarm", self._handle_session_keepwarm),
+             ("POST", "/api/sessions/{session_id}/model", self._handle_session_model_lock),
+             ("POST", "/v1/chat/completions", self._handle_chat_completions),
+             ("POST", "/v1/responses", self._handle_responses),
+@@ -3611,6 +3613,63 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+              "runtime": self._effective_turn_runtime(ctx["runtime_request"], result, usage)},
+             headers=headers)
+ 
++    @_admit_api_agent_request
++    async def _handle_session_keepwarm(self, request: "web.Request") -> "web.Response":
++        """POST /api/sessions/{session_id}/keepwarm — refresh an idle chat's prompt cache at read price.
++
++        One model call on a persistence-detached cache-parity fork (the ``/btw`` primitive,
++        ``api_server_keepwarm``): the session's stored system prompt, tools[] and history are replayed
++        byte-identically with a one-line query, so the provider reads the cached prefix and its TTL starts
++        over. Nothing is written to the session. Skipped (200, ``skipped``) while a run holds the session,
++        when it has no stored prompt (the next turn rebuilds it, so there is nothing warm to keep) or no
++        finished reply."""
++        limited = self._concurrency_limited_response()
++        if limited is not None:
++            return limited
++        session_id = request.match_info["session_id"]
++        session, err = await self._get_existing_session_or_404(session_id)
++        if err:
++            return err
++        from gateway.platforms import api_server_keepwarm as _keepwarm
++        db = await self._ensure_session_db_async()
++        tip = (await asyncio.to_thread(db.resolve_resume_session_id, session_id) if db is not None else None) or session_id
++
++        def _skip(reason: str) -> "web.Response":
++            return web.json_response({"object": "hermes.session.keepwarm", "session_id": tip, "skipped": reason})
++
++        if any(getattr(a, "session_id", None) in (session_id, tip) for a in list(self._active_run_agents.values())):
++            return _skip("busy")
++        row = (await asyncio.to_thread(db.get_session, tip) if db is not None else None) or session
++        if not (row or {}).get("system_prompt"):
++            return _skip("no_stored_prompt")
++        history = await self._conversation_history_for_session(tip)
++        if not _keepwarm.trim_snapshot(history):
++            return _skip("no_finished_reply")
++        # The chat's own runtime selection (_prepare_session_chat), with no request body to add to it.
++        runtime_request = self._effective_session_runtime_request(session=row, body={})
++        lock_active = bool(runtime_request.get("require_model_lock"))
++        agent_overrides: Dict[str, Any] = {}
++        if lock_active:
++            route, session_model = runtime_request.get("route"), None
++            requested = runtime_request.get("requested") or {}
++            for src_key, dst_key in (("model", "requested_model"), ("provider", "requested_provider")):
++                if requested.get(src_key):
++                    agent_overrides[dst_key] = requested[src_key]
++            if runtime_request.get("model_options"):
++                agent_overrides["model_options"] = runtime_request["model_options"]
++        else:
++            stored_model = self._stored_session_model(row)
++            route = self._resolve_route(stored_model)
++            session_model = stored_model if (stored_model and route is None) else None
++        result, usage = await self._run_agent(
++            user_message="", conversation_history=history, session_id=tip, route=route,
++            session_model=session_model, requested_runtime=runtime_request.get("requested") or {},
++            route_source=runtime_request.get("route_source") or "global", confirmed_runtime_lock=lock_active,
++            keep_warm=True, **agent_overrides)
++        body = {"object": "hermes.session.keepwarm", "session_id": tip}
++        body.update(result if isinstance(result, dict) else {})
++        return web.json_response(body)
++
+     @_admit_api_agent_request
+     async def _handle_session_chat_stream(self, request: "web.Request") -> "web.StreamResponse":
+         """POST /api/sessions/{session_id}/chat/stream — SSE wrapper over _run_agent."""
+@@ -4197,7 +4256,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         session_history_delivery: str = "", turn_author: Optional[Dict[str, Any]] = None,
+         relay_metadata: Optional[Dict[str, Any]] = None, notification_category: str = "result",
+         resume_unanswered_turn: bool = False, approval_notify_callback=None,
+-        approval_session_key: Optional[str] = None) -> tuple:
++        approval_session_key: Optional[str] = None, keep_warm: bool = False) -> tuple:
+         """Create an agent and run one turn in a thread executor -> ``(result, usage)``.
+         ``approval_notify_callback`` (with ``approval_session_key``) routes dangerous-command
+         approval requests to the caller's stream, keyed like ``/v1/runs`` approvals (#51871).
+@@ -4243,6 +4302,11 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                         session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock)
+                     if agent_ref is not None:
+                         agent_ref[0] = agent
++                    if keep_warm:
++                        # One cache-refresh call on a detached fork of this agent; nothing is persisted.
++                        from gateway.platforms.api_server_keepwarm import run_keep_warm
++                        kept = run_keep_warm(agent, conversation_history)
++                        return kept, kept.get("usage") or {}
+                     if resume_unanswered_turn:
+                         # A dispatcher's re-run of a failed delivery turn: the DM's own row is already
+                         # in the store (the failed attempt persisted it at turn start), so continue THAT
+diff --git a/gateway/platforms/api_server_keepwarm.py b/gateway/platforms/api_server_keepwarm.py
+new file mode 100644
+index 0000000..b3eb654
+--- /dev/null
++++ b/gateway/platforms/api_server_keepwarm.py
+@@ -0,0 +1,56 @@
++"""Keep an idle chat's prompt cache warm at read price (POST /api/sessions/{id}/keepwarm).
++
++A chat's request prefix (tools[], system prompt, history) is cached by the provider for an hour, and every read
++starts that hour again. A person who comes back after the hour pays the whole prefix again as a cache write. The
++hub calls this endpoint about 55 minutes after a chat's last turn: one call on a cache-parity fork (the same
++primitive as ``/btw`` and the background review, agent.background_review.build_cache_parity_fork) replays the
++stored prompt, tools[] and the history byte-identically and adds a one-line query. The provider reads the prefix
++(cache-read price) and writes only the last reply and the query. The fork is persistence-detached: no state.db
++write, no memory provider, no ``pre_llm_call`` hooks, and every tool call is denied at dispatch, so the session,
++its memory and the hub's team notes are exactly as before.
++"""
++
++from typing import Any, Dict, List, Optional
++
++PING = ("[Automatic cache refresh. This is not a message from the person and nothing needs doing. Reply with only "
++        "the word: ok]")
++_DENY = "Cache refresh: tools are off here ({tool_name}). Reply with only the word ok."
++
++
++def trim_snapshot(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
++    from agent.side_question import trim_snapshot_for_fork
++    return trim_snapshot_for_fork(history)
++
++
++def run_keep_warm(parent: Any, history: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
++    """One cache-refresh call for ``parent``'s session. Returns ``{"ok", "usage", "api_calls"}`` or ``{"skipped"}``."""
++    from agent.background_review import _snapshot_review_usage, build_cache_parity_fork
++    from agent.conversation_loop import _restore_or_build_system_prompt
++    from hermes_cli.plugins import clear_thread_tool_whitelist, set_thread_tool_whitelist
++
++    snapshot = trim_snapshot(history)
++    if not snapshot:
++        return {"skipped": "no_finished_reply"}
++    # The prompt and the tools[] pin the next real turn would restore (stored, never rebuilt here: the endpoint
++    # skips a session without a stored prompt).
++    _restore_or_build_system_prompt(parent, None, history)
++    fork, _rt, routed = build_cache_parity_fork(parent, {}, max_iterations=1, write_origin="keep_warm")
++    if routed:
++        fork.close()
++        return {"skipped": "routed"}
++    try:
++        set_thread_tool_whitelist(set(), deny_msg_fmt=_DENY)
++        result = fork.run_conversation(user_message=PING, conversation_history=snapshot)
++        usage = _snapshot_review_usage(fork)
++    finally:
++        clear_thread_tool_whitelist()
++        for step in (fork.shutdown_memory_provider, fork.close):
++            try:
++                step()
++            except Exception:
++                pass
++    result = result if isinstance(result, dict) else {}
++    out = {"ok": not result.get("error"), "usage": usage, "api_calls": result.get("api_calls")}
++    if result.get("error"):
++        out["error"] = str(result["error"])[:300]
++    return out

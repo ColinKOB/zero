@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""zero-home-test up|down|reset: the throwaway test home (user zero-test) that proves a stranger's path.
+
+Run as the owner (jdoe), after `sudo zero-home-sudo-prep home test --all`:
+
+    zero-home-test up [--seed FILE] [--smoke] [--dry-run]
+        builds the home with zero-home-create, starts a local mail server (GreenMail in the home's own
+        rootless Docker, SMTP and IMAP on loopback ports at the top of the home's preview range), seeds it
+        with a few messages, writes the mailbox details to ~/taffy/state/greenmail.json and prints a
+        pairing code. --smoke also asks the lead Zip "say hi" through the broker.
+    zero-home-test down [--dry-run]
+        stops the home's services, removes its containers, networks, images and rootless Docker, deletes
+        every file the test user owns in its home folder (find -delete, as that user), and removes the
+        broker's folders for it. Then `sudo zero-home-sudo-prep remove-home test` removes the user itself.
+    zero-home-test reset
+        down, then up.
+
+Only the test home is ever torn down by this script. Any other home is refused unless the separate flag
+--confirm-delete-home HOME names it exactly, and the owner's home is refused always.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+import smtplib
+import subprocess
+import sys
+import time
+from email.message import EmailMessage
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+GREENMAIL_IMAGE = "greenmail/standalone:2.1.3"
+GREENMAIL_NAME = "zero-greenmail"
+MAIL_USER, MAIL_DOMAIN, MAIL_PASSWORD = "sam", "zero.test", "zero-test-mail"   # a fake local mailbox, not a secret
+
+DEFAULT_SEED = [
+    {"from": "Jordan Lee <jordan@example.org>", "subject": "Can you send the signed lease by Friday?",
+     "body": "Hi Sam,\n\nThe landlord asked again for the signed lease. Could you send it back by Friday?\n\nThanks,\nJordan"},
+    {"from": "Streamly <billing@streamly.example>", "subject": "Your annual plan renews on the 28th",
+     "body": "Your Streamly Premium plan renews on the 28th for $119.99. Manage it in your account settings."},
+    {"from": "Riverside Library <news@library.example>", "subject": "This week at the library",
+     "body": "Story time moves to Thursday this week. The book sale runs Saturday from 9 to 2."},
+]
+
+
+def refuse_unless_test(home: str, confirm: str) -> None:
+    if home == "colin":
+        raise SystemExit("The owner's home is never torn down by a script.")
+    if home != "test" and confirm != home:
+        raise SystemExit(f"Refusing to tear down {home}. Only the test home is torn down without the separate flag "
+                         f"--confirm-delete-home {home}.")
+
+
+# ---------------------------------------------------------------------------------------------------------
+# As the owner
+# ---------------------------------------------------------------------------------------------------------
+
+def owner_phase(a, argv: list[str]) -> int:
+    registry = lib.read_registry()
+    entry = lib.home_entry(a.home, registry)
+    if not entry:
+        print(f"{a.home} is not in {lib.REGISTRY}. First: sudo zero-home-sudo-prep home {a.home} --all", file=sys.stderr)
+        return 2
+    if entry.get("owner") or entry.get("user") == lib.OWNER_USER:
+        raise SystemExit("The owner's home is never touched by zero-home-test.")
+    def as_home(action: str) -> int:
+        cmd = ["sudo", "-n", "-H", "-u", entry["user"], str(lib.SRV / "bin" / "zero-home-test"), action, "--as-home",
+               "--home", a.home]
+        for flag, value in (("--confirm-delete-home", a.confirm_delete_home), ("--seed", a.seed)):
+            if value:
+                cmd += [flag, value]
+        cmd += [f for f, on in (("--smoke", a.smoke), ("--dry-run", a.dry_run)) if on]
+        return subprocess.run(cmd).returncode
+
+    if a.action in ("down", "reset"):
+        refuse_unless_test(a.home, a.confirm_delete_home)
+        code = as_home("down")
+        if code != 0:
+            return code
+        broker = [sys.executable, str(lib.SRV / "broker" / "zero_broker.py"), "remove-home", a.home]
+        if a.home != "test":
+            broker += ["--confirm", a.home]
+        if a.dry_run:
+            broker.append("--dry-run")
+        subprocess.run(broker)
+        if a.action == "down":
+            print(f"\nNext, to remove the user itself: sudo {lib.SRV / 'bin' / 'zero-home-sudo-prep'} remove-home {a.home}"
+                  + (f" --confirm-delete-home {a.home}" if a.home != "test" else ""))
+            return 0
+    create = [str(lib.SRV / "bin" / "zero-home-create"), a.home, "--no-pair"] + (["--dry-run"] if a.dry_run else [])
+    code = subprocess.run(create).returncode
+    if code != 0:
+        return code
+    return as_home("up")
+
+
+# ---------------------------------------------------------------------------------------------------------
+# As the test home's user
+# ---------------------------------------------------------------------------------------------------------
+
+def docker(ops, *args: str, check: bool = True, always: bool = False):
+    return ops.run(["docker", *args], env=lib.runtime_env(), check=check, capture=True, always=always)
+
+
+def mail_ports(settings: dict) -> tuple[int, int]:
+    base = settings["ports"]["preview"]["base"]
+    span = settings["ports"]["preview"]["per_zip"] * settings["ports"]["preview"]["count"]
+    return base + span - 10, base + span - 9      # the last slot is never a Zip's in a test home (zips.max 4)
+
+
+def start_greenmail(ops, settings: dict) -> dict:
+    smtp, imap = mail_ports(settings)
+    running = docker(ops, "ps", "-q", "--filter", f"name=^{GREENMAIL_NAME}$", check=False, always=True)
+    if not (running.stdout or "").strip():
+        docker(ops, "rm", "-f", GREENMAIL_NAME, check=False)
+        opts = (f"-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 "
+                f"-Dgreenmail.users={MAIL_USER}:{MAIL_PASSWORD}@{MAIL_DOMAIN} -Dgreenmail.users.login=email")
+        docker(ops, "run", "-d", "--name", GREENMAIL_NAME, "--restart", "unless-stopped",
+               "-p", f"127.0.0.1:{smtp}:3025", "-p", f"127.0.0.1:{imap}:3143", "-e", f"GREENMAIL_OPTS={opts}",
+               GREENMAIL_IMAGE)
+    return {"address": f"{MAIL_USER}@{MAIL_DOMAIN}", "password": MAIL_PASSWORD, "imap_host": "127.0.0.1",
+            "imap_port": imap, "imap_tls": False, "smtp_host": "127.0.0.1", "smtp_port": smtp, "smtp_tls": False,
+            "provider": "other"}
+
+
+def seed(mail: dict, messages: list[dict]) -> int:
+    for _ in range(60):
+        try:
+            with smtplib.SMTP(mail["smtp_host"], mail["smtp_port"], timeout=5) as s:
+                s.noop()
+            break
+        except OSError:
+            time.sleep(1)
+    sent = 0
+    with smtplib.SMTP(mail["smtp_host"], mail["smtp_port"], timeout=10) as s:
+        for m in messages:
+            msg = EmailMessage()
+            msg["From"] = m["from"]
+            msg["To"] = mail["address"]
+            msg["Subject"] = m["subject"]
+            msg.set_content(m["body"])
+            s.send_message(msg)
+            sent += 1
+    return sent
+
+
+def home_up(a) -> int:
+    registry = lib.read_registry()
+    lib.assert_home_identity(a.home, registry)
+    home = lib.user_home(lib.current_user())
+    settings = lib.load_home(home / "taffy" / "home.json")
+    ops = lib.Ops(dry_run=a.dry_run)
+    mail = start_greenmail(ops, settings)
+    state = home / "taffy" / "state" / "greenmail.json"
+    ops.write(state, json.dumps(mail, indent=2) + "\n", 0o600)
+    if a.dry_run:
+        ops._did(f"seed {len(DEFAULT_SEED)} messages into {mail['address']}")
+    else:
+        # Each set of messages is seeded once. A different --seed (the e2e run's own mail after `up --smoke` seeded
+        # the default set) is added too, so the run finds the messages it asks about.
+        messages = json.loads(Path(a.seed).read_text()) if a.seed else DEFAULT_SEED
+        marker = state.parent / "greenmail-seeded"
+        key = hashlib.sha256(json.dumps(messages, sort_keys=True).encode()).hexdigest()[:16]
+        done = set(marker.read_text().split()) if marker.exists() else set()
+        if key in done:
+            messages = []
+    if not a.dry_run and messages:
+        n = seed(mail, messages)
+        marker.write_text("\n".join(sorted(done | {key})) + "\n")
+        print(f"Seeded {n} messages into {mail['address']} (IMAP 127.0.0.1:{mail['imap_port']}, "
+              f"SMTP 127.0.0.1:{mail['smtp_port']}, password in {state}).")
+    if a.smoke and not a.dry_run:
+        p = subprocess.run([str(home / "taffy" / "bin" / "taffy"), "chat", "--oneshot", "-q", "say hi"], capture_output=True,
+                           text=True, timeout=300, env=lib.runtime_env())
+        print(f"Smoke test: the lead Zip {'answered' if p.returncode == 0 and p.stdout.strip() else 'did not answer'}"
+              f" (exit {p.returncode}).")
+        if p.returncode != 0:
+            print(p.stderr.strip()[-500:])
+    if a.dry_run:
+        return 0
+    p = subprocess.run([str(lib.SRV / "bin" / "zero-home-create"), a.home, "--pair", "--as-home"])
+    return p.returncode
+
+
+def home_down(a) -> int:
+    registry = lib.read_registry()
+    refuse_unless_test(a.home, a.confirm_delete_home)
+    lib.assert_home_identity(a.home, registry)
+    home = lib.user_home(lib.current_user())
+    if not str(home).startswith("/home/zero-") or home.name != f"zero-{a.home}":
+        raise SystemExit(f"{home} is not a Zero home folder; nothing is deleted.")
+    ops = lib.Ops(dry_run=a.dry_run)
+    env = lib.runtime_env()
+    for unit in ("taffy-hub.service", "taffy-gateway.service", "taffy-backup.timer", "taffy-backup.service"):
+        ops.run(["systemctl", "--user", "disable", "--now", unit], env=env, check=False)
+    if docker(ops, "info", check=False, always=True).returncode == 0:
+        ids = (docker(ops, "ps", "-aq", check=False, always=True).stdout or "").split()
+        if ids:
+            docker(ops, "rm", "-f", *ids, check=False)
+        docker(ops, "network", "prune", "-f", check=False)
+        docker(ops, "image", "prune", "-af", check=False)
+        docker(ops, "volume", "prune", "-af", check=False)
+    ops.run(["systemctl", "--user", "disable", "--now", "docker.service"], env=env, check=False)
+    ops.run(["dockerd-rootless-setuptool.sh", "uninstall", "-f"], env=env, check=False)
+    data = home / ".local" / "share" / "docker"
+    if data.exists():
+        ops.run(["rootlesskit", "rm", "-rf", str(data)], env=env, check=False,
+                describe=f"remove {data} (files owned by the container id range)")
+    ops.run(["systemctl", "--user", "daemon-reload"], env=env, check=False)
+    ops.run(["find", str(home), "-mindepth", "1", "-xdev", "-user", lib.current_user(), "-delete"], check=False,
+            describe=f"delete every file {lib.current_user()} owns under {home}")
+    if not a.dry_run:
+        left = [p for p in home.iterdir()]
+        if left:
+            print(f"Left in {home}: {', '.join(sorted(p.name for p in left))[:300]}")
+    print(f"{a.home}: torn down" + (" (dry run, nothing changed)" if a.dry_run else ""))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    ap = argparse.ArgumentParser(prog="zero-home-test", description="The throwaway test home.")
+    ap.add_argument("action", choices=["up", "down", "reset"])
+    ap.add_argument("--home", default="test", help=argparse.SUPPRESS)
+    ap.add_argument("--confirm-delete-home", default="", help="required, with the home's name, for any home but test")
+    ap.add_argument("--seed", help="a JSON list of {from, subject, body} to seed instead of the default messages")
+    ap.add_argument("--smoke", action="store_true", help="ask the lead Zip to say hi through the broker")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--as-home", action="store_true", help=argparse.SUPPRESS)
+    a = ap.parse_args(argv)
+    if not lib.HOME_ID_RE.match(a.home):
+        ap.error("bad home id")
+    if a.action in ("down", "reset"):
+        refuse_unless_test(a.home, a.confirm_delete_home)
+    if a.as_home:
+        lib.fix_home_env()
+        return home_up(a) if a.action == "up" else home_down(a)
+    if lib.current_user() != lib.OWNER_USER:
+        print(f"Run zero-home-test as {lib.OWNER_USER}.", file=sys.stderr)
+        return 2
+    return owner_phase(a, argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

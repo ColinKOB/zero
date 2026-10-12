@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""zero-home-check HOME: proves a home is walled off from every other home and from the owner.
+
+Run it as the owner (jdoe). It checks what the owner can see, then runs itself as the home's user
+(through sudo, which /etc/sudoers.d/zero-homes allows) for what the home can see, and prints one line per
+check. Exit status 0 means every check passed or was skipped for a stated reason.
+
+As the home's user:
+  - its ~/taffy/home.json names this home (home_id): a file without one would read as not Colin's but nameless
+  - cannot read another home's or the owner's ~/.taffy, ~/taffy or ~/.config, or their Docker sockets
+  - cannot read the owner's Claude, Codex or Hermes sign-ins, or the broker's own folder
+  - another home's hub answers 401 without that home's token, and another Hermes API answers 401
+  - a container of this home cannot reach the host's loopback services, the LAN, the tailnet or another
+    home's preview ports
+  - this home's Chromium runs under the zero-chromium AppArmor profile (when a browser is running)
+  - /srv/zero/broker holds nothing readable beyond the socket and the client scripts
+  - through the broker, Claude lists no mcp__claude_ai tool and sees no email address (one Haiku call;
+    --no-model-calls skips it)
+  - the broker refuses `codex exec` and `claude mcp`
+  - how much memory alien has free
+As the owner:
+  - cannot read the home's ~/.taffy, ~/taffy or ~/.config without sudo
+  - the home's hub answers 401 without the home's token
+  - the broker's folders for the home exist and its sign-ins are linked
+
+    zero-home-check HOME [--no-model-calls] [--json]
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import pwd
+import re
+import socket
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+
+@dataclass
+class Result:
+    name: str
+    status: str          # pass | fail | skip
+    detail: str = ""
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Probes: small functions the checks call, replaced in tests
+# ---------------------------------------------------------------------------------------------------------
+
+class Probes:
+    def readable(self, path: Path) -> bool | None:
+        """True when this user can list or read the path, False when refused, None when it does not exist."""
+        try:
+            if path.is_dir():
+                os.listdir(path)
+            else:
+                with open(path, "rb") as f:
+                    f.read(1)
+            return True
+        except PermissionError:
+            return False
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return False
+
+    def can_connect_unix(self, path: Path) -> bool | None:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect(str(path))
+            return True
+        except PermissionError:
+            return False
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return False
+        finally:
+            s.close()
+
+    def http_status(self, url: str) -> int | None:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+        except (OSError, urllib.error.URLError):
+            return None
+
+    def run(self, cmd: list[str], *, input: str | None = None, timeout: float = 120, env: dict | None = None) -> tuple[int, str]:
+        try:
+            p = subprocess.run(cmd, input=input, capture_output=True, text=True, timeout=timeout, env=env)
+            return p.returncode, (p.stdout or "") + (p.stderr or "")
+        except FileNotFoundError:
+            return 127, f"{cmd[0]} not found"
+        except subprocess.TimeoutExpired:
+            return 124, "timed out"
+
+    def processes(self) -> list[tuple[int, str]]:
+        out = []
+        uid = os.getuid()
+        for d in Path("/proc").glob("[0-9]*"):
+            try:
+                if d.stat().st_uid != uid:
+                    continue
+                out.append((int(d.name), os.readlink(d / "exe")))
+            except OSError:
+                continue
+        return out
+
+    def apparmor_label(self, pid: int) -> str:
+        try:
+            return Path(f"/proc/{pid}/attr/current").read_text().strip()
+        except OSError:
+            return ""
+
+    def mem_available_mb(self) -> int | None:
+        try:
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+        except OSError:
+            pass
+        return None
+
+    def home_dir(self, user: str) -> Path | None:
+        try:
+            return Path(pwd.getpwnam(user).pw_dir)
+        except KeyError:
+            return None
+
+    def uid(self, user: str) -> int | None:
+        try:
+            return pwd.getpwnam(user).pw_uid
+        except KeyError:
+            return None
+
+    def host_addresses(self) -> dict:
+        """The host's LAN and tailnet addresses, as a container would try them."""
+        out = {}
+        code, text = self.run(["ip", "-4", "route", "get", "1.1.1.1"])
+        m = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", text)
+        if m:
+            out["lan"] = m.group(1)
+        m2 = re.search(r"\bvia (\d+\.\d+\.\d+\.\d+)", text)
+        if m2:
+            out["router"] = m2.group(1)
+        code, text = self.run(["tailscale", "ip", "-4"])
+        if code == 0 and text.strip():
+            out["tailnet"] = text.strip().splitlines()[0]
+        return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The checks
+# ---------------------------------------------------------------------------------------------------------
+
+PRIVATE = (".taffy", "taffy", ".config")
+OWNER_SECRETS = (".claude/.credentials.json", ".codex/auth.json", ".taffy/auth.json", ".zero-broker",
+                 ".config/taffy-push", ".config/himalaya")
+BROKER_FILES = {"broker.sock", "claude-client", "codex-client", "client.py", "inert_mcp.py", "zero_broker.py",
+                "__pycache__"}
+
+
+def expect_unreadable(probes: Probes, label: str, path: Path) -> Result:
+    r = probes.readable(path)
+    if r is True:
+        return Result(label, "fail", f"{path} can be read")
+    if r is None:
+        return Result(label, "pass", f"{path} does not exist")
+    return Result(label, "pass", "refused")
+
+
+def expect_401(probes: Probes, label: str, url: str) -> Result:
+    code = probes.http_status(url)
+    if code is None:
+        return Result(label, "skip", "nothing is listening there")
+    if code in (401, 403):
+        return Result(label, "pass", f"answered {code}")
+    return Result(label, "fail", f"answered {code} without a token")
+
+
+def home_id_check(home_id: str, path: Path) -> Result:
+    """The home's settings file exists and its home_id is this home's. Every reader takes a file without home_id
+    as a home that is not Colin's, so a missing one would not leak, but the home would have no name."""
+    label = f"home.json names this home ({home_id})"
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return Result(label, "fail", f"{path} does not exist")
+    except (OSError, ValueError) as e:
+        return Result(label, "fail", f"{path} cannot be read: {e}")
+    found = str(data.get("home_id") or "") if isinstance(data, dict) else ""
+    if not found:
+        return Result(label, "fail", f"{path} has no home_id")
+    if found != home_id:
+        return Result(label, "fail", f"{path} says home_id {found!r}")
+    return Result(label, "pass")
+
+
+def others(home_id: str, registry: dict) -> list[tuple[str, dict]]:
+    return [(h, e) for h, e in sorted(registry.get("homes", {}).items()) if h != home_id]
+
+
+def checks_as_home(home_id: str, registry: dict, settings: dict, probes: Probes, *, model_calls: bool = True,
+                   container_targets: dict | None = None) -> list[Result]:
+    res: list[Result] = []
+    for other, entry in others(home_id, registry):
+        d = probes.home_dir(entry.get("user", ""))
+        if d is None:
+            res.append(Result(f"{other}: files", "skip", "that user does not exist"))
+            continue
+        for sub in PRIVATE:
+            res.append(expect_unreadable(probes, f"{other}: ~/{sub}", d / sub))
+        uid = probes.uid(entry["user"])
+        if uid is not None:
+            sock = Path(f"/run/user/{uid}/docker.sock")
+            r = probes.can_connect_unix(sock)
+            res.append(Result(f"{other}: Docker socket", "fail" if r else "pass",
+                              "this home can use it" if r else ("refused" if r is False else "not running")))
+        ports = entry.get("ports", {})
+        if ports.get("hub"):
+            res.append(expect_401(probes, f"{other}: hub without a token", f"http://127.0.0.1:{ports['hub']}/api/bots"))
+        if ports.get("hermes_api"):
+            res.append(expect_401(probes, f"{other}: Hermes API without a key",
+                                  f"http://127.0.0.1:{ports['hermes_api']}/v1/models"))
+        if entry.get("owner"):
+            for rel in OWNER_SECRETS:
+                res.append(expect_unreadable(probes, f"owner: ~/{rel}", d / rel))
+
+    broker_dir = lib.SRV / "broker"
+    try:
+        names = set(os.listdir(broker_dir))
+        extra = sorted(names - BROKER_FILES)
+        res.append(Result("broker folder holds only the socket and clients", "fail" if extra else "pass",
+                          f"unexpected: {', '.join(extra)}" if extra else ""))
+    except PermissionError:
+        res.append(Result("broker folder holds only the socket and clients", "pass", "not readable by this home"))
+    except FileNotFoundError:
+        res.append(Result("broker folder holds only the socket and clients", "skip", "no broker on this machine"))
+
+    res += container_checks(home_id, registry, settings, probes, container_targets)
+    res += browser_check(probes)
+    if settings["plan"]["claude"]["mode"] == "broker":
+        res += broker_checks(probes, model_calls)
+    mb = probes.mem_available_mb()
+    if mb is not None:
+        res.append(Result("memory available on the machine", "pass" if mb >= 1024 else "fail", f"{mb} MB"))
+    own = probes.http_status(f"http://127.0.0.1:{settings['ports']['hub']}/api/health")
+    res.append(Result("this home's hub answers", "pass" if own else "skip",
+                      f"answered {own}" if own else "not running yet"))
+    return res
+
+
+def container_targets_for(home_id: str, registry: dict, settings: dict, probes: Probes) -> dict:
+    """label -> host:port a container must not reach. 10.0.2.2 is the host as rootless Docker's network sees it."""
+    t = {"owner's hub on the host loopback": "10.0.2.2:8650",
+         "this home's own hub on the host loopback": f"10.0.2.2:{settings['ports']['hub']}"}
+    addrs = probes.host_addresses()
+    if "lan" in addrs:
+        t["the host on the LAN (ssh)"] = f"{addrs['lan']}:22"
+    if "router" in addrs:
+        t["the LAN router"] = f"{addrs['router']}:80"
+    if "tailnet" in addrs:
+        t["the host on the tailnet"] = f"{addrs['tailnet']}:{settings['network']['serve_port']}"
+    for other, entry in others(home_id, registry):
+        p = entry.get("ports", {})
+        if p.get("preview_base"):
+            t[f"{other}: first preview port"] = f"10.0.2.2:{p['preview_base']}"
+        if p.get("hub"):
+            t[f"{other}: hub"] = f"10.0.2.2:{p['hub']}"
+    return t
+
+
+def container_checks(home_id: str, registry: dict, settings: dict, probes: Probes, targets: dict | None) -> list[Result]:
+    targets = targets if targets is not None else container_targets_for(home_id, registry, settings, probes)
+    script = "; ".join(f'curl -s -m 4 -o /dev/null "http://{hp}" && echo "OPEN {hp}" || echo "SHUT {hp}"'
+                       for hp in targets.values())
+    image = settings["host"]["sandbox_image"]
+    env = lib.runtime_env()
+    code, out = probes.run(["docker", "run", "--rm", "--network", "zip-default", "--entrypoint", "sh", image, "-c",
+                            script], timeout=180, env=env)
+    if code != 0 and "OPEN" not in out and "SHUT" not in out:
+        return [Result("container reach", "skip", f"could not start a test container: {out.strip()[-200:]}")]
+    res = []
+    for label, hp in targets.items():
+        if f"OPEN {hp}" in out:
+            res.append(Result(f"container cannot reach {label}", "fail", f"{hp} answered"))
+        elif f"SHUT {hp}" in out:
+            res.append(Result(f"container cannot reach {label}", "pass", hp))
+        else:
+            res.append(Result(f"container cannot reach {label}", "skip", "no result"))
+    return res
+
+
+def browser_check(probes: Probes) -> list[Result]:
+    res = [Result("zero-chromium AppArmor profile installed",
+                  "pass" if Path("/etc/apparmor.d/zero-chromium").exists() else "fail")]
+    chromes = [pid for pid, exe in probes.processes() if re.search(r"/\.taffy/tools/chromium-[^/]+/chrome-linux64/chrome$", exe)]
+    if not chromes:
+        res.append(Result("this home's Chromium runs under zero-chromium", "skip", "no browser is running"))
+        return res
+    labels = {probes.apparmor_label(pid) for pid in chromes}
+    ok = all(lbl.startswith("zero-chromium") for lbl in labels)
+    res.append(Result("this home's Chromium runs under zero-chromium", "pass" if ok else "fail",
+                      ", ".join(sorted(labels))))
+    return res
+
+
+TOOLS_PROMPT = ("List the exact names of every tool you can call, one per line, and nothing else. "
+                "If you have none, say NONE. Then, on one last line, write EMAILS: followed by every email "
+                "address you can see anywhere in your context, or NONE.")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def broker_checks(probes: Probes, model_calls: bool) -> list[Result]:
+    res = []
+    code, out = probes.run(["codex", "exec", "say hi"], timeout=60)
+    res.append(Result("broker refuses codex exec", "pass" if code == 126 and "not available" in out else "fail",
+                      f"exit {code}"))
+    code, out = probes.run(["claude", "mcp", "list"], timeout=60)
+    res.append(Result("broker refuses claude mcp", "pass" if code == 126 and "not available" in out else "fail",
+                      f"exit {code}"))
+    code, out = probes.run(["claude", "auth", "status", "--json"], timeout=60)
+    try:
+        status = json.loads(out[out.index("{"):])
+    except ValueError:
+        status = {}
+    leaked = "email" in status or "@" in out
+    res.append(Result("shared Claude plan is signed in, owner's account hidden",
+                      "pass" if status.get("loggedIn") and not leaked else "fail",
+                      "signed in" if status.get("loggedIn") else f"exit {code}"))
+    if not model_calls:
+        res.append(Result("no claude.ai connector through the broker", "skip", "--no-model-calls"))
+        res.append(Result("no owner email reaches a run through the broker", "skip", "--no-model-calls"))
+        return res
+    code, out = probes.run(["claude", "-p", "--model", "claude-haiku-5-5", "--tools", "", "--output-format", "json"],
+                           input=TOOLS_PROMPT, timeout=180)
+    try:
+        answer = json.loads(out.strip().splitlines()[-1]).get("result") or ""
+    except (ValueError, IndexError):
+        return [*res, Result("no claude.ai connector through the broker", "fail", f"no answer (exit {code})"),
+                Result("no owner email reaches a run through the broker", "fail", f"no answer (exit {code})")]
+    found = sorted(set(re.findall(r"mcp__claude_ai_\w+", answer)))
+    res.append(Result("no claude.ai connector through the broker", "fail" if found else "pass",
+                      ", ".join(found[:5]) if found else "none listed"))
+    # The call carries no address of the home's, so any address the model can see came from the owner's side.
+    # The address itself is never printed.
+    emails = EMAIL_RE.findall(answer)
+    res.append(Result("no owner email reaches a run through the broker", "fail" if emails else "pass",
+                      f"{len(emails)} address(es) visible to the model" if emails else "none visible"))
+    return res
+
+
+def checks_as_owner(home_id: str, registry: dict, settings: dict, probes: Probes, broker_state: Path) -> list[Result]:
+    entry = registry["homes"][home_id]
+    res = []
+    d = probes.home_dir(entry["user"])
+    if d is None:
+        return [Result("home user exists", "fail", f"{entry['user']} is missing")]
+    for sub in PRIVATE:
+        res.append(expect_unreadable(probes, f"owner cannot read {home_id}'s ~/{sub}", d / sub))
+    res.append(expect_401(probes, f"{home_id}'s hub without a token", f"http://127.0.0.1:{entry['ports']['hub']}/api/bots"))
+    res.append(expect_401(probes, f"{home_id}'s Hermes API without a key",
+                          f"http://127.0.0.1:{entry['ports']['hermes_api']}/v1/models"))
+    if entry.get("plan") == "broker":
+        hd = broker_state / "homes" / home_id
+        for name, link in (("Claude", hd / "claude" / ".credentials.json"), ("Codex", hd / "codex" / "auth.json")):
+            if link.is_symlink():
+                res.append(Result(f"broker: {home_id}'s {name} sign-in is linked to the owner's", "pass"))
+            elif link.exists():
+                res.append(Result(f"broker: {home_id}'s {name} sign-in is linked to the owner's", "fail",
+                                  "a separate copy; run zero_broker.py relink"))
+            else:
+                res.append(Result(f"broker: {home_id}'s {name} sign-in is linked to the owner's", "fail", "missing"))
+    return res
+
+
+def print_results(title: str, results: list[Result]) -> None:
+    print(title)
+    for r in results:
+        print(f"  {r.status.upper():4}  {r.name}" + (f" ({r.detail})" if r.detail else ""))
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="zero-home-check", description="Prove a home is walled off.")
+    ap.add_argument("home")
+    ap.add_argument("--no-model-calls", action="store_true", help="skip the one Haiku call through the broker")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--as-home", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--dry-run", action="store_true", help="list the checks and run nothing")
+    args = ap.parse_args(argv)
+    lib.fix_home_env()
+    registry = lib.read_registry()
+    entry = lib.home_entry(args.home, registry)
+    if not entry:
+        print(f"{args.home} is not in {lib.REGISTRY}.", file=sys.stderr)
+        return 2
+    if entry.get("owner"):
+        print("zero-home-check runs for a home other than the owner's.", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print(__doc__.split("\n\n")[1])
+        return 0
+    probes = Probes()
+    if args.as_home:
+        lib.assert_home_identity(args.home, registry)
+        path = Path.home() / "taffy" / "home.json"
+        results = [home_id_check(args.home, path)]
+        settings = lib.load_home(path)
+        results += checks_as_home(args.home, registry, settings, probes, model_calls=not args.no_model_calls)
+        print(json.dumps([asdict(r) for r in results]))
+        return 0
+    settings = lib.load_home(None)
+    owner_results = checks_as_owner(args.home, registry, settings, probes, Path.home() / ".zero-broker")
+    cmd = ["sudo", "-n", "-H", "-u", entry["user"], str(lib.SRV / "bin" / "zero-home-check"), args.home, "--as-home"]
+    if args.no_model_calls:
+        cmd.append("--no-model-calls")
+    code, out = probes.run(cmd, timeout=600)
+    try:
+        home_results = [Result(**r) for r in json.loads(out.strip().splitlines()[-1])]
+    except (ValueError, IndexError, TypeError):
+        home_results = [Result("checks as the home's user", "fail", f"could not run them (exit {code}): {out.strip()[-300:]}")]
+    if args.json:
+        print(json.dumps({"owner": [asdict(r) for r in owner_results], "home": [asdict(r) for r in home_results]}))
+    else:
+        print_results(f"As the owner ({lib.current_user()}):", owner_results)
+        print_results(f"As {entry['user']}:", home_results)
+    failed = [r for r in owner_results + home_results if r.status == "fail"]
+    if not args.json:
+        print(f"\n{len(failed)} check(s) failed." if failed else "\nEvery check passed or was skipped for the reason shown.")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

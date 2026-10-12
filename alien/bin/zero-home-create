@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""zero-home-create HOME: builds a Zero home for a user that zero-home-sudo-prep already made.
+
+Run it as the owner (jdoe), after `sudo zero-home-sudo-prep home HOME --all`:
+
+    zero-home-create test [--dry-run]
+    zero-home-create riley --person "Riley Ellis" --timezone America/New_York [--dry-run]
+    zero-home-create HOME --pair                       a new pairing code and link (nothing else changes)
+    zero-home-create HOME --show-backup-password       print the home's backup password once, for the owner
+
+As the owner it prepares the broker's folders for the home (shared plans only) and then runs itself as the
+home's user through sudo (allowed by /etc/sudoers.d/zero-homes), handing over the home's proxy secret on
+stdin. As the home's user it makes the layout, writes home.json, links the shared Hermes checkout, builds
+the venv, copies the hub and plugins, renders the configs and units, sets up rootless Docker with the Zip
+image and networks, makes the backup password, starts the services and prints a pairing code.
+
+Every step checks first, so running it again only does what is missing. --dry-run changes nothing and says
+what it would do.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+SRV = lib.SRV
+ENGINE = SRV / "engine"
+
+TAFFY_WRAPPER = """#!/bin/bash
+# Runs Hermes for this Zero home. Written by zero-home-create.
+export HERMES_HOME="$HOME/.taffy"
+export ZERO_HOME="$HOME/taffy/home.json"
+export PATH="$HOME/taffy/bin:$HOME/.local/bin:/srv/zero/bin:$PATH"
+if [ -f "$HOME/.config/zero-broker/env" ]; then set -a; . "$HOME/.config/zero-broker/env"; set +a; fi
+exec "$HOME/taffy/.venv/bin/hermes" "$@"
+"""
+
+HUB_WRAPPER = """#!/bin/bash
+# The hub's command line for this Zero home (pair, restart, refresh-chats). Written by zero-home-create.
+export HERMES_HOME="$HOME/.taffy"
+export ZERO_HOME="$HOME/taffy/home.json"
+export PYTHONPATH="$HOME/taffy/hub-src:$HOME/taffy/hermes"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+exec "$HOME/taffy/.venv/bin/python" -m taffy_hub.cli "$@"
+"""
+
+HERMES_ENTRY = """#!{python}
+# -*- coding: utf-8 -*-
+import sys
+from hermes_cli.main import main
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
+# ---------------------------------------------------------------------------------------------------------
+# As the owner
+# ---------------------------------------------------------------------------------------------------------
+
+def owner_phase(a, argv: list[str]) -> int:
+    registry = lib.read_registry()
+    entry = lib.home_entry(a.home, registry)
+    if not entry:
+        print(f"{a.home} is not in {lib.REGISTRY}. First run: sudo zero-home-sudo-prep home {a.home} --all",
+              file=sys.stderr)
+        return 2
+    if entry.get("owner"):
+        print("The owner's home is not created by this script.", file=sys.stderr)
+        return 2
+    secret = ""
+    if entry.get("plan") == "broker" and not (a.pair or a.show_backup_password):
+        broker = [sys.executable, str(SRV / "broker" / "zero_broker.py"), "add-home", a.home]
+        if a.dry_run:
+            print(f"would prepare the broker's folders for {a.home} (linked sign-ins and a proxy secret)")
+        else:
+            p = subprocess.run(broker + ["--print-secret"], capture_output=True, text=True)
+            if p.returncode != 0:
+                print(f"The broker could not add {a.home}: {p.stderr.strip()[-300:]}", file=sys.stderr)
+                return 1
+            secret = p.stdout.strip()
+    cmd = ["sudo", "-n", "-H", "-u", entry["user"], str(SRV / "bin" / "zero-home-create"), a.home, "--as-home",
+           *[x for x in argv if x != a.home]]
+    if secret:
+        cmd.append("--broker-secret-stdin")
+    if a.dry_run and lib.current_user() != entry["user"]:
+        print("would run as", entry["user"] + ":", " ".join(cmd[4:]))
+        # A dry run as the home's user needs sudo too; it reads only.
+    p = subprocess.run(cmd, input=(secret + "\n") if secret else None, text=True)
+    return p.returncode
+
+
+# ---------------------------------------------------------------------------------------------------------
+# As the home's user
+# ---------------------------------------------------------------------------------------------------------
+
+def settings_for(a, entry: dict, path: Path) -> dict:
+    if path.exists():
+        return lib.load_home(path)
+    preset = lib.PRESETS.get(a.home, {})
+    person = a.person or preset.get("person")
+    if not person:
+        raise SystemExit("Name the person with --person \"First Last\" (the home has no preset).")
+    return lib.new_home_settings(a.home, person, a.timezone or preset.get("timezone", "America/New_York"),
+                                 entry["ports"], first_name=a.first_name or preset.get("first_name"),
+                                 google_account=a.google_account or preset.get("google_account"),
+                                 own_plan=entry.get("plan") == "own")
+
+
+def build_venv(ops, home: Path) -> None:
+    venv = home / "taffy" / ".venv"
+    py = venv / "bin" / "python"
+    uv = str(SRV / "bin" / "uv")
+    env = dict(os.environ, UV_CACHE_DIR=str(home / ".cache" / "uv"), UV_PYTHON_DOWNLOADS="never")
+    if not py.exists():
+        base = next(iter(sorted((ENGINE / "python" / "bin").glob("python3.1*"))), ENGINE / "python" / "bin" / "python3")
+        ops.run([uv, "venv", "--python", str(base), str(venv)], env=env)
+        ops.run([uv, "pip", "install", "--python", str(py), "-r", str(ENGINE / "requirements.txt")], env=env,
+                describe="install the Python packages the owner's working install uses (uv, from the shared list)")
+    site = next(iter(sorted((venv / "lib").glob("python3.*/site-packages"))), None) if venv.exists() else None
+    kit = ENGINE / "hermes-editable"
+    if site is None:
+        if ops.dry_run:
+            ops._did("link the shared Hermes checkout into the new venv")
+        return
+    for f in sorted(kit.rglob("*")):
+        if f.is_file():
+            ops.write(site / f.relative_to(kit), f.read_text(), 0o644)
+    ops.write(venv / "bin" / "hermes", HERMES_ENTRY.format(python=py), 0o755)
+
+
+def ensure_copy(ops, src: Path, dest: Path) -> None:
+    """A first copy of the hub or a plugin. Later versions come from deploy.sh, so an existing copy stays."""
+    if dest.exists():
+        return
+    ops.run(["rsync", "-a", "--chmod=Dgo+rx,Dgo-w,Fgo+r,Fgo-w,Fgo+X", f"{src}/", f"{dest}/"])
+
+
+def systemctl(ops, *args: str, check: bool = True):
+    return ops.run(["systemctl", "--user", *args], env=lib.runtime_env(), check=check)
+
+
+def is_active(unit: str) -> bool:
+    p = subprocess.run(["systemctl", "--user", "is-active", unit], env=lib.runtime_env(), capture_output=True, text=True)
+    return p.stdout.strip() == "active"
+
+
+def docker(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["docker", *args], env=lib.runtime_env(), capture_output=True, text=True)
+
+
+def setup_docker(ops, home: Path, settings: dict) -> None:
+    env = lib.runtime_env()
+    unit = home / ".config" / "systemd" / "user" / "docker.service"
+    if not unit.exists():
+        ops.run(["dockerd-rootless-setuptool.sh", "install"], env=env,
+                describe="set up rootless Docker for this home (dockerd-rootless-setuptool.sh install)")
+    systemctl(ops, "daemon-reload")
+    if ops.dry_run or not is_active("docker.service"):
+        systemctl(ops, "enable", "--now", "docker.service")
+    if ops.dry_run:
+        ops._did(f"load {settings['host']['sandbox_image']} from {SRV / 'images'} and create the Zip networks")
+        return
+    for _ in range(30):
+        if docker("info").returncode == 0:
+            break
+        time.sleep(1)
+    tag = settings["host"]["sandbox_image"]
+    if docker("image", "inspect", tag).returncode != 0:
+        tar = SRV / "images" / (tag.replace("/", "-").replace(":", "-") + ".tar")
+        ops.run(["docker", "load", "-i", str(tar)], env=env)
+    ops.run([str(SRV / "bin" / "zip-networks.sh")], env=env, describe="create one Docker network per Zip")
+
+
+def backup_password(ops, home: Path) -> None:
+    path = home / ".config" / "taffy-backup" / "restic-password"
+    if path.exists():
+        return
+    ops.mkdir(path.parent, 0o700)
+    ops.write(path, secrets.token_urlsafe(32) + "\n", 0o600, secret=True)
+    ops.say("A backup password was made. The owner keeps it: zero-home-create HOME --show-backup-password")
+
+
+def wait_for_hub(port: int, seconds: int = 90) -> bool:
+    for _ in range(seconds):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2):
+                return True
+        except Exception:
+            time.sleep(1)
+    return False
+
+
+def pair(home: Path, settings: dict) -> int:
+    p = subprocess.run([str(home / "taffy" / "bin" / "taffy-hub"), "pair", "1"], capture_output=True, text=True,
+                       env=lib.runtime_env())
+    out = p.stdout + p.stderr
+    code = None
+    for line in out.splitlines():
+        if line.startswith("Pairing code:"):
+            code = line.split(":", 1)[1].split("(")[0].strip().replace("-", "")
+    if not code:
+        print(f"No pairing code: {out.strip()[-300:]}")
+        return 1
+    server = settings["network"]["public_url"]
+    link = "zero://pair?" + urllib.parse.urlencode({"server": server, "code": code})
+    print(f"\nPairing for {settings['person']['first_name']}'s home (valid for one hour):")
+    print(f"  Address: {server}")
+    print(f"  Code:    {code[:4]}-{code[4:]}")
+    print(f"  Link:    {link}")
+    if shutil.which("qrencode"):
+        subprocess.run(["qrencode", "-t", "ansiutf8", link])
+    else:
+        print(f"  For a QR code, run on the Mac: qrencode -t ansiutf8 '{link}'")
+    state = home / "taffy" / "state" / "pairing.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"server": server, "code": code, "link": link, "at": int(time.time())}))
+    os.chmod(state, 0o600)
+    return 0
+
+
+def home_phase(a) -> int:
+    registry = lib.read_registry()
+    entry = lib.assert_home_identity(a.home, registry)
+    home = lib.user_home(lib.current_user())
+    if a.show_backup_password:
+        path = home / ".config" / "taffy-backup" / "restic-password"
+        if not path.exists():
+            print("This home has no backup password yet.", file=sys.stderr)
+            return 1
+        print(path.read_text().strip())
+        return 0
+    path = home / "taffy" / "home.json"
+    settings = settings_for(a, entry, path)
+    if a.pair:
+        return pair(home, settings)
+    secret = sys.stdin.readline().strip() if a.broker_secret_stdin else ""
+    ops = lib.Ops(dry_run=a.dry_run)
+
+    ops.say(f"[layout] {home}")
+    for d, mode in ((home / ".taffy", 0o700), (home / ".taffy" / "profiles", 0o700), (home / ".taffy" / "plugins", 0o755),
+                    (home / "taffy", 0o755), (home / "taffy" / "bin", 0o755), (home / "taffy" / "hub-state", 0o700),
+                    (home / "taffy" / "work", 0o755), (home / "taffy" / "work" / "default", 0o755),
+                    (home / "taffy" / "shared", 0o755), (home / "taffy" / "owner", 0o755), (home / "taffy" / "state", 0o755),
+                    (home / "taffy" / "plugins", 0o755), (home / ".config", 0o700), (home / ".config" / "systemd" / "user", 0o755),
+                    (home / ".config" / "himalaya", 0o700), (home / ".config" / "taffy-push", 0o700),
+                    (home / ".config" / "taffy-backup", 0o700), (home / ".config" / "zero-broker", 0o700),
+                    (home / "backups", 0o700), (home / ".local" / "bin", 0o755)):
+        ops.mkdir(d, mode)
+    if not path.exists():
+        ops.write(path, json.dumps(settings, indent=2) + "\n", 0o644)
+    else:
+        ops.say(f"{path} is already there; it is kept as it is")
+
+    ops.say("[engine] the shared Hermes checkout, the hub, the plugins and the tools")
+    ops.symlink(home / "taffy" / "hermes", ENGINE / "hermes")
+    ensure_copy(ops, ENGINE / "hub-src", home / "taffy" / "hub-src")
+    ensure_copy(ops, ENGINE / "plugins" / "taffy-tools", home / "taffy" / "plugins" / "taffy-tools")
+    ensure_copy(ops, ENGINE / "plugins" / "claude-subscription-directsdk-experimental",
+                home / ".taffy" / "plugins" / "claude-subscription-directsdk-experimental")
+    ops.symlink(home / ".taffy" / "plugins" / "taffy-tools", home / "taffy" / "plugins" / "taffy-tools")
+    ops.write(home / "taffy" / "bin" / "taffy", TAFFY_WRAPPER, 0o755)
+    ops.write(home / "taffy" / "bin" / "taffy-hub", HUB_WRAPPER, 0o755)
+    for tool in sorted((ENGINE / "bin").iterdir()) if (ENGINE / "bin").is_dir() else []:
+        ops.write(home / "taffy" / "bin" / tool.name, tool.read_text(), 0o755)
+    templates = ENGINE / "shared" / "zip-templates.json"   # the New Zip gallery and onboarding's Zip cards
+    if templates.exists() and not (home / "taffy" / "shared" / "zip-templates.json").exists():
+        ops.write(home / "taffy" / "shared" / "zip-templates.json", templates.read_text(), 0o644)
+    for name in ("restic", "himalaya"):
+        if (SRV / "bin" / name).exists():
+            ops.symlink(home / ".local" / "bin" / name, SRV / "bin" / name)
+    if settings["plan"]["claude"]["mode"] == "broker":
+        ops.symlink(home / ".local" / "bin" / "claude", SRV / "broker" / "claude-client")
+    if settings["plan"]["chatgpt"]["mode"] == "broker":
+        ops.symlink(home / ".local" / "bin" / "codex", SRV / "broker" / "codex-client")
+
+    ops.say("[venv]")
+    build_venv(ops, home)
+
+    ops.say("[render]")
+    render = [str(home / "taffy" / ".venv" / "bin" / "python"), str(SRV / "bin" / "zero-home-render"), a.home]
+    if not Path(render[0]).exists():
+        render[0] = sys.executable
+    if a.dry_run:
+        render.append("--dry-run")
+    if secret:
+        render.append("--broker-secret-stdin")
+    if a.dry_run and not path.exists():
+        ops._did("render the configs, units and SOUL from the new home.json (zero-home-render)")
+    else:
+        subprocess.run(render, input=(secret + "\n") if secret else None, text=True, check=True)
+    lead_cfg = home / ".taffy" / "config.yaml"
+    if not a.dry_run and lead_cfg.exists() and "platform_toolsets" not in lead_cfg.read_text():
+        ops.run([str(home / "taffy" / ".venv" / "bin" / "python"), str(home / "taffy" / "bin" / "set-toolsets.py")],
+                describe="set the tool lists, skills and fallback (set-toolsets.py)")
+
+    ops.say("[docker]")
+    setup_docker(ops, home, settings)
+    ops.say("[backup]")
+    backup_password(ops, home)
+
+    ops.say("[services]")
+    systemctl(ops, "daemon-reload")
+    for unit in ("taffy-gateway.service", "taffy-hub.service", "taffy-backup.timer"):
+        if ops.dry_run or not is_active(unit):
+            systemctl(ops, "enable", "--now", unit)
+    if a.dry_run:
+        print("\nDry run: nothing was changed.")
+        return 0
+    if not wait_for_hub(settings["ports"]["hub"]):
+        print(f"The hub did not answer on port {settings['ports']['hub']} within 90 seconds. "
+              "Check: journalctl --user -u taffy-hub", file=sys.stderr)
+        return 1
+    print(f"\n{a.home}: the gateway, hub and backup timer are running.")
+    if a.no_pair:
+        return 0
+    return pair(home, settings)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    ap = argparse.ArgumentParser(prog="zero-home-create", description="Build a Zero home.")
+    ap.add_argument("home")
+    ap.add_argument("--person", help="the person's full name (riley and test have presets)")
+    ap.add_argument("--first-name")
+    ap.add_argument("--timezone", help="an IANA time zone, such as America/New_York")
+    ap.add_argument("--google-account", help="the Google account the person signs in with (not a secret)")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--pair", action="store_true", help="only print a new pairing code")
+    ap.add_argument("--no-pair", action="store_true", help="do not print a pairing code at the end")
+    ap.add_argument("--show-backup-password", action="store_true")
+    ap.add_argument("--as-home", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--broker-secret-stdin", action="store_true", help=argparse.SUPPRESS)
+    a = ap.parse_args(argv)
+    if not lib.HOME_ID_RE.match(a.home):
+        ap.error(lib.HOME_ID_RULE)
+    if a.as_home:
+        lib.fix_home_env()
+        return home_phase(a)
+    if lib.current_user() != lib.OWNER_USER:
+        print(f"Run zero-home-create as {lib.OWNER_USER}; it switches to the home's user itself.", file=sys.stderr)
+        return 2
+    return owner_phase(a, argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

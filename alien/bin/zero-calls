@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""Reads Zero's saved calls (hub/taffy_hub/calllog.py) for the home's owner and the lead Claude session.
+Times are shown in the home's time zone (home.json person.timezone).
+
+    zero-calls list [--days N]     recent calls, newest first (default: the last 7 days)
+    zero-calls show <id|last>      one call: transcript, timings and the app's diagnostics
+
+Calls live in ~/taffy/hub-state/calls/<YYYY-MM-DD>/<call id>.jsonl (ZERO_CALLS_DIR overrides that).
+An id can be shortened to its first few characters. Standard library only.
+"""
+
+import argparse
+import json
+import os
+import pwd
+import statistics
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+def _home_zone() -> ZoneInfo:
+    """The home's time zone from home.json (person.timezone); Eastern when there is no settings file."""
+    path = Path(os.environ.get("ZERO_HOME") or Path.home() / "taffy" / "home.json")
+    try:
+        return ZoneInfo(json.loads(path.read_text())["person"]["timezone"])
+    except (OSError, ValueError, KeyError, TypeError, Exception):
+        return ZoneInfo("America/New_York")
+
+
+def _person() -> str:
+    path = Path(os.environ.get("ZERO_HOME") or Path.home() / "taffy" / "home.json")
+    try:
+        data = json.loads(path.read_text())
+    except OSError:
+        return "Colin"   # no settings file: Colin's home, as before
+    except ValueError:
+        return "the person"
+    p = (data.get("person") or {}) if isinstance(data, dict) else {}
+    name = str(p.get("first_name") or "").strip() or (str(p.get("name") or "").split() or [""])[0]
+    if name:
+        return name
+    home_id = str((data or {}).get("home_id") or "") if isinstance(data, dict) else ""
+    if not home_id:   # without home_id only Colin's own file is his home (the readers' rule, zero-home-lib.py)
+        try:
+            owner = Path(pwd.getpwnam(os.environ.get("ZERO_OWNER_USER", "jdoe")).pw_dir) / "taffy" / "home.json"
+            home_id = "colin" if os.path.realpath(path) == os.path.realpath(owner) else ""
+        except (KeyError, OSError):
+            home_id = ""
+    return "Colin" if home_id == "colin" else "the person"
+
+
+ET = _home_zone()
+PERSON = _person()
+# The person's lines: the hub writes the person's first name (older logs say "Colin"; "person" is accepted too).
+PERSON_WHO = {PERSON, "Colin", "person"}
+STARTED = ("colin_started", "person_started")
+STOPPED = ("colin_stopped", "person_stopped")
+ERROR_EVENTS = {"error", "failed", "hub_start_failed", "start_failed"}
+
+
+def calls_dir() -> Path:
+    return Path(os.environ.get("ZERO_CALLS_DIR") or Path.home() / "taffy" / "hub-state" / "calls")
+
+
+def read(path: Path) -> list[dict]:
+    out = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue    # a line cut short by a crash
+        if isinstance(ev, dict):
+            out.append(ev)
+    return out
+
+
+def when(ev: dict) -> datetime | None:
+    try:
+        return datetime.fromisoformat(ev["t"]).astimezone(ET)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def all_calls(days: int | None = None) -> list[tuple[datetime, Path]]:
+    root = calls_dir()
+    if not root.is_dir():
+        return []
+    since = (datetime.now(ET) - timedelta(days=days)).date() if days else None
+    found = []
+    for day in root.iterdir():
+        if not day.is_dir():
+            continue
+        try:
+            d = datetime.strptime(day.name, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if since and d < since:
+            continue
+        for f in day.glob("*.jsonl"):
+            first = read_first(f)
+            started = when(first) if first else None
+            found.append((started or datetime.fromtimestamp(f.stat().st_mtime, ET), f))
+    return sorted(found, key=lambda x: x[0], reverse=True)
+
+
+def read_first(path: Path) -> dict | None:
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            return json.loads(f.readline() or "null")
+    except (OSError, ValueError):
+        return None
+
+
+def clock(secs) -> str:
+    try:
+        secs = int(secs)
+    except (TypeError, ValueError):
+        return "?"
+    return f"{secs // 60}:{secs % 60:02d}"
+
+
+def summarize(events: list[dict]) -> dict:
+    start = next((e for e in events if e.get("event") == "start"), {})
+    end = next((e for e in reversed(events) if e.get("event") == "end"), None)
+    system = next((e for e in reversed(events) if e.get("event") == "system_call"), None)
+    if system is None:
+        used = "unknown"
+    else:
+        used = {"callkit": "CallKit", "fallback": "fallback", "none_mac": "Mac"}.get(system.get("used"), "unknown")
+    errors = [e for e in events if e.get("event") in ERROR_EVENTS]
+    turns = sum(1 for e in events if e.get("event") == "line" and e.get("who") in PERSON_WHO)
+    if end is not None:
+        length = clock(end.get("duration"))
+    else:
+        last = max((e.get("s") or 0 for e in events), default=0)
+        length = f"{clock(last)}?"       # no end line: still going, or the hub stopped mid-call
+    waits = [e["ms_after_mic"] for e in events if e.get("event") == "first_reply"
+             and isinstance(e.get("ms_after_mic"), (int, float))]
+    return {"id": start.get("call") or "", "bot": start.get("bot_name") or start.get("bot") or "?",
+            "voice": start.get("voice") or "?", "start": start, "end": end, "system": system, "used": used,
+            "errors": errors, "turns": turns, "length": length, "waits": waits}
+
+
+def error_text(e: dict) -> str:
+    return str(e.get("message") or e.get("text") or e.get("error_description") or e.get("event"))
+
+
+def cmd_list(days: int) -> int:
+    rows = all_calls(days)
+    if not rows:
+        print(f"No saved calls in the last {days} days.")
+        return 0
+    print(f"Calls from the last {days} days, newest first. Times are Eastern.\n")
+    header = f"{'ID':<10} {'When':<20} {'Zip':<10} {'Length':>7}  {'System call':<12} {'Turns':>5}  Problems"
+    print(header)
+    print("-" * len(header))
+    for started, path in rows:
+        info = summarize(read(path))
+        problems = "none"
+        if info["errors"]:
+            n = len(info["errors"])
+            problems = f"{n} error{'s' if n > 1 else ''}: {error_text(info['errors'][0])[:60]}"
+        print(f"{path.stem[:10]:<10} {started.strftime('%a %b %-d %-I:%M %p'):<20} {info['bot'][:10]:<10} "
+              f"{info['length']:>7}  {info['used']:<12} {info['turns']:>5}  {problems}")
+    return 0
+
+
+def find(ident: str) -> Path | None:
+    rows = all_calls()
+    if ident == "last":
+        return rows[0][1] if rows else None
+    exact = [p for _, p in rows if p.stem == ident]
+    if exact:
+        return exact[0]
+    matches = [p for _, p in rows if p.stem.startswith(ident)]
+    if len(matches) > 1:
+        print(f"More than one call starts with {ident}: " + ", ".join(p.stem for p in matches[:5]), file=sys.stderr)
+        return None
+    return matches[0] if matches else None
+
+
+SKIP_FIELDS = {"t", "s", "event", "from", "call"}
+
+
+def fields(e: dict, skip=()) -> str:
+    parts = []
+    for k, v in e.items():
+        if k in SKIP_FIELDS or k in skip:
+            continue
+        parts.append(f"{k}={v}")
+    return ", ".join(parts)
+
+
+def describe(e: dict) -> str:
+    kind, src = e.get("event"), e.get("from")
+    if kind == "line":
+        return f"{e.get('who', '?')}: {e.get('text', '')}"
+    if kind == "first_reply":
+        bits = []
+        for cause, label in (("mic", "after he stopped talking"), ("words", "after his last words were heard"),
+                             ("greeting", "after the hello was asked for")):
+            if f"ms_after_{cause}" in e:
+                bits.append(f"{e[f'ms_after_{cause}']} ms {label}")
+        return f"   first sound from the voice ({e.get('via', '?')}): " + "; ".join(bits)
+    if kind == "tool":
+        extra = f" ERROR {e['error']}" if e.get("error") else ""
+        return f"   [tool {e.get('name')}] {e.get('secs')} s: asked \"{e.get('asked', '')}\" -> \"{e.get('result', '')}\"{extra}"
+    if kind == "news":
+        return f"   [news said] {e.get('text', '')}"
+    if kind in STARTED + STOPPED:
+        return f"   ({PERSON + (' started talking' if kind in STARTED else ' stopped talking')}"\
+               f"{', ' + fields(e) if fields(e) else ''})"
+    if kind in ERROR_EVENTS:
+        return f"!! {src} {kind}: {fields(e)}"
+    if kind == "summary":
+        return "   [summary]\n" + "\n".join("      " + l for l in str(e.get("text", "")).splitlines())
+    tag = "app" if src == "app" else "hub"
+    rest = fields(e)
+    return f"   [{tag}] {kind}{': ' + rest if rest else ''}"
+
+
+def cmd_show(ident: str) -> int:
+    path = find(ident)
+    if path is None:
+        print("No saved call matches that." if ident != "last" else "No saved calls.", file=sys.stderr)
+        return 1
+    events = read(path)
+    info = summarize(events)
+    start = when(info["start"]) if info["start"] else None
+    print(f"Call {path.stem} with {info['bot']}, voice {info['voice']}")
+    if start:
+        print(f"Started {start.strftime('%a %b %-d, %Y %-I:%M:%S %p %Z')}.", end=" ")
+    if info["end"]:
+        reason = info["end"].get("reason")
+        print(f"Lasted {info['length']}{' (' + reason + ')' if reason else ''}.")
+    else:
+        print("No end line: the call is still going or the hub stopped mid-call.")
+    s = info["start"]
+    if s.get("engine") or s.get("relay_model"):
+        print(f"Engine {s.get('engine', '?')}, relay model {s.get('relay_model', '?')}, route {s.get('route', '?')}.")
+    sysc = info["system"]
+    if sysc is None:
+        print("System call: unknown (the app sent no diagnostics for this call).")
+    else:
+        line = f"System call: {info['used']}."
+        if sysc.get("error_domain") or sysc.get("error_code") is not None:
+            line += (f" CallKit refused it: {sysc.get('error_domain', '?')} code {sysc.get('error_code', '?')}: "
+                     f"{sysc.get('error_description', '')}")
+        print(line)
+        audio = next((e for e in events if e.get("event") == "system_audio"), None)
+        if audio and audio.get("source") == "app_after_timeout":
+            print("CallKit accepted the call but never handed over the audio; the app took it after 4 seconds.")
+    if info["waits"]:
+        w = info["waits"]
+        print(f"Reply wait after {PERSON} stopped talking: median {int(statistics.median(w))} ms, "
+              f"slowest {int(max(w))} ms, over {len(w)} {'reply' if len(w) == 1 else 'replies'}.")
+    print(f"Turns by {PERSON}: {info['turns']}. Problems: {len(info['errors'])}.\n")
+    for e in sorted(events, key=lambda e: (e.get("s") if isinstance(e.get("s"), (int, float)) else 0)):
+        if e.get("event") == "start":
+            continue
+        secs = e.get("s")
+        mark = f"{secs:+8.1f}s" if isinstance(secs, (int, float)) else "        ?"
+        print(f"{mark}  {describe(e)}")
+    return 0
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="zero-calls", description="Zero's saved calls.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    pl = sub.add_parser("list", help="recent calls")
+    pl.add_argument("--days", type=int, default=7)
+    ps = sub.add_parser("show", help="one call in full")
+    ps.add_argument("id", help="a call id (or its start), or 'last'")
+    a = p.parse_args(argv)
+    if a.cmd == "list":
+        return cmd_list(max(1, a.days))
+    return cmd_show(a.id)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        sys.exit(0)

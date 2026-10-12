@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""`claude` for a home on a shared plan: hands the request to Zero's plan broker (client.py)."""
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import client  # noqa: E402
+sys.exit(client.main("claude"))

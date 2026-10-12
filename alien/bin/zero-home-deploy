@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""zero-home-deploy: moves a staged copy of the hub or the plugin into this home and restarts what reads it.
+
+    zero-home-deploy hub STAGED_DIR [--force] [--dry-run]     ~/taffy/hub-src, then `taffy-hub restart` at a quiet
+                                                              moment (--force restarts even if the hub stays busy)
+    zero-home-deploy plugin STAGED_DIR [--dry-run]            ~/taffy/plugins/taffy-tools, then restarts
+                                                              taffy-gateway and taffy-hub (the hub loads consent.py)
+
+It runs as the home's own user. hub/scripts/deploy.sh stages the copy in /tmp/zero-deploy-<what>-<home> on alien,
+runs the tests there, and calls `sudo -n -u zero-<home> /srv/zero/bin/zero-home-deploy hub <stage>`, which
+/etc/sudoers.d/zero-homes allows for the owner and nothing more. It refuses unless the running user is a registered,
+non-owner home user, and unless the staged folder is a real folder under /tmp/zero-deploy- holding the right code.
+"""
+
+import argparse
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+STAGE_PREFIX = "/tmp/zero-deploy-"
+# What a staged folder must hold, so a wrong path never replaces a home's code with something else.
+MARKERS = {"hub": ("taffy_hub/app.py", "taffy_hub/home.py"), "plugin": ("__init__.py", "home.py", "gate.py")}
+
+
+def home_of_running_user(registry: dict) -> str:
+    me = lib.current_user()
+    for home_id, entry in registry.get("homes", {}).items():
+        if entry.get("user") == me and not entry.get("owner"):
+            return home_id
+    raise SystemExit(f"{me} is not a home's user in {lib.REGISTRY}. deploy.sh runs this as zero-<home>.")
+
+
+def check_stage(what: str, stage: Path) -> Path:
+    raw = str(stage)
+    if not raw.startswith(STAGE_PREFIX) or ".." in Path(raw).parts:
+        raise SystemExit(f"The staged copy must be under {STAGE_PREFIX}*, not {raw}.")
+    if stage.is_symlink() or not stage.is_dir():
+        raise SystemExit(f"{raw} is not a folder.")
+    missing = [m for m in MARKERS[what] if not (stage / m).is_file()]
+    if missing:
+        raise SystemExit(f"{raw} does not look like the {what} ({', '.join(missing)} missing).")
+    return stage.resolve()
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="zero-home-deploy", description=__doc__.split("\n")[0])
+    ap.add_argument("what", choices=sorted(MARKERS))
+    ap.add_argument("stage", type=Path)
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args(argv)
+
+    lib.fix_home_env()
+    registry = lib.read_registry()
+    home_id = home_of_running_user(registry)
+    lib.assert_home_identity(home_id, registry)
+    stage = check_stage(a.what, a.stage)
+    home = lib.user_home(lib.current_user())
+    dest = home / "taffy" / ("hub-src" if a.what == "hub" else "plugins/taffy-tools")
+    if not dest.is_dir():
+        raise SystemExit(f"{dest} does not exist. Make the home with zero-home-create first.")
+
+    sync = ["rsync", "-a", "--delete", "--exclude", "__pycache__", "--exclude", ".pytest_cache",
+            "--chmod=Dgo+rx,Dgo-w,Fgo+r,Fgo-w", f"{stage}/", f"{dest}/"]
+    env = lib.runtime_env()
+    if a.what == "hub":
+        then = [[str(home / "taffy" / "bin" / "taffy-hub"), "restart", *(["--force"] if a.force else [])]]
+    else:
+        then = [["systemctl", "--user", "restart", "taffy-gateway"],
+                [str(home / "taffy" / "bin" / "taffy-hub"), "restart", *(["--force"] if a.force else [])]]
+    print(f"[{home_id}] {a.what}: {stage} -> {dest}")
+    if a.dry_run:
+        for cmd in [sync, *then]:
+            print("  would run: " + " ".join(cmd))
+        return 0
+    subprocess.run(sync, check=True)
+    for cmd in then:
+        p = subprocess.run(cmd, env=env)
+        if p.returncode:
+            print(f"  {' '.join(cmd)} exited {p.returncode}", file=sys.stderr)
+            return p.returncode
+    print(f"[{home_id}] {a.what} deployed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

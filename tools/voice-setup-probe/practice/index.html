@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Practice: Google AI Studio</title>
+<!-- A local imitation of Google AI Studio's key pages, for testing Zero's guide without a Google account.
+     Labels follow Google's docs (2026-10-06). The key below is fake and does not work anywhere.
+     Scenarios: ?scenario=new (Google made a default key) or ?scenario=cloud (no key yet, make one). -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, "Google Sans", Roboto, sans-serif; color: #1f1f1f; background: #fff; }
+  .practice { background: #fff4c2; color: #5c4600; font-size: 12px; text-align: center; padding: 4px; }
+  header { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid #e3e3e3; }
+  header .logo { font-size: 18px; font-weight: 500; }
+  header .spacer { flex: 1; }
+  header .avatar { width: 30px; height: 30px; border-radius: 50%; background: #7b61ff; color: #fff; display: grid; place-items: center; font-weight: 600; }
+  .layout { display: flex; min-height: calc(100vh - 82px); }
+  nav { width: 230px; padding: 12px 10px; border-right: 1px solid #ececec; background: #fafafa; }
+  nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 18px; color: #1f1f1f; text-decoration: none; margin-bottom: 2px; }
+  nav a.active { background: #e8eefc; color: #0b57d0; font-weight: 500; }
+  nav a svg { width: 18px; height: 18px; }
+  main { flex: 1; padding: 26px 34px; }
+  h1 { font-size: 24px; font-weight: 400; margin: 0 0 6px; }
+  .sub { color: #5f6368; margin-bottom: 22px; }
+  .row { display: flex; align-items: center; }
+  .btn { border: 0; border-radius: 18px; padding: 9px 18px; font: inherit; font-weight: 500; cursor: pointer; }
+  .btn.primary { background: #0b57d0; color: #fff; }
+  .btn.primary:disabled { background: #c7c7c7; cursor: default; }
+  .btn.text { background: transparent; color: #0b57d0; }
+  .btn svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+  th { text-align: left; font-weight: 500; color: #5f6368; font-size: 12px; padding: 10px 12px; border-bottom: 1px solid #e3e3e3; }
+  td { padding: 14px 12px; border-bottom: 1px solid #f0f0f0; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .tag { font-size: 11px; background: #e6f4ea; color: #137333; padding: 2px 8px; border-radius: 10px; }
+  .icon-btn { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; color: #444; }
+  .icon-btn:hover { background: #f1f3f4; }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .empty { padding: 40px; text-align: center; color: #5f6368; border: 1px dashed #dadce0; border-radius: 12px; margin-top: 18px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+  .card { border: 1px solid #e3e3e3; border-radius: 14px; padding: 16px; min-height: 110px; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.32); display: none; align-items: center; justify-content: center; }
+  .scrim.open { display: flex; }
+  .dialog { background: #fff; border-radius: 22px; width: 520px; padding: 24px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .dialog h2 { font-size: 22px; font-weight: 400; margin: 0 0 14px; }
+  .dialog label.check { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; }
+  .dialog input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; }
+  .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .field { display: block; margin: 12px 0; }
+  .field span { display: block; font-size: 12px; color: #5f6368; margin-bottom: 4px; }
+  .field input, .field select { width: 100%; padding: 10px; border: 1px solid #c4c7c5; border-radius: 8px; font: inherit; }
+  .keybox { display: flex; align-items: center; gap: 8px; background: #f6f8fc; border-radius: 10px; padding: 10px 12px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #303030; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<div class="practice">Practice page for Zero's guide. This is not Google. The key on this page is fake.</div>
+<header>
+  <div class="logo">Google AI Studio</div>
+  <div class="spacer"></div>
+  <div class="avatar" aria-hidden="true">P</div>
+</header>
+<div class="layout">
+  <nav>
+    <a href="#" data-page="home" class="nav-home"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-layout-dashboard" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /> <path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" /> <path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /> <path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" /> </svg><span>Dashboard</span></a>
+    <a href="#" data-page="keys" class="nav-keys"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-key" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M16.555 3.843l3.602 3.602a2.877 2.877 0 0 1 0 4.069l-2.643 2.643a2.877 2.877 0 0 1 -4.069 0l-.301 -.301l-6.558 6.558a2 2 0 0 1 -1.239 .578l-.175 .008h-1.172a1 1 0 0 1 -.993 -.883l-.007 -.117v-1.172a2 2 0 0 1 .467 -1.284l.119 -.13l.414 -.414h2v-2h2v-2l2.144 -2.144l-.301 -.301a2.877 2.877 0 0 1 0 -4.069l2.643 -2.643a2.877 2.877 0 0 1 4.069 0" /> <path d="M15 9h.01" /> </svg><span>Get API key</span></a>
+    <a href="#"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-chart-bar" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M3 13a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -6" /> <path d="M15 9a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -10" /> <path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14" /> <path d="M4 20h14" /> </svg><span>Usage</span></a>
+    <a href="#"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-credit-card" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M3 8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -8" /> <path d="M3 10l18 0" /> <path d="M7 15l.01 0" /> <path d="M11 15l2 0" /> </svg><span>Billing</span></a>
+    <a href="#"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-book" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M3 19a9 9 0 0 1 9 0a9 9 0 0 1 9 0" /> <path d="M3 6a9 9 0 0 1 9 0a9 9 0 0 1 9 0" /> <path d="M3 6l0 13" /> <path d="M12 6l0 13" /> <path d="M21 6l0 13" /> </svg><span>Documentation</span></a>
+    <a href="#"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-settings" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /> <path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /> </svg><span>Settings</span></a>
+  </nav>
+  <main id="home">
+    <h1>Welcome to Google AI Studio</h1>
+    <div class="sub">Build with the latest Gemini models.</div>
+    <div class="cards"><div class="card">Chat with models</div><div class="card">Live audio</div><div class="card">Build apps</div></div>
+  </main>
+  <main id="keys" hidden>
+    <div class="row"><div><h1>API Keys</h1><div class="sub">Keys let your apps use the Gemini API. Treat them like passwords.</div></div>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn primary" id="create"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-plus" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M12 5l0 14" /> <path d="M5 12l14 0" /> </svg>Create API key</button></div>
+    <div id="list"></div>
+  </main>
+</div>
+
+<div class="scrim" id="terms"><div class="dialog" role="dialog" aria-label="Before you begin">
+  <h2>Before you begin</h2>
+  <label class="check"><input type="checkbox" id="tos"><span>I acknowledge that I have read and agree to the Google APIs Terms of Service and the Gemini API Additional Terms of Service.</span></label>
+  <label class="check"><input type="checkbox" id="mkt"><span>I'd like to get emails about updates, offers and research from Google AI Studio.</span></label>
+  <div class="actions"><button class="btn primary" id="cont" disabled>Continue</button></div>
+</div></div>
+
+<div class="scrim" id="newkey"><div class="dialog" role="dialog" aria-label="Create a new key">
+  <h2>Create a new key</h2>
+  <label class="field"><span>Name your key</span><input id="keyname" placeholder="My key"></label>
+  <label class="field"><span>Choose an imported project</span><select><option>Create project</option></select></label>
+  <div class="actions"><button class="btn text" id="cancel">Cancel</button><button class="btn primary" id="make">Create key</button></div>
+</div></div>
+
+<div class="scrim" id="made"><div class="dialog" role="dialog" aria-label="API key created">
+  <h2>API key created</h2>
+  <p>Copy your key now. You won't see it in full again.</p>
+  <div class="keybox"><span class="mono" id="fullkey"></span><button class="icon-btn" aria-label="Copy API key" id="copyfull"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-copy" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" /> <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" /> </svg></button></div>
+  <div class="actions"><button class="btn primary" id="donemade">Done</button></div>
+</div></div>
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script>
+const FAKE = "AQ.Zero-Practice-Key-Not-Real-00000000000000000000000";
+const q = new URLSearchParams(location.search);
+const scenario = q.get("scenario") || "new";
+let accepted = q.get("accepted") === "1";
+let hasKey = scenario === "new";
+const $ = id => document.getElementById(id);
+
+function show(page) {
+  $("home").hidden = page !== "home"; $("keys").hidden = page !== "keys";
+  document.querySelector(".nav-home").classList.toggle("active", page === "home");
+  document.querySelector(".nav-keys").classList.toggle("active", page === "keys");
+}
+function go(page) {
+  // Keys live at /apikey, like the real site, so the guide can tell the pages apart by address.
+  const params = new URLSearchParams({scenario, accepted: accepted ? "1" : "0"});
+  location.href = (page === "keys" ? "/apikey/" : "/") + "?" + params;
+}
+function copy(text) {
+  const done = () => { $("toast").style.display = "block"; setTimeout(() => $("toast").style.display = "none", 1500); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => { legacy(text); done(); });
+  else { legacy(text); done(); }
+}
+function legacy(text) {
+  const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+  document.execCommand("copy"); t.remove();
+}
+function renderList() {
+  if (!hasKey) { $("list").innerHTML = '<div class="empty">You have no API keys yet.</div>'; return; }
+  $("list").innerHTML = `<table><thead><tr><th>Key</th><th>Project</th><th>Created</th><th>Type</th><th></th></tr></thead><tbody>
+    <tr><td>Default Gemini API Key<div class="mono" style="color:#5f6368">AQ.…${FAKE.slice(-4)}</div></td><td>Default Gemini Project</td><td>Oct 8, 2026</td>
+    <td><span class="tag">Auth</span></td><td><button class="icon-btn" aria-label="Copy API key" id="copyrow">${COPY_ICON}</button></td></tr></tbody></table>`;
+  $("copyrow").onclick = () => copy(FAKE);
+}
+const COPY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"  aria-hidden="true" class="icon icon-tabler icons-tabler-outline icon-tabler-copy" > <path stroke="none" d="M0 0h24v24H0z" fill="none" /> <path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" /> <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" /> </svg>`;
+document.querySelectorAll("nav a[data-page]").forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.page); });
+$("tos").onchange = () => $("cont").disabled = !$("tos").checked;
+$("cont").onclick = () => { accepted = true; $("terms").classList.remove("open"); history.replaceState(null, "", location.pathname + "?" + new URLSearchParams({scenario, accepted: "1"})); };
+$("create").onclick = () => $("newkey").classList.add("open");
+$("cancel").onclick = () => $("newkey").classList.remove("open");
+// Like the real site, making a key takes a moment (a request to Google) before the new key is shown.
+$("make").onclick = () => { document.activeElement.blur(); $("newkey").classList.remove("open"); setTimeout(() => { showMade(); hasKey = true; renderList(); }, 600); };
+// Angular Material, which AI Studio uses, adds each dialog to the page when it opens and removes it when it
+// closes. This dialog does the same; the others are only shown and hidden.
+const madeTemplate = $("made").outerHTML;
+$("made").remove();
+function showMade() {
+  document.body.insertAdjacentHTML("beforeend", madeTemplate);
+  $("fullkey").textContent = FAKE;
+  $("made").classList.add("open");
+  $("copyfull").onclick = () => copy(FAKE);
+  $("donemade").onclick = () => $("made").remove();
+}
+
+// ?rename=1 changes a label, to see what the guide does when Google renames a button.
+if (q.get("rename") === "1") $("create").lastChild.textContent = "New key";
+show(location.pathname.startsWith("/apikey") ? "keys" : "home");
+renderList();
+if (!accepted) $("terms").classList.add("open");
+if (q.get("show") === "made") showMade();
+</script>
+</body>
+</html>

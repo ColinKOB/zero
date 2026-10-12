@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""zero-home-render: writes a home's generated files from its ~/taffy/home.json.
+
+    zero-home-render HOME [--dry-run]            render every file for the home (runs as the home's user)
+    zero-home-render HOME --zip ID [--dry-run]   add or re-render one Zip's profile config (new Zips)
+    zero-home-render --check colin               compare the owner's live profile configs with what the
+                                                 renderer would write, and change nothing
+    zero-home-render set HOME KEY VALUE          change one settable value in home.json (google.client_id,
+                                                 network.public_url, person.timezone)
+
+What a render writes, each only when it differs (so a second run changes nothing):
+  ~/.taffy/config.yaml and ~/.taffy/profiles/<zip>/config.yaml   the keys the home owns: model provider,
+        the Docker block with this home's mounts, ports and network, bot desktop placement, private URLs
+        for previews, the ChatGPT fallback and the plugins. Every other key in the file stays as it is.
+  ~/.taffy/.env and each profile's .env (mode 600)   API server port, a fresh API_SERVER_KEY only when
+        there is none, and the broker's ChatGPT address for a shared plan
+  ~/.taffy/SOUL.md, profile.yaml, shared/background.md   only when missing; never overwritten
+  ~/.taffy/auth.json   a placeholder ChatGPT entry on a shared plan (not a credential)
+  ~/.config/zero-broker/env (mode 600), ~/.config/systemd/user/* units and drop-ins,
+  ~/.config/docker/daemon.json, ~/taffy/state/zero-slots.json
+
+When run by the owner for another home, it re-runs itself as that home's user through sudo, which
+/etc/sudoers.d/zero-homes allows for /srv/zero/bin/zero-home-* only.
+"""
+
+import argparse
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+
+def ensure_yaml_python(argv: list[str], home_dir: Path) -> None:
+    """Existing configs need a YAML reader; the system python has none, the home's venv does."""
+    try:
+        lib.load_yaml("a: 1")
+        return
+    except RuntimeError:
+        pass
+    venv = home_dir / "taffy" / ".venv" / "bin" / "python"
+    if venv.exists() and Path(sys.executable).resolve() != venv.resolve() and not os.environ.get("ZERO_REEXEC"):
+        os.environ["ZERO_REEXEC"] = "1"
+        os.execv(str(venv), [str(venv), str(Path(__file__).resolve()), *argv])
+
+
+def profiles(hermes_home: Path) -> list[str]:
+    root = hermes_home / "profiles"
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")
+                  and lib.ZIP_ID_RE.match(p.name))
+
+
+def read_config(path: Path) -> dict | None:
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    data = lib.load_yaml(text)
+    return data if isinstance(data, dict) else {}
+
+
+def render_home(settings: dict, home_dir: Path, ops, *, owner: bool = False, only_zip: str | None = None,
+                broker_secret: str | None = None, agent_name: str = "Zero") -> dict:
+    """Writes every generated file. Returns the slots used."""
+    hermes_home = lib.expand(settings["paths"]["hermes_home"], home_dir)
+    state = home_dir / "taffy" / "state"
+    count = settings["ports"]["preview"]["count"]
+    slots = lib.read_slots(home_dir, settings)
+    zips = [lib.LEAD] + profiles(hermes_home)
+    if only_zip:
+        if not lib.ZIP_ID_RE.match(only_zip):
+            raise SystemExit(f"{only_zip!r} is not a valid Zip id")
+        zips = [only_zip]
+    for z in zips:
+        if z == lib.LEAD and settings["host"]["lead_backend"] == "local":
+            continue
+        slots = lib.assign_slot(slots, z, count)
+
+    for z in zips:
+        lead = z == lib.LEAD
+        folder = hermes_home if lead else hermes_home / "profiles" / z
+        ops.mkdir(folder, 0o700)
+        cfg_path = folder / "config.yaml"
+        existing = read_config(cfg_path)
+        rendered = lib.render_profile_config(settings, home_dir, z, slots.get(z), owner, existing)
+        if existing is None or rendered != existing:
+            ops.write(cfg_path, lib.emit_yaml(rendered), 0o600)
+        env_path = folder / ".env"
+        current = env_path.read_text() if env_path.exists() else ""
+        ops.write(env_path, lib.render_env(settings, current, lead=lead, broker_secret=broker_secret), 0o600,
+                  secret=True)
+        ops.mkdir(lib.expand(settings["paths"]["work"], home_dir) / z, 0o755)
+
+    if only_zip:
+        ops.write(lib.slots_path(home_dir), json.dumps(slots, indent=1, sort_keys=True) + "\n", 0o644)
+        return slots
+
+    ops.write(hermes_home / "SOUL.md", lib.render_lead_soul(settings, home_dir, agent_name), 0o644,
+              keep_existing=True)
+    ops.write(hermes_home / "profile.yaml", lib.render_profile_yaml(settings), 0o644, keep_existing=True)
+    shared = lib.expand(settings["paths"]["shared"], home_dir)
+    ops.mkdir(shared, 0o755)
+    ops.write(shared / "background.md", "# Background\n\nThe answers from onboarding are written here.\n", 0o644,
+              keep_existing=True)
+    ops.mkdir(state, 0o755)
+    ops.write(lib.slots_path(home_dir), json.dumps(slots, indent=1, sort_keys=True) + "\n", 0o644)
+
+    if settings["plan"]["chatgpt"]["mode"] == "broker":
+        auth_path = hermes_home / "auth.json"
+        try:
+            current_auth = json.loads(auth_path.read_text())
+        except (OSError, ValueError):
+            current_auth = None
+        placeholder = lib.codex_placeholder_auth(current_auth)
+        if placeholder is not None:
+            ops.write(auth_path, json.dumps(placeholder, indent=2) + "\n", 0o600)
+
+    cfg = home_dir / ".config"
+    ops.mkdir(cfg / "zero-broker", 0o700)
+    ops.write(cfg / "zero-broker" / "env", lib.render_broker_env(settings, broker_secret), 0o600, secret=True)
+    units = cfg / "systemd" / "user"
+    for name, text in lib.render_units(settings, home_dir).items():
+        ops.mkdir((units / name).parent, 0o755)
+        ops.write(units / name, text, 0o644)
+    ops.mkdir(cfg / "docker", 0o700)
+    ops.write(cfg / "docker" / "daemon.json", lib.render_daemon_json(), 0o644)
+    return slots
+
+
+def check_owner(settings: dict, home_dir: Path) -> int:
+    """Read-only: what would change in the owner's live profile configs."""
+    hermes_home = lib.expand(settings["paths"]["hermes_home"], home_dir)
+    slots = lib.read_slots(home_dir, settings)
+    problems = 0
+    for z in [lib.LEAD] + profiles(hermes_home):
+        path = hermes_home / "config.yaml" if z == lib.LEAD else hermes_home / "profiles" / z / "config.yaml"
+        live = read_config(path)
+        if live is None:
+            print(f"{z}: no config.yaml")
+            problems += 1
+            continue
+        if z != lib.LEAD and z not in slots:
+            print(f"{z}: no preview slot recorded; it would get the next free one")
+            continue
+        rendered = lib.managed_config(settings, home_dir, z, slots.get(z), True)
+        lines = lib.diff_config(rendered, live)
+        if lines:
+            problems += len(lines)
+            print(f"{z}: {len(lines)} difference(s)")
+            for line in lines:
+                print(f"  {line}")
+        else:
+            print(f"{z}: same as the renderer would write (allow_private_urls and container_memory not compared)")
+    return 1 if problems else 0
+
+
+def settings_path(home_dir: Path) -> Path:
+    env = os.environ.get("ZERO_HOME")
+    return Path(env) if env else home_dir / "taffy" / "home.json"
+
+
+def reexec_as_home(home_id: str, argv: list[str]) -> None:
+    entry = lib.home_entry(home_id)
+    if not entry:
+        raise SystemExit(f"{home_id} is not in {lib.REGISTRY}. Run zero-home-sudo-prep home {home_id} first.")
+    if entry.get("owner") or entry["user"] == lib.current_user():
+        return
+    script = lib.SRV / "bin" / "zero-home-render"
+    os.execvp("sudo", ["sudo", "-n", "-H", "-u", entry["user"], str(script), *argv])
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    lib.fix_home_env()
+    if argv[:1] == ["set"]:
+        return cmd_set(argv[1:])
+    ap = argparse.ArgumentParser(prog="zero-home-render", description="Render a home's generated files.")
+    ap.add_argument("home", nargs="?")
+    ap.add_argument("--check", metavar="HOME", help="compare the owner's live configs; changes nothing")
+    ap.add_argument("--zip", help="render only this Zip's profile (a new Zip)")
+    ap.add_argument("--dry-run", action="store_true", help="say what would change, change nothing")
+    ap.add_argument("--home-dir", type=Path, help=argparse.SUPPRESS)       # tests: render into a folder
+    ap.add_argument("--settings", type=Path, help=argparse.SUPPRESS)
+    ap.add_argument("--broker-secret-stdin", action="store_true", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+
+    if args.check:
+        home_dir = args.home_dir or Path.home()
+        ensure_yaml_python(argv, home_dir)
+        settings = lib.load_home(args.settings or settings_path(home_dir))
+        if settings["home_id"] != args.check:
+            raise SystemExit(f"this home's settings say {settings['home_id']!r}, not {args.check!r}")
+        return check_owner(settings, home_dir)
+    if not args.home:
+        ap.error("name a home, or use --check colin")
+    if args.home_dir is None:
+        reexec_as_home(args.home, argv)
+        registry = lib.read_registry()
+        entry = lib.home_entry(args.home, registry) or {}
+        owner = bool(entry.get("owner"))
+        if not owner:
+            lib.assert_home_identity(args.home, registry)
+        home_dir = Path.home()
+    else:
+        home_dir, owner = args.home_dir, False
+    ensure_yaml_python(argv, home_dir)
+    path = args.settings or settings_path(home_dir)
+    if not path.exists():
+        raise SystemExit(f"{path} does not exist. zero-home-create writes it.")
+    settings = lib.load_home(path)
+    if settings["home_id"] != args.home:
+        raise SystemExit(f"{path} belongs to {settings['home_id']!r}, not {args.home!r}")
+    if owner and not args.zip:
+        raise SystemExit("The owner's profiles are never rewritten. Use --check colin to compare them.")
+
+    secret_file = home_dir / ".config" / "zero-broker" / "secret"
+    secret = None
+    if args.broker_secret_stdin:
+        secret = sys.stdin.readline().strip() or None
+    elif secret_file.exists():
+        secret = secret_file.read_text().strip() or None
+    ops = lib.Ops(dry_run=args.dry_run)
+    if secret and settings["plan"]["chatgpt"]["mode"] == "broker":
+        ops.mkdir(secret_file.parent, 0o700)
+        ops.write(secret_file, secret + "\n", 0o600, secret=True)
+    render_home(settings, home_dir, ops, owner=owner, only_zip=args.zip, broker_secret=secret)
+    if not ops.changes:
+        print(f"{args.home}: everything already matches home.json")
+    return 0
+
+
+def cmd_set(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="zero-home-render set")
+    ap.add_argument("home")
+    ap.add_argument("key")
+    ap.add_argument("value")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--home-dir", type=Path, help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+    if args.home_dir is None:
+        reexec_as_home(args.home, ["set", *argv])
+        registry = lib.read_registry()
+        if not (lib.home_entry(args.home, registry) or {}).get("owner"):
+            lib.assert_home_identity(args.home, registry)
+    home_dir = args.home_dir or Path.home()
+    path = settings_path(home_dir)
+    raw = json.loads(path.read_text()) if path.exists() else {"version": 1, "home_id": args.home}
+    if raw.get("home_id", "colin") != args.home:
+        raise SystemExit(f"{path} belongs to {raw.get('home_id')!r}, not {args.home!r}")
+    try:
+        updated = lib.set_value(raw, args.key, args.value)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    ops = lib.Ops(dry_run=args.dry_run)
+    if not ops.write(path, json.dumps(updated, indent=2) + "\n", 0o644):
+        print(f"{args.home}: {args.key} already set")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

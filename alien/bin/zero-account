@@ -1,0 +1,3 @@
+#!/bin/bash
+# The owner's account command line (alien/frontdoor/zero_frontdoor/cli.py): attach, passwd, list, set-plan, remove.
+cd "$HOME/taffy/frontdoor" && exec "$HOME/taffy/.venv/bin/python" -m zero_frontdoor "$@"

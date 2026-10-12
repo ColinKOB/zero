@@ -1,0 +1,531 @@
+#!/usr/bin/env python3
+"""zero-home-sudo-prep: the steps that need root, one flag each, so they can be run one at a time, all at
+once, or as a dry run. Every step checks first and does nothing when it is already done.
+
+Run with sudo from a copy of the repo's alien/ folder on alien (the flags name what each step changes):
+
+  sudo zero-home-sudo-prep host --all [--src DIR] [--dry-run]       once per machine
+      --groups      the zero-homes and zero-plans groups
+      --srv         /srv/zero and its folders (bin, engine, images, backups, broker)
+      --scripts     the zero-home-* scripts, templates and broker files into /srv/zero
+      --engine      the shared read-only Hermes checkout, Python, the package list, the hub and plugins,
+                    uv, restic and himalaya, all copied from the owner's working install
+      --image       the Zip sandbox image, saved from the owner's Docker into /srv/zero/images
+      --apparmor    the zero-chromium AppArmor profile for every home's Chromium
+      --sudoers     /etc/sudoers.d/zero-homes: the owner may run /srv/zero/bin/zero-home-* as a home's
+                    user without a password, and nothing else
+      --broker      the zero-broker user unit for the owner, enabled and started
+      --registry    /srv/zero/homes.json with the owner's home
+
+  sudo zero-home-sudo-prep home HOME --all [--person NAME] [--own-plan] [--dry-run]   once per home
+      --user        the Linux user zero-HOME (home folder mode 750) in zero-homes, and zero-plans on a
+                    shared plan
+      --subid       a container id range in /etc/subuid and /etc/subgid
+      --linger      lingering, so the home's services run without a login
+      --registry    the home's ports in /srv/zero/homes.json (riley 8651, test 8652; others the next free)
+      --backup-drop /srv/zero/backups/HOME, where the nightly encrypted copy lands for the Mac to pull
+      --serve       Tailscale serve on the home's port (not part of --all for the test home)
+      --push-key    a copy of the Apple push key into the home (not part of --all for the test home)
+
+  sudo zero-home-sudo-prep remove-home test [--dry-run]
+      after `zero-home-test down`: lingering off, the user's processes stopped, the user and its id ranges
+      removed, its registry entry, backup drop and Tailscale serve port gone. Any home other than the test
+      home also needs --confirm-delete-home HOME. The owner's home is always refused.
+"""
+
+from __future__ import annotations
+
+import argparse
+import grp
+import importlib.util
+import json
+import os
+import pwd
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("zero_home_lib", HERE / "zero-home-lib.py")
+lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lib)
+
+SRV = lib.SRV
+GROUP_HOMES, GROUP_PLANS = "zero-homes", "zero-plans"
+SANDBOX_IMAGE = lib.DEFAULTS["host"]["sandbox_image"]
+HOME_SCRIPTS = ["zero-home-lib.py", "zero-home-create", "zero-home-render", "zero-home-check", "zero-home-test",
+                "zero-home-deploy", "zero-account-home"]
+HOME_TOOLS = ["taffy-backup", "zip-egress-rules", "zero-calls", "zip-test-cards", "set-toolsets.py"]
+BROKER_FILES = ["zero_broker.py", "client.py", "inert_mcp.py", "claude-client", "codex-client"]
+
+
+def owner() -> str:
+    return os.environ.get("SUDO_USER") or lib.OWNER_USER
+
+
+def owner_home() -> Path:
+    return lib.user_home(owner())
+
+
+def exists_group(name: str) -> bool:
+    try:
+        grp.getgrnam(name)
+        return True
+    except KeyError:
+        return False
+
+
+def exists_user(name: str) -> bool:
+    try:
+        pwd.getpwnam(name)
+        return True
+    except KeyError:
+        return False
+
+
+def as_owner(cmd: list[str]) -> list[str]:
+    uid = pwd.getpwnam(owner()).pw_uid
+    if os.geteuid() != 0:          # a dry run by the owner: already the right user
+        return ["env", f"XDG_RUNTIME_DIR=/run/user/{uid}", f"DOCKER_HOST=unix:///run/user/{uid}/docker.sock", *cmd]
+    return ["runuser", "-u", owner(), "--", "env", f"XDG_RUNTIME_DIR=/run/user/{uid}",
+            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus", f"DOCKER_HOST=unix:///run/user/{uid}/docker.sock",
+            *cmd]
+
+
+def install_file(ops, src: Path, dest: Path, mode: int, owner_group: str = "root:root") -> None:
+    content = src.read_bytes()
+    try:
+        same = dest.read_bytes() == content and (dest.stat().st_mode & 0o777) == mode
+    except OSError:
+        same = False
+    if same:
+        return
+    ops._did(f"install {src.name} -> {dest} ({oct(mode)}, {owner_group})")
+    if not ops.dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(f".{dest.name}.tmp")
+        tmp.write_bytes(content)
+        os.chmod(tmp, mode)
+        user, group = owner_group.split(":")
+        shutil.chown(tmp, user, group)
+        os.replace(tmp, dest)
+
+
+def rsync(ops, src: Path, dest: Path, *excludes: str) -> None:
+    cmd = ["rsync", "-a", "--delete", "--chown=root:root", "--chmod=Dgo+rx,Dgo-w,Fgo+r,Fgo-w,Fgo+X"]
+    for e in excludes:
+        cmd += ["--exclude", e]
+    if not ops.dry_run:
+        dest.parent.mkdir(mode=0o755, parents=True, exist_ok=True)   # rsync makes only the last folder
+    ops.run(cmd + [f"{src}/", f"{dest}/"])
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Host steps
+# ---------------------------------------------------------------------------------------------------------
+
+def step_groups(ops, a) -> None:
+    for g in (GROUP_HOMES, GROUP_PLANS):
+        if not exists_group(g):
+            ops.run(["groupadd", "--system", g])
+
+
+def step_srv(ops, a) -> None:
+    for d, mode in ((SRV, 0o755), (SRV / "bin", 0o755), (SRV / "engine", 0o755), (SRV / "images", 0o755),
+                    (SRV / "backups", 0o755)):
+        ops.mkdir(d, mode)
+    broker = SRV / "broker"
+    ops.mkdir(broker, 0o2750)
+    if not ops.dry_run and broker.exists():
+        st = broker.stat()
+        want_uid, want_gid = pwd.getpwnam(owner()).pw_uid, grp.getgrnam(GROUP_PLANS).gr_gid
+        if (st.st_uid, st.st_gid) != (want_uid, want_gid) or (st.st_mode & 0o7777) != 0o2750:
+            ops._did(f"set {broker} to {owner()}:{GROUP_PLANS} mode 2750 (setgid, so the socket joins {GROUP_PLANS})")
+            os.chown(broker, want_uid, want_gid)
+            os.chmod(broker, 0o2750)
+    elif ops.dry_run:
+        ops._did(f"make {broker} {owner()}:{GROUP_PLANS} mode 2750")
+
+
+def step_scripts(ops, a) -> None:
+    src = a.src
+    for name in HOME_SCRIPTS + ["zero-home-sudo-prep"]:
+        install_file(ops, src / "bin" / name, SRV / "bin" / name, 0o644 if name.endswith(".py") else 0o755)
+    for t in sorted((src / "bin" / "zero-home-templates").rglob("*")):
+        if t.is_file():
+            install_file(ops, t, SRV / "bin" / "zero-home-templates" / t.relative_to(src / "bin" / "zero-home-templates"), 0o644)
+    for t in sorted((src / "systemd" / "templates").rglob("*")):
+        if t.is_file():
+            install_file(ops, t, SRV / "systemd-templates" / t.relative_to(src / "systemd" / "templates"), 0o644)
+    for name in HOME_TOOLS:
+        install_file(ops, src / "bin" / name, SRV / "engine" / "bin" / name, 0o755)
+    for name in BROKER_FILES:
+        install_file(ops, src / "broker" / name, SRV / "broker" / name, 0o755 if name.endswith("-client") else 0o644,
+                     f"root:{GROUP_PLANS}" if exists_group(GROUP_PLANS) else "root:root")
+    install_file(ops, src / "sandbox" / "chromium-policy" / "zero-zip-wall.json",
+                 SRV / "engine" / "chromium-policy" / "zero-zip-wall.json", 0o644)
+    install_file(ops, src / "sandbox" / "zip-networks.sh", SRV / "bin" / "zip-networks.sh", 0o755)
+    install_file(ops, src / "shared" / "zip-templates.json", SRV / "engine" / "shared" / "zip-templates.json", 0o644)
+
+
+def step_engine(ops, a) -> None:
+    oh = owner_home()
+    engine = SRV / "engine"
+    hermes = oh / "taffy" / "hermes"
+    rsync(ops, hermes, engine / "hermes", ".git", "__pycache__", "node_modules/.cache")
+    commit = subprocess.run(["git", "-c", f"safe.directory={hermes}", "-C", str(hermes), "rev-parse", "HEAD"],
+                            capture_output=True, text=True).stdout.strip()
+    ops.write(engine / "hermes.commit", commit + "\n", 0o644)
+    py = sorted(p for p in (oh / "taffy" / "python").glob("cpython-3.14.*-linux-x86_64-gnu") if not p.is_symlink())
+    if not py:
+        raise SystemExit(f"no Python 3.14 under {oh}/taffy/python")
+    rsync(ops, py[-1], engine / "python")
+    venv = oh / "taffy" / ".venv"
+    uv = oh / "taffy" / "bin" / "uv"
+    freeze = subprocess.run(as_owner([str(uv), "pip", "freeze", "--python", str(venv / "bin" / "python"),
+                                      "--exclude-editable"]), capture_output=True, text=True)
+    if freeze.returncode != 0 and not ops.dry_run:
+        raise SystemExit(f"uv pip freeze failed: {freeze.stderr.strip()[-300:]}")
+    ops.write(engine / "requirements.txt", freeze.stdout, 0o644)
+    site = next(iter(sorted((venv / "lib").glob("python3.*/site-packages"))), None)
+    kit = engine / "hermes-editable"
+    if site:
+        for name in ("__editable__.hermes_agent-0.0.0.pth", "__editable___hermes_agent_0_0_0_finder.py"):
+            text = (site / name).read_text().replace(str(hermes), str(engine / "hermes"))
+            ops.write(kit / name, text, 0o644)
+        dist = site / "hermes_agent-0.0.0.dist-info"
+        for f in sorted(dist.rglob("*")):
+            if f.is_file() and f.name not in ("RECORD",):
+                text = f.read_text(errors="replace").replace(str(hermes), str(engine / "hermes"))
+                ops.write(kit / dist.name / f.relative_to(dist), text, 0o644)
+    rsync(ops, oh / "taffy" / "hub-src", engine / "hub-src", "__pycache__")
+    rsync(ops, oh / "taffy" / "plugins" / "taffy-tools", engine / "plugins" / "taffy-tools", "__pycache__")
+    rsync(ops, oh / ".taffy" / "plugins" / "claude-subscription-directsdk-experimental",
+          engine / "plugins" / "claude-subscription-directsdk-experimental", ".git", "__pycache__", "tests", "evals")
+    for src, name in ((uv, "uv"), (oh / ".local" / "bin" / "restic", "restic"), (oh / ".local" / "bin" / "himalaya", "himalaya")):
+        if src.exists():
+            install_file(ops, src.resolve(), SRV / "bin" / name, 0o755)
+    if not ops.dry_run:
+        ops.run(["python3", "-m", "compileall", "-q", str(engine / "hermes")], check=False,
+                describe="precompile the shared Hermes checkout (it is read-only for the homes)")
+
+
+def step_image(ops, a) -> None:
+    tag = SANDBOX_IMAGE
+    dest = SRV / "images" / (tag.replace("/", "-").replace(":", "-") + ".tar")
+    if dest.exists():
+        return
+    tmp = Path(tempfile.mkdtemp(prefix="zero-image-"))
+    os.chmod(tmp, 0o777)
+    out = tmp / "image.tar"
+    ops.run(as_owner(["docker", "save", "-o", str(out), tag]), describe=f"save {tag} from the owner's Docker")
+    if not ops.dry_run:
+        shutil.move(str(out), dest)
+        os.chmod(dest, 0o644)
+        shutil.chown(dest, "root", "root")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def step_apparmor(ops, a) -> None:
+    dest = Path("/etc/apparmor.d/zero-chromium")
+    src = a.src / "apparmor" / "zero-chromium"
+    if dest.exists() and dest.read_bytes() == src.read_bytes():
+        return
+    install_file(ops, src, dest, 0o644)
+    ops.run(["apparmor_parser", "-r", str(dest)])
+
+
+SUDOERS = """# Written by zero-home-sudo-prep. The owner may run the home scripts as a home's user, and nothing else.
+# Homes are the members of the zero-homes group; the scripts are root-owned under /srv/zero/bin.
+Defaults!/srv/zero/bin/zero-home-create,/srv/zero/bin/zero-home-render,/srv/zero/bin/zero-home-check,/srv/zero/bin/zero-home-test,/srv/zero/bin/zero-home-deploy env_reset
+{owner} ALL=(%zero-homes) NOPASSWD: /srv/zero/bin/zero-home-create, /srv/zero/bin/zero-home-render, /srv/zero/bin/zero-home-check, /srv/zero/bin/zero-home-test, /srv/zero/bin/zero-home-deploy
+"""
+
+
+# The account service (alien/frontdoor, run as the owner) makes and removes account homes through one root script that
+# accepts only u-<slug> and qa-<slug> home ids.
+SUDOERS_ACCOUNTS = """# Written by zero-home-sudo-prep. The account service may make and remove account homes (u-*, qa-*), and nothing else.
+Defaults!/srv/zero/bin/zero-account-home env_reset
+{owner} ALL=(root) NOPASSWD: /srv/zero/bin/zero-account-home
+"""
+
+
+def step_sudoers(ops, a) -> None:
+    _install_sudoers(ops, SUDOERS.format(owner=owner()), Path("/etc/sudoers.d/zero-homes"))
+    _install_sudoers(ops, SUDOERS_ACCOUNTS.format(owner=owner()), Path("/etc/sudoers.d/zero-accounts"))
+
+
+def _install_sudoers(ops, text: str, dest: Path) -> None:
+    if dest.exists() and dest.read_text() == text:
+        return
+    if ops.dry_run:
+        ops._did(f"write {dest} after checking it with visudo")
+        return
+    with tempfile.NamedTemporaryFile("w", delete=False, prefix="zero-homes-") as f:
+        f.write(text)
+    os.chmod(f.name, 0o440)
+    ops.run(["visudo", "-cf", f.name])
+    shutil.chown(f.name, "root", "root")
+    shutil.move(f.name, dest)
+    ops._did(f"installed {dest}")
+
+
+def step_broker(ops, a) -> None:
+    oh = owner_home()
+    unit = oh / ".config" / "systemd" / "user" / "zero-broker.service"
+    text = (a.src / "systemd" / "templates" / "zero-broker.service").read_text()
+    if not unit.exists() or unit.read_text() != text:
+        ops._did(f"write {unit}")
+        if not ops.dry_run:
+            unit.parent.mkdir(parents=True, exist_ok=True)
+            unit.write_text(text)
+            shutil.chown(unit, owner(), owner())
+    ops.run(as_owner(["systemctl", "--user", "daemon-reload"]))
+    active = subprocess.run(as_owner(["systemctl", "--user", "is-active", "zero-broker"]), capture_output=True,
+                            text=True).stdout.strip()
+    if active != "active":
+        ops.run(as_owner(["systemctl", "--user", "enable", "--now", "zero-broker"]))
+    else:
+        ops.run(as_owner(["systemctl", "--user", "restart", "zero-broker"]),
+                describe="restart zero-broker so it runs the files just installed")
+
+
+def step_host_registry(ops, a) -> None:
+    reg = lib.read_registry()
+    if "colin" in reg["homes"]:
+        return
+    entry = dict(lib.OWNER_ENTRY, user=owner(), uid=pwd.getpwnam(owner()).pw_uid)
+    reg["homes"]["colin"] = entry
+    ops.write(lib.REGISTRY, json.dumps(reg, indent=2) + "\n", 0o644)
+
+
+HOST_STEPS = [("groups", step_groups), ("srv", step_srv), ("scripts", step_scripts), ("engine", step_engine),
+              ("image", step_image), ("apparmor", step_apparmor), ("sudoers", step_sudoers),
+              ("registry", step_host_registry), ("broker", step_broker)]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Per-home steps
+# ---------------------------------------------------------------------------------------------------------
+
+def user_for(home: str) -> str:
+    return f"zero-{home}"
+
+
+def step_user(ops, a) -> None:
+    user = user_for(a.home)
+    if not exists_user(user):
+        ops.run(["useradd", "--create-home", "--shell", "/bin/bash", "--comment", f"Zero home {a.home}", user])
+    groups = [GROUP_HOMES] + ([] if a.own_plan else [GROUP_PLANS])
+    have = set() if not exists_user(user) else {g.gr_name for g in grp.getgrall() if user in g.gr_mem}
+    missing = [g for g in groups if g not in have]
+    if missing:
+        ops.run(["usermod", "-aG", ",".join(missing), user])
+    if exists_user(user):
+        home = Path(pwd.getpwnam(user).pw_dir)
+        if (home.stat().st_mode & 0o777) != 0o750:
+            ops.chmod(home, 0o750)
+    elif ops.dry_run:
+        ops._did(f"set mode 0o750 on /home/{user}")
+
+
+def subid_ranges(path: Path) -> list[tuple[str, int, int]]:
+    out = []
+    try:
+        for line in path.read_text().splitlines():
+            parts = line.strip().split(":")
+            if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+                out.append((parts[0], int(parts[1]), int(parts[2])))
+    except OSError:
+        pass
+    return out
+
+
+def next_subid_start(ranges: list[tuple[str, int, int]]) -> int:
+    end = max([s + n for _, s, n in ranges] + [100000])
+    return end
+
+
+def step_subid(ops, a) -> None:
+    user = user_for(a.home)
+    for path, flag in ((Path("/etc/subuid"), "--add-subuids"), (Path("/etc/subgid"), "--add-subgids")):
+        ranges = subid_ranges(path)
+        if any(u == user for u, _, _ in ranges):
+            continue
+        start = next_subid_start(ranges)
+        ops.run(["usermod", flag, f"{start}-{start + 65535}", user])
+
+
+def step_linger(ops, a) -> None:
+    user = user_for(a.home)
+    if Path(f"/var/lib/systemd/linger/{user}").exists():
+        return
+    ops.run(["loginctl", "enable-linger", user])
+
+
+def step_home_registry(ops, a) -> None:
+    reg = lib.read_registry()
+    if a.home in reg["homes"]:
+        return
+    user = user_for(a.home)
+    ports = lib.allocate_ports(a.home, reg, lib.listening_ports())
+    entry = {"user": user, "plan": "own" if a.own_plan else "broker", "ports": ports,
+             "created": time.strftime("%Y-%m-%d")}
+    if exists_user(user):
+        entry["uid"] = pwd.getpwnam(user).pw_uid
+    reg["homes"][a.home] = entry
+    ops.say(f"{a.home}: hub {ports['hub']}, Hermes API {ports['hermes_api']}, Tailscale {ports['serve_port']}, "
+            f"previews {ports['preview_base']} to {ports['preview_base'] + ports['preview_span'] - 1}, "
+            f"Docker subnets {ports['docker_subnet_base']}.x")
+    ops.write(lib.REGISTRY, json.dumps(reg, indent=2) + "\n", 0o644)
+
+
+def step_backup_drop(ops, a) -> None:
+    d = SRV / "backups" / a.home
+    user = user_for(a.home)
+    ops.mkdir(d, 0o2750)
+    if ops.dry_run:
+        ops._did(f"make {d} {user}:{owner()} mode 2750 (the owner reads the encrypted copy for the Mac)")
+        return
+    st = d.stat()
+    want = (pwd.getpwnam(user).pw_uid, grp.getgrnam(owner()).gr_gid)
+    if (st.st_uid, st.st_gid) != want or (st.st_mode & 0o7777) != 0o2750:
+        ops._did(f"set {d} to {user}:{owner()} mode 2750")
+        os.chown(d, *want)
+        os.chmod(d, 0o2750)
+
+
+def serve_ports_in_use() -> dict:
+    p = subprocess.run(["tailscale", "serve", "status", "--json"], capture_output=True, text=True)
+    try:
+        return json.loads(p.stdout or "{}").get("TCP", {})
+    except ValueError:
+        return {}
+
+
+def step_serve(ops, a) -> None:
+    entry = lib.home_entry(a.home)
+    if not entry and not ops.dry_run:
+        raise SystemExit(f"{a.home} has no registry entry yet; run --registry first")
+    ports = (entry or {}).get("ports") or {"serve_port": "<serve port>", "hub": "<hub port>"}
+    if str(ports["serve_port"]) in serve_ports_in_use():
+        return
+    ops.run(["tailscale", "serve", "--bg", f"--https={ports['serve_port']}", f"http://127.0.0.1:{ports['hub']}"])
+
+
+def step_push_key(ops, a) -> None:
+    keys = sorted((owner_home() / ".config" / "taffy-push").glob("AuthKey_*.p8"))
+    if not keys:
+        raise SystemExit("the owner has no Apple push key in ~/.config/taffy-push")
+    user = user_for(a.home)
+    dest_dir = (Path(pwd.getpwnam(user).pw_dir) if exists_user(user) else Path(f"/home/{user}")) / ".config" / "taffy-push"
+    for d in (dest_dir.parent, dest_dir):
+        if not d.exists():
+            ops._did(f"create folder {d} owned by {user}")
+            if not ops.dry_run:
+                d.mkdir(mode=0o700)
+                shutil.chown(d, user, user)
+    for k in keys:
+        install_file(ops, k, dest_dir / k.name, 0o600, f"{user}:{user}")
+
+
+HOME_STEPS = [("user", step_user), ("subid", step_subid), ("linger", step_linger), ("registry", step_home_registry),
+              ("backup_drop", step_backup_drop), ("serve", step_serve), ("push_key", step_push_key)]
+TEST_SKIPS_IN_ALL = {"serve", "push_key"}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Removing the test home
+# ---------------------------------------------------------------------------------------------------------
+
+def remove_home(ops, a) -> None:
+    home = a.home
+    if home in ("colin",) or user_for(home) == owner():
+        raise SystemExit("The owner's home is never removed by a script.")
+    if home != "test" and a.confirm_delete_home != home:
+        raise SystemExit(f"Refusing to remove {home}: only the test home is removed without "
+                         f"--confirm-delete-home {home}.")
+    reg = lib.read_registry()
+    entry = reg["homes"].get(home)
+    user = user_for(home)
+    if entry and (entry.get("owner") or entry.get("user") != user):
+        raise SystemExit(f"{home}'s registry entry does not name {user}; leaving it alone.")
+    if exists_user(user):
+        uid = pwd.getpwnam(user).pw_uid
+        if uid < 1000 or user == owner() or not pwd.getpwnam(user).pw_dir.startswith("/home/zero-"):
+            raise SystemExit(f"{user} does not look like a Zero home user; leaving it alone.")
+        ops.run(["loginctl", "disable-linger", user], check=False)
+        ops.run(["loginctl", "terminate-user", user], check=False)
+        ops.run(["pkill", "-KILL", "-u", user], check=False)
+        ops.run(["userdel", "--remove", user], check=False)
+    for path in (Path("/etc/subuid"), Path("/etc/subgid")):
+        lines = path.read_text().splitlines() if path.exists() else []
+        keep = [l for l in lines if not l.startswith(f"{user}:")]
+        if keep != lines:
+            ops.write(path, "\n".join(keep) + "\n", 0o644)
+    if entry:
+        serve = str(entry.get("ports", {}).get("serve_port", ""))
+        if serve and serve in serve_ports_in_use():
+            ops.run(["tailscale", "serve", f"--https={serve}", "off"], check=False)
+        del reg["homes"][home]
+        ops.write(lib.REGISTRY, json.dumps(reg, indent=2) + "\n", 0o644)
+    drop = SRV / "backups" / home
+    if drop.exists():
+        ops._did(f"remove {drop}")
+        if not ops.dry_run:
+            shutil.rmtree(drop)
+
+
+# ---------------------------------------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="zero-home-sudo-prep", description="Root steps for Zero homes.",
+                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    h = sub.add_parser("host")
+    for name, _ in HOST_STEPS:
+        h.add_argument(f"--{name.replace('_', '-')}", action="store_true")
+    m = sub.add_parser("home")
+    m.add_argument("home")
+    for name, _ in HOME_STEPS:
+        m.add_argument(f"--{name.replace('_', '-')}", action="store_true")
+    m.add_argument("--own-plan", action="store_true", help="the home signs in to its own Claude and ChatGPT")
+    r = sub.add_parser("remove-home")
+    r.add_argument("home")
+    r.add_argument("--confirm-delete-home", default="")
+    for p in (h, m, r):
+        p.add_argument("--dry-run", action="store_true")
+        p.add_argument("--src", type=Path, default=HERE.parent, help="the repo's alien/ folder")
+    for p in (h, m):
+        p.add_argument("--all", action="store_true")
+    a = ap.parse_args(argv)
+    if a.cmd in ("home", "remove-home") and not lib.HOME_ID_RE.match(a.home):
+        ap.error(lib.HOME_ID_RULE)
+    if os.geteuid() != 0 and not a.dry_run:
+        print("Run this with sudo, or add --dry-run to see what it would do.", file=sys.stderr)
+        return 2
+    ops = lib.Ops(dry_run=a.dry_run)
+    if a.cmd == "remove-home":
+        remove_home(ops, a)
+    else:
+        steps = HOST_STEPS if a.cmd == "host" else HOME_STEPS
+        chosen = [(n, f) for n, f in steps if getattr(a, n) or (a.all and not (a.cmd == "home" and a.home == "test"
+                                                                            and n in TEST_SKIPS_IN_ALL))]
+        if a.cmd == "home" and a.all and a.home != "test":
+            chosen = [(n, f) for n, f in steps if getattr(a, n) or a.all]
+        if not chosen:
+            ap.error("name at least one step, or --all")
+        for name, fn in chosen:
+            ops.say(f"[{name}]")
+            fn(ops, a)
+    if not ops.changes:
+        print("Nothing to change: every step was already done.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,12 @@
+# Lets each Zero home's Chromium (Hermes's PM tool under ~/.taffy/tools in the home) use Chrome's own sandbox
+# instead of running with --no-sandbox. Same pattern as taffy-chromium, which stays bound to the owner's home;
+# this profile covers the zero-* home users so the two never attach to the same path.
+# Installed by zero-home-sudo-prep host --apparmor (to /etc/apparmor.d/zero-chromium, then apparmor_parser -r).
+abi <abi/4.0>,
+include <tunables/global>
+
+profile zero-chromium /home/zero-*/.taffy/tools/chromium-*/chrome-linux64/chrome flags=(unconfined) {
+  userns,
+
+  include if exists <local/zero-chromium>
+}

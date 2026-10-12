@@ -1,0 +1,134 @@
+Hermes patch: the browser janitor never closes a local session while another local session of the same task is in use.
+Base: ~/taffy/hermes at 74943bb889 (Oct 9, 2026). Apply: cd ~/taffy/hermes && git apply ~/taffy/patches/hermes-browser-janitor-shared-chromium.patch
+
+Why (docs/qa/2026-10-09-school-browser.md): in a served profile (every Zip on the multiplexed gateway)
+browser_exec keys its agent-browser session "<task>@<profile home>" and the browser tools key theirs
+"<task>". Both drive one Bot Desktop Chromium: whichever starts first launches it, the other attaches over
+CDP. On Oct 9 at 14:19:54 School's browser_exec launched Chromium, browser_steps attached at 14:20:02 and
+kept working, and at 14:21:55 the janitor closed the browser_exec session for 120 s of inactivity. That
+closed the Chromium the browser tools and the vault's CDP supervisor were using ("CDP supervisor ... connect
+failed" five times). The same split is why the Oct 8 07:43 hub note found browser_exec and the vault fill
+in different tabs. This patch keeps sibling local sessions of one task alive together; when both are idle
+both are closed as before. Cloud sessions and other tasks are unaffected.
+Tests: tests/tools/test_browser_janitor_siblings.py (fails before, passes after); all
+tests/tools/test_browser*.py and test_bot_desktop*.py pass (753 passed, 3 skipped).
+
+diff --git a/tests/tools/test_browser_janitor_siblings.py b/tests/tools/test_browser_janitor_siblings.py
+new file mode 100644
+index 00000000..b6483787
+--- /dev/null
++++ b/tests/tools/test_browser_janitor_siblings.py
+@@ -0,0 +1,67 @@
++"""The janitor never closes a local browser session while another local session of the same task is in use.
++
++In a served profile browser_exec keys its session "<task>@<profile home>" and the browser tools key theirs "<task>";
++both attach to one Bot Desktop Chromium. On Oct 9 School used browser_exec once, then browser_steps for two minutes;
++the janitor closed the idle browser_exec session, which closed the Chromium the browser tools were using."""
++
++import time
++from unittest.mock import patch
++
++from tools import browser_tool_lifecycle as bt_lifecycle
++
++TASK = "api_1791379260_fe9e810f"
++EXEC_KEY = f"{TASK}@/home/u/.taffy/profiles/school"
++
++
++class TestJanitorSiblings:
++    def setup_method(self):
++        from tools import browser_tool
++        self.bt = browser_tool
++        self.saved = (browser_tool._active_sessions.copy(), browser_tool._session_last_activity.copy())
++        browser_tool._active_sessions.clear()
++        browser_tool._session_last_activity.clear()
++
++    def teardown_method(self):
++        for live, saved in zip((self.bt._active_sessions, self.bt._session_last_activity), self.saved):
++            live.clear()
++            live.update(saved)
++
++    def _local(self, key, name, idle_for):
++        self.bt._active_sessions[key] = {"session_name": name, "bb_session_id": None, "cdp_url": None,
++                                         "features": {"local": True}}
++        self.bt._session_last_activity[key] = time.time() - idle_for
++
++    def test_idle_exec_session_stays_while_the_tools_session_is_busy(self):
++        timeout = self.bt.BROWSER_SESSION_INACTIVITY_TIMEOUT
++        self._local(EXEC_KEY, "h_exec", idle_for=timeout + 5)
++        self._local(TASK, "h_tools", idle_for=1)
++        with patch("tools.browser_tool_lifecycle.cleanup_browser") as cleanup:
++            bt_lifecycle._cleanup_inactive_browser_sessions()
++        cleanup.assert_not_called()
++        assert time.time() - self.bt._session_last_activity[EXEC_KEY] < 5
++
++    def test_both_idle_are_both_closed(self):
++        timeout = self.bt.BROWSER_SESSION_INACTIVITY_TIMEOUT
++        self._local(EXEC_KEY, "h_exec", idle_for=timeout + 5)
++        self._local(TASK, "h_tools", idle_for=timeout + 5)
++        with patch("tools.browser_tool_lifecycle.cleanup_browser") as cleanup:
++            bt_lifecycle._cleanup_inactive_browser_sessions()
++        assert sorted(c.args[0] for c in cleanup.call_args_list) == sorted([EXEC_KEY, TASK])
++
++    def test_another_tasks_activity_does_not_keep_a_session(self):
++        timeout = self.bt.BROWSER_SESSION_INACTIVITY_TIMEOUT
++        self._local(EXEC_KEY, "h_exec", idle_for=timeout + 5)
++        self._local("api_other", "h_other", idle_for=1)
++        with patch("tools.browser_tool_lifecycle.cleanup_browser") as cleanup:
++            bt_lifecycle._cleanup_inactive_browser_sessions()
++        assert [c.args[0] for c in cleanup.call_args_list] == [EXEC_KEY]
++
++    def test_a_cloud_session_is_not_kept_by_a_local_sibling(self):
++        timeout = self.bt.BROWSER_SESSION_INACTIVITY_TIMEOUT
++        self.bt._active_sessions[EXEC_KEY] = {"session_name": "c1", "bb_session_id": "bb", "cdp_url": "ws://x",
++                                              "features": {}}
++        self.bt._session_last_activity[EXEC_KEY] = time.time() - timeout - 5
++        self._local(TASK, "h_tools", idle_for=1)
++        with patch("tools.browser_tool_lifecycle.cleanup_browser") as cleanup:
++            bt_lifecycle._cleanup_inactive_browser_sessions()
++        assert [c.args[0] for c in cleanup.call_args_list] == [EXEC_KEY]
+diff --git a/tools/browser_tool_lifecycle.py b/tools/browser_tool_lifecycle.py
+index baaed46f..afbb777a 100644
+--- a/tools/browser_tool_lifecycle.py
++++ b/tools/browser_tool_lifecycle.py
+@@ -160,6 +160,12 @@ def _cleanup_inactive_browser_sessions():
+                                if current_time - last_time > _bt.BROWSER_SESSION_INACTIVITY_TIMEOUT]
+ 
+     for task_id in sessions_to_cleanup:
++        if _local_sibling_active(task_id, current_time):
++            # browser_exec keys its session "<task>@<profile home>" in a served profile, the browser tools key theirs
++            # "<task>": two agent-browser daemons on ONE Bot Desktop Chromium, launched by whichever came first.
++            # Closing the idle one closed the browser under the busy one (and its vault supervisor) mid-task.
++            _update_session_activity(task_id)
++            continue
+         with _session_owner_scope(task_id):
+             if _human_holds_shared_browser(task_id):
+                 # A human took the bot's screen (login, 2FA) — the agent is idle BECAUSE they are working.
+@@ -189,6 +195,28 @@ def _cleanup_inactive_browser_sessions():
+                 _forget_session_tracking(task_id, activity=False)
+ 
+ 
++def _session_base(task_id: str) -> str:
++    """The task a session key belongs to: browser_exec's served-profile tag (``@<home>``) and the hybrid local
++    sidecar suffix stripped."""
++    base = task_id.split("@", 1)[0]
++    return base[: -len(_bt._LOCAL_SUFFIX)] if _bt._is_local_sidecar_key(base) else base
++
++
++def _local_sibling_active(task_id: str, now: float) -> bool:
++    """True when ``task_id`` is a local session and another local session of the same task is still active: both
++    drive the same Bot Desktop browser, so neither may be closed while the other is in use."""
++    with _bt._cleanup_lock:
++        sessions = dict(_bt._active_sessions)
++        activity = dict(_bt._session_last_activity)
++    if not ((sessions.get(task_id) or {}).get("features") or {}).get("local"):
++        return False
++    base = _session_base(task_id)
++    return any(other != task_id and _session_base(other) == base
++               and ((sessions.get(other) or {}).get("features") or {}).get("local")
++               and now - last <= _bt.BROWSER_SESSION_INACTIVITY_TIMEOUT
++               for other, last in activity.items())
++
++
+ def _human_holds_shared_browser(task_id: str) -> bool:
+     """Lease check for the janitor, under the owner's profile scope (the lease is per profile)."""
+     with _bt._cleanup_lock:

@@ -1,0 +1,67 @@
+_config_version: 50
+kanban:
+  dispatch_interval_seconds: 5
+  auto_decompose: false
+  max_in_progress_per_profile: 1
+  review_dispatch: false
+  auto_subscribe_on_create: false
+  notify_in_gateway: false
+tools:
+  tool_search:
+    enabled: "off"
+streaming:
+  enabled: false
+agent: {}
+memory:
+  user_char_limit: 2750
+plugins:
+  enabled:
+  - claude-subscription-directsdk-experimental
+  - taffy-tools
+  disabled: []
+model:
+  provider: claude-subscription-directsdk-experimental
+  default: opus
+terminal:
+  home_mode: real
+  backend: docker
+  docker_image: "taffy/zip-sandbox:2026-10-08-v1"
+  container_persistent: true
+  docker_persist_across_processes: true
+  container_cpu: 2
+  container_memory: 2048
+  docker_network: true
+  docker_run_as_host_user: false
+  docker_mount_cwd_to_workspace: false
+  docker_volumes:
+  - "/home/zero-test/taffy/work:/home/zero-test/taffy/work:ro"
+  - "/home/zero-test/taffy/work/inbox:/home/zero-test/taffy/work/inbox:rw"
+  - "/home/zero-test/taffy/shared:/home/zero-test/taffy/shared:ro"
+  docker_env:
+    HOME: /home/zero-test
+    TZ: America/Chicago
+  docker_forward_env: []
+  docker_extra_args:
+  - "-p"
+  - "127.0.0.1:18510-18519:18510-18519"
+  - "--network"
+  - zip-inbox
+bot_desktop:
+  placement: gateway
+  auto_start: true
+  idle_stop_minutes: 20
+  min_free_memory_mb: 1500
+browser:
+  headed: true
+  restrict_evaluate: true
+  allow_private_urls: true
+fallback_providers:
+- provider: openai-codex
+  model: gpt-6.1-sol
+auxiliary:
+  background_review:
+    provider: claude-subscription-directsdk-experimental
+    model: claude-haiku-5-5
+  compression:
+    provider: claude-subscription-directsdk-experimental
+    model: claude-haiku-5-5

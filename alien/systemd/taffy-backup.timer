@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Taffy backup at 3:30 a.m. Eastern
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

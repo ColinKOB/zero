@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# zero-broker-soak [HOURS] [HOME]: the 24-hour sign-in soak (WP3 acceptance). Run as the owner, for example
+#   nohup ~/zero-src/alien/broker/zero-broker-soak 24 test >/dev/null 2>&1 &
+# Every hour it records, in ~/.zero-broker/soak.log, whether the owner's Claude and Codex are signed in,
+# whether the home's shared plan is signed in (through zero-home-check), and whether each of
+# the home's sign-in links still points at the owner's file. It also runs one short Haiku call on the owner's
+# side and one through the home's broker, so both sides use (and refresh) the same sign-in during the soak.
+# Counts and states only; never a token. "separate copy" or "signed out" on any line decides against the
+# linked-credentials design (see docs/qa/2026-10-09-zfa-wp3.md).
+set -uo pipefail
+HOURS="${1:-24}"
+HOME_ID="${2:-test}"
+LOG="$HOME/.zero-broker/soak.log"
+PY="$HOME/taffy/.venv/bin/python"
+mkdir -p "$HOME/.zero-broker"
+for ((i = 1; i <= HOURS; i++)); do
+  now=$(date '+%Y-%m-%d %H:%M')
+  owner_claude=$("$HOME/.local/bin/claude" auth status --json 2>/dev/null | python3 -c 'import json,sys; print("signed-in" if json.load(sys.stdin).get("loggedIn") else "signed-out")' 2>/dev/null || echo unknown)
+  owner_codex=$("$HOME/.local/bin/codex" login status 2>&1 | grep -qi "logged in using chatgpt" && echo signed-in || echo signed-out)
+  echo "Reply with the single word ok." | "$HOME/.local/bin/claude" -p --model claude-haiku-5-5 --tools "" --output-format json >/dev/null 2>&1
+  owner_call=$?
+  check=$(/srv/zero/bin/zero-home-check "$HOME_ID" --json 2>/dev/null)   # includes one Haiku call through the broker
+  shared=$(printf '%s' "$check" | python3 -c 'import json,sys
+d=json.load(sys.stdin); r=[x for x in d["home"] if x["name"].startswith("shared Claude plan")]
+print(r[0]["status"] if r else "unknown")' 2>/dev/null || echo unknown)
+  links=$("$PY" /srv/zero/broker/zero_broker.py status 2>/dev/null | grep "^$HOME_ID:" | cut -d';' -f1)
+  echo "$now hour $i/$HOURS owner-claude=$owner_claude owner-codex=$owner_codex owner-call-exit=$owner_call home-shared-claude=$shared links: $links" >> "$LOG"
+  sleep 3600
+done

@@ -1,0 +1,18 @@
+# Rendered by zero-home-render for the home "test". Edit the template in alien/systemd/templates.
+[Unit]
+Description=Zero hub for Sam's home (API for the Zero app)
+After=taffy-gateway.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/taffy
+Environment=HERMES_HOME=%h/.taffy
+Environment=ZERO_HOME=%h/taffy/home.json
+Environment=PYTHONPATH=%h/taffy/hub-src:%h/taffy/hermes
+Environment=PATH=%h/taffy/bin:%h/.local/bin:/srv/zero/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/taffy/.venv/bin/python -m uvicorn taffy_hub.app:app --host 127.0.0.1 --port 8652 --no-access-log --ws websockets
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,21 @@
+# The Zero front door: username and password accounts that map to homes (alien/frontdoor). A user unit of the
+# owner (jdoe), the one user allowed to make homes. Listens on loopback only; Tailscale serve publishes it:
+#   tailscale serve --bg --https=6440 http://127.0.0.1:8670
+# Code: ~/taffy/frontdoor (a copy of the repo's alien/frontdoor). Accounts: ~/.local/share/zero-frontdoor/accounts.db.
+[Unit]
+Description=Zero front door (accounts)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/taffy/frontdoor
+Environment=PYTHONUNBUFFERED=1
+Environment=ZERO_FRONTDOOR_HOME_PREFIX=u
+# Sign-up stays closed: only usernames invited with `zero-account invite USERNAME` can make a home here.
+Environment=ZERO_FRONTDOOR_SIGN_UP=closed
+ExecStart=%h/taffy/.venv/bin/python -m uvicorn zero_frontdoor.app:app --host 127.0.0.1 --port 8670 --no-access-log
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

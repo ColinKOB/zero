@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "home_id": "test",
+  "person": {
+    "name": "Sam Rivera", "first_name": "Sam",
+    "timezone": "America/Los_Angeles",
+    "quiet_hours": {"start": 22, "end": 6},
+    "pronoun_free": true
+  },
+  "locale": {"units": "metric", "spelling": "british", "clock": "24h"},
+  "paths": {
+    "hermes_home": "~/.taffy", "hermes_bin": "~/taffy/bin/taffy",
+    "hub_state": "~/taffy/hub-state", "work": "~/taffy/work", "shared": "~/taffy/shared",
+    "plugin": "~/taffy/plugins/taffy-tools", "owner": "~/taffy/owner",
+    "background_docs": []
+  },
+  "ports": {"hub": 8652, "hermes_api": 8644, "broker_http": 8660,
+            "preview": {"base": 18400, "per_zip": 10, "count": 6}, "docker_subnet_base": "172.32"},
+  "network": {"public_url": "https://example-host.tailnet.ts.net:6445", "serve_port": 6445},
+  "host": {"name": "testbox", "kind": "server", "sandbox_image": "taffy/zip-sandbox:2026-10-08-v1",
+           "lead_backend": "docker"},
+  "plan": {
+    "claude": {"mode": "broker", "command": "/srv/zero/broker/claude-client"},
+    "chatgpt": {"mode": "broker", "codex_command": "/srv/zero/broker/codex-client",
+                "codex_base_url": "http://127.0.0.1:8660/test"},
+    "connectors": "none",
+    "frugal": true
+  },
+  "mail": {"accounts": [{"id": "test", "address": "sam@example.test", "label": "Personal", "default": true,
+                         "owner_zip": "default", "provider": "imap", "kind": "imap"}]},
+  "calendars": [],
+  "integrations": {"tally": null, "trello": null, "whisper_url": null},
+  "judge": {"enabled": false},
+  "google": {"client_id": null},
+  "push": {"key_dir": "~/.config/taffy-push", "team_id": "YOUR_TEAM_ID", "topic": "com.example.Taffy"},
+  "backup": {"repo": "~/backups/taffy-restic", "drop": "/srv/zero/backups/test", "mac_copy_expected": false},
+  "zips": {"max": 4, "container_memory_mb": 2048}
+}

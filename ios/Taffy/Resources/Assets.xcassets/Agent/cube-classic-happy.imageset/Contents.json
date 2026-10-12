@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "filename": "cube-classic-happy.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

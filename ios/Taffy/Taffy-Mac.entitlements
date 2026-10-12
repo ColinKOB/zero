@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Mac app runs with the hardened runtime, which hands the app silence instead of the
+	     microphone unless it declares audio input. Calls need the microphone. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<!-- The pairing token lives in the keychain, not in a file other programs on the Mac could read. -->
+	<!-- Notifications from the hub (Push.swift). -->
+	<key>com.apple.developer.aps-environment</key>
+	<string>development</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.example.Taffy</string>
+	</array>
+</dict>
+</plist>

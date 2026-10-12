@@ -1,0 +1,139 @@
+import XCTest
+
+/// Tapping a notification opens the Zip's chat and the app keeps running (docs/qa/2026-10-09-notification-crash.md).
+///
+/// The app runs its -fixture home. `-testNotification checkin:<seconds>` makes it schedule a local notification with the
+/// hub's own payload for Money's "Daily spending update" check-in (bot_id "money", thread "money"), and `notice` one for
+/// a question from Zero (bot_id "default", feed_id, the zero.question category). The test taps it as a banner over the
+/// home screen and on the lock screen, with the app in the background (warm) and after it was closed (cold).
+///
+/// With TEST_RUNNER_ZERO_EXTERNAL_PUSH=1 the app schedules nothing and the test waits for a push sent with
+/// `xcrun simctl push` (how the crash was reproduced on build 328, which has no -testNotification).
+///
+/// Run: xcodebuild test -scheme Taffy -destination 'platform=iOS Simulator,name=...' -only-testing:TaffyUITests/NotificationTapTests
+final class NotificationTapTests: XCTestCase {
+    private var app: XCUIApplication!
+    private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+
+    private static let checkinTitle = "Daily spending update"
+    private static let moneyChatLine = "How much did we spend at Walmart and Target this month?"
+    private static let noticeLine = "dentist bill"
+
+    override func setUp() {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = ["-fixture", "-light", "-askNotifications", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        addUIInterruptionMonitor(withDescription: "Notification permission") { alert in
+            for label in ["Allow", "OK"] where alert.buttons[label].exists {
+                alert.buttons[label].tap()
+                return true
+            }
+            return false
+        }
+    }
+
+    // MARK: The check-in from tonight (feed 181's kind)
+
+    func testWarmBannerTapOpensMoney() {
+        launch(notification: "checkin", in: 6)
+        XCUIDevice.shared.press(.home)
+        tapNotification(containing: Self.checkinTitle)
+        assertChatOpen(showing: Self.moneyChatLine)
+    }
+
+    func testColdBannerTapOpensMoney() {
+        launch(notification: "checkin", in: 8)
+        app.terminate()
+        tapNotification(containing: Self.checkinTitle)
+        assertChatOpen(showing: Self.moneyChatLine)
+    }
+
+    func testWarmLockScreenTapOpensMoney() {
+        launch(notification: "checkin", in: 8)
+        lock()
+        tapNotification(containing: Self.checkinTitle)
+        assertChatOpen(showing: Self.moneyChatLine)
+    }
+
+    func testColdLockScreenTapOpensMoney() {
+        launch(notification: "checkin", in: 10)
+        app.terminate()
+        lock()
+        tapNotification(containing: Self.checkinTitle)
+        assertChatOpen(showing: Self.moneyChatLine)
+    }
+
+    func testForegroundBannerTapOpensMoney() {
+        launch(notification: "checkin", in: 6)
+        tapNotification(containing: Self.checkinTitle)
+        assertChatOpen(showing: Self.moneyChatLine)
+    }
+
+    // MARK: A question from Zero (Yes, Not Now and Reply on a long press; a plain tap opens Zero's chat)
+
+    func testColdNoticeTapOpensZero() {
+        launch(notification: "notice", in: 8)
+        app.terminate()
+        tapNotification(containing: Self.noticeLine)
+        assertChatOpen(showing: "Zero")
+    }
+
+    // MARK: Helpers
+
+    private func launch(notification kind: String, in seconds: Int) {
+        // TEST_RUNNER_ZERO_EXTERNAL_PUSH=1: the push comes from `xcrun simctl push` instead (for builds without the
+        // -testNotification hook, such as build 328).
+        if ProcessInfo.processInfo.environment["ZERO_EXTERNAL_PUSH"] != "1" {
+            app.launchArguments += ["-testNotification", "\(kind):\(seconds)"]
+        }
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Money"].waitForExistence(timeout: 20), "the fixture home did not open")
+        // The permission alert is a springboard alert; a tap on the app lets the interruption monitor answer it.
+        acceptPermissionIfAsked()
+    }
+
+    private func acceptPermissionIfAsked() {
+        let alert = springboard.alerts.firstMatch
+        if alert.waitForExistence(timeout: 3) {
+            for label in ["Allow", "OK"] where alert.buttons[label].exists {
+                alert.buttons[label].tap()
+                break
+            }
+        }
+    }
+
+    private func lock() {
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        Thread.sleep(forTimeInterval: 1.5)
+    }
+
+    private func tapNotification(containing text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let note = springboard.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 30), "no notification with \"\(text)\" appeared", file: file, line: line)
+        Thread.sleep(forTimeInterval: 0.8)
+        note.tap()
+        // On the lock screen the tap asks to unlock first ("Swipe up to open"); the simulator has no passcode, so a
+        // swipe up from the bottom edge unlocks it and the tapped notification's app opens.
+        if !XCUIApplication().wait(for: .runningForeground, timeout: 4) {
+            if note.exists && note.isHittable { note.swipeRight() }   // the lock screen's other way to open it
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+        if !XCUIApplication().wait(for: .runningForeground, timeout: 2) {
+            let bottom = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.995))
+            bottom.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        }
+    }
+
+    private func assertChatOpen(showing text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let app = XCUIApplication()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "the app is not running after the tap",
+                      file: file, line: line)
+        // A chat has a Back button; the home screen does not.
+        XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 20), "no chat opened", file: file, line: line)
+        let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+        XCTAssertTrue(shown.waitForExistence(timeout: 10), "the chat with \"\(text)\" did not open", file: file, line: line)
+        Thread.sleep(forTimeInterval: 3)   // a crash after the chat appears still fails the test
+        XCTAssertEqual(app.state, .runningForeground, "the app stopped after opening the chat", file: file, line: line)
+    }
+}

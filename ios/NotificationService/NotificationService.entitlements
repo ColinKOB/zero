@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Reads each Zip's avatar and name, which the app saves here (PushShared/ZipNotify.swift). -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.example.Taffy</string>
+	</array>
+</dict>
+</plist>
