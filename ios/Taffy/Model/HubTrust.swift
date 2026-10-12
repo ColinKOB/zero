@@ -33,6 +33,71 @@ enum HubTrust {
 
     static func clearPins() { UserDefaults.standard.removeObject(forKey: key) }
 
+    /// Forgets the pin for one home (unpair, log out, remove).
+    static func removePin(for server: String) {
+        guard let url = URL(string: server), let id = id(url) else { return }
+        var pins = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        pins[id] = nil
+        UserDefaults.standard.set(pins, forKey: key)
+    }
+
+    // MARK: Pairing
+
+    /// A link's fingerprint while its pairing request runs: trusted for that one address only until the pairing
+    /// answers, and stored as the pin only if the pairing worked. Reading a link never stores anything.
+    private static let candidateLock = NSLock()
+    nonisolated(unsafe) private static var candidates: [String: String] = [:]
+
+    static func candidate(for url: URL) -> String? {
+        guard let id = id(url) else { return nil }
+        candidateLock.lock(); defer { candidateLock.unlock() }
+        return candidates[id]
+    }
+
+    /// The pin that applies to a connection now: the stored one, else a pairing request's candidate.
+    static func effectivePin(for url: URL) -> String? { pin(for: url) ?? candidate(for: url) }
+
+    enum PairCheck: Equatable {
+        /// Go ahead; `candidate` is the link's fingerprint to trust for this one pairing request.
+        case go(candidate: String?)
+        case refuse(String)
+    }
+
+    static let mismatch = "This doesn't match the Mac you paired before. If you reinstalled Zero there, remove it in Settings first."
+    static let insecure = "That address isn't secure. Scan the code on your Mac to connect."
+    static let unpinned = "Scan the code on your Mac to connect, so Zero can check it is really your Mac."
+
+    /// Whether a pairing request may go to `url` with the link's fingerprint `fp` (nil when the address was typed or
+    /// the link had none). An existing pin is never replaced: a different fingerprint for a pinned address is
+    /// refused. Plain http is only for the Mac app's own loopback line. A local address needs a fingerprint.
+    static func pairingCheck(_ url: URL, fingerprint fp: String?) -> PairCheck {
+        let loopback = ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? "")
+        let scheme = url.scheme?.lowercased() ?? ""
+        if scheme == "http" { return loopback ? .go(candidate: nil) : .refuse(insecure) }
+        let fp = fp.flatMap(normalized)
+        if let stored = pin(for: url) {
+            if let fp, fp != stored { return .refuse(mismatch) }
+            return .go(candidate: nil)
+        }
+        if let fp { return .go(candidate: fp) }
+        return isLocal(url) ? .refuse(unpinned) : .go(candidate: nil)
+    }
+
+    /// Starts trusting a candidate for one pairing request.
+    static func beginPairing(_ url: URL, candidate: String?) {
+        guard let candidate, let id = id(url) else { return }
+        candidateLock.lock(); candidates[id] = candidate; candidateLock.unlock()
+    }
+
+    /// Ends the pairing request: the candidate becomes the pin only when the pairing worked.
+    static func finishPairing(_ url: URL, succeeded: Bool) {
+        guard let id = id(url) else { return }
+        candidateLock.lock()
+        let c = candidates.removeValue(forKey: id)
+        candidateLock.unlock()
+        if succeeded, let c, pin(for: url) == nil { setPin(c, for: url.absoluteString) }
+    }
+
     /// 64 hex digits, lower case, with any colons or spaces taken out; nil for anything else.
     static func normalized(_ fp: String) -> String? {
         let hex = fp.lowercased().filter { !":- ".contains($0) }
@@ -78,7 +143,7 @@ final class HubSessionDelegate: NSObject, URLSessionDelegate {
               let url = URL(string: "https://\(space.host):\(space.port)") else {
             return completionHandler(.performDefaultHandling, nil)
         }
-        let d = HubTrust.decide(host: space.host, port: space.port, trust: trust, pin: HubTrust.pin(for: url),
+        let d = HubTrust.decide(host: space.host, port: space.port, trust: trust, pin: HubTrust.effectivePin(for: url),
                                 local: HubTrust.isLocal(url))
         completionHandler(d.0, d.1)
     }

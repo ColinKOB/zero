@@ -13,6 +13,40 @@ check(HubTrust.isLocal(URL(string: "https://10.0.0.5:8650")!), "10.x is local")
 check(!HubTrust.isLocal(URL(string: "https://alien.tail0000.ts.net:6443")!), "a Tailscale name is not local")
 check(!HubTrust.isLocal(URL(string: "http://127.0.0.1:8650")!), "loopback is not local")
 
+// Pairing rules (Fable's release QA, Oct 12): reading a link pins nothing; a pin is stored only after a pairing
+// works; a different fingerprint for a pinned address is refused; unpairing forgets the pin.
+UserDefaults.standard.removeObject(forKey: "hubPins")
+let fpA = String(repeating: "a", count: 64), fpB = String(repeating: "b", count: 64)
+let home = URL(string: "https://Sams-Mac.local:8653")!
+let link = PairLink.parse("zero://pair?server=https%3A%2F%2FSams-Mac.local%3A8653&code=ABCD2345&fp=\(fpA.uppercased())")
+check(link?.fingerprint == fpA && link?.code == "ABCD2345", "a link's fp is read and normalized")
+check(HubTrust.pin(for: home) == nil && HubTrust.candidate(for: home) == nil, "parsing a link pins nothing")
+check(HubTrust.pairingCheck(home, fingerprint: nil) == .refuse(HubTrust.unpinned), "a local address without fp is refused")
+check(HubTrust.pairingCheck(URL(string: "http://Sams-Mac.local:8650")!, fingerprint: fpA) == .refuse(HubTrust.insecure),
+      "plain http on the Wi-Fi is refused, fp or not")
+check(HubTrust.pairingCheck(URL(string: "http://127.0.0.1:8650")!, fingerprint: nil) == .go(candidate: nil),
+      "the Mac app's loopback line is allowed")
+check(HubTrust.pairingCheck(URL(string: "https://alien.tail0000.ts.net:6443")!, fingerprint: nil) == .go(candidate: nil),
+      "a Tailscale home without fp keeps the system's normal check")
+check(HubTrust.pairingCheck(home, fingerprint: fpA) == .go(candidate: fpA), "a link's fp is a candidate for the pairing")
+HubTrust.beginPairing(home, candidate: fpA)
+check(HubTrust.effectivePin(for: home) == fpA && HubTrust.pin(for: home) == nil, "the candidate applies during the request only")
+HubTrust.finishPairing(home, succeeded: false)
+check(HubTrust.pin(for: home) == nil && HubTrust.effectivePin(for: home) == nil, "a failed pairing stores no pin")
+HubTrust.beginPairing(home, candidate: fpA)
+HubTrust.finishPairing(home, succeeded: true)
+check(HubTrust.pin(for: home) == fpA, "the pin is stored after a successful pairing")
+check(HubTrust.pairingCheck(home, fingerprint: fpB) == .refuse(HubTrust.mismatch), "a different fp for a pinned address is refused")
+check(HubTrust.pin(for: home) == fpA, "the stored pin was not replaced")
+check(HubTrust.pairingCheck(home, fingerprint: fpA) == .go(candidate: nil), "the same fp pairs again with the stored pin")
+HubTrust.beginPairing(home, candidate: fpB)
+HubTrust.finishPairing(home, succeeded: true)
+check(HubTrust.pin(for: home) == fpA, "finishing a pairing never overwrites an existing pin")
+HubTrust.removePin(for: home.absoluteString)
+check(HubTrust.pin(for: home) == nil, "unpairing clears the pin")
+check(HubTrust.pairingCheck(home, fingerprint: fpB) == .go(candidate: fpB), "after removal the reinstalled Mac can pair")
+UserDefaults.standard.removeObject(forKey: "hubPins")
+
 func get(_ url: String) async -> (Int, String) {
     var r = URLRequest(url: URL(string: url)!)
     r.timeoutInterval = 10

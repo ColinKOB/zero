@@ -143,6 +143,8 @@ struct CodeScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
     @State private var code = ""
+    /// The zero://pair link that filled this screen; its fingerprint goes with the pairing for that address only.
+    @State private var link: PairLink?
     @State private var busy = false
     @State private var connected = false
     @State private var server = HubClient.savedServer
@@ -263,6 +265,7 @@ struct CodeScreen: View {
 
     /// The address and code from a zero://pair link or QR code.
     private func fill(_ link: PairLink) {
+        self.link = link
         if !link.server.isEmpty { server = link.server; showServer = true }
         if !link.code.isEmpty { code = link.code }
         state.pendingPair = nil
@@ -280,7 +283,8 @@ struct CodeScreen: View {
                 connected = true
             } else {
                 // The code shown on the Mac is the hub's pairing code.
-                await state.pair(code: cleaned, server: server)
+                await state.pair(code: cleaned, server: server,
+                                 fingerprint: link?.server == server ? link?.fingerprint : nil)
                 connected = state.paired
             }
             busy = false

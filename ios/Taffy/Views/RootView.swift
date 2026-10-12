@@ -529,6 +529,8 @@ struct PairingView: View {
     /// The sign-in screen already offers the sample home, so the pairing screen it opens leaves it out.
     var showSample = true
     @State private var code = ""
+    /// The zero://pair link that filled this screen; its fingerprint goes with the pairing for that address only.
+    @State private var link: PairLink?
     @State private var server = HubClient.savedServer
     @State private var busy = false
     @State private var showServer = HubClient.savedServer.isEmpty
@@ -561,7 +563,7 @@ struct PairingView: View {
                         .background(Theme.field, in: Capsule())
                         .padding(.top, 6)
                     Button {
-                        Task { busy = true; await state.pair(code: code, server: server); if state.paired { state.markSetUp() }; busy = false }
+                        Task { busy = true; await state.pair(code: code, server: server, fingerprint: self.link?.server == server ? self.link?.fingerprint : nil); if state.paired { state.markSetUp() }; busy = false }
                     } label: {
                         HStack(spacing: 8) {
                             Text(busy ? "Connecting" : "Connect")
@@ -586,7 +588,7 @@ struct PairingView: View {
                     }
                     PairLinkButton { link in
                         fill(link)
-                        Task { busy = true; await state.pair(code: code, server: server); if state.paired { state.markSetUp() }; busy = false }
+                        Task { busy = true; await state.pair(code: code, server: server, fingerprint: self.link?.server == server ? self.link?.fingerprint : nil); if state.paired { state.markSetUp() }; busy = false }
                     }
                     .frame(width: 220)
                     Button(showServer ? "Hide Connection Address" : "Connection Address") { showServer.toggle() }
@@ -615,6 +617,7 @@ struct PairingView: View {
     }
 
     private func fill(_ link: PairLink) {
+        self.link = link
         if !link.server.isEmpty { server = link.server; showServer = true }
         if !link.code.isEmpty { code = link.code }
         state.pendingPair = nil

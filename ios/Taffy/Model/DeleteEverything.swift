@@ -49,6 +49,7 @@ extension AppState {
         aiConsentSheet = false
         // In memory first, so the property observers cannot write old values back.
         client.token = nil
+        HubTrust.removePin(for: client.server)   // this home's certificate pin goes with it
         client.server = ""
         client.demo = false
         chats = [:]; board = .empty; bots = []; working = [:]; mutedBots = []; proactivity = nil

@@ -262,28 +262,32 @@ final class AppState {
 
     // MARK: Pairing
 
-    func pair(code: String, server: String) async {
+    /// `fingerprint`: the `fp` of the zero://pair link this address came from, if any (Model/HubTrust.swift).
+    func pair(code: String, server: String, fingerprint: String? = nil) async {
         client.server = HubClient.normalizedAddress(server)
         pairUnreachable = false
         guard !client.server.isEmpty else {
             lastError = "Type the connection address that Zero showed on your computer."
             return
         }
-        // Only the Mac app's own line to its engine is plain http. A Mac home on the Wi-Fi must be the one whose
-        // certificate came in its QR code (Model/HubTrust.swift); a server home is checked by the system as before.
-        if let url = URL(string: client.server) {
-            let loopback = ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? "")
-            if url.scheme?.lowercased() == "http" && !loopback {
-                lastError = "That address isn't secure. Scan the code on your Mac to connect."
-                return
-            }
-            if HubTrust.isLocal(url) && HubTrust.pin(for: url) == nil {
-                lastError = "Scan the code on your Mac to connect, so Zero can check it is really your Mac."
-                return
-            }
+        // Plain http only to loopback (the Mac app and its own engine); a home whose link carried a fingerprint is
+        // trusted with it for this request only, and pinned once the pairing works; a pinned home is never re-pinned.
+        guard let url = URL(string: client.server) else {
+            lastError = "Type the connection address that Zero showed on your computer."
+            return
         }
+        let candidate: String?
+        switch HubTrust.pairingCheck(url, fingerprint: fingerprint) {
+        case .refuse(let why):
+            lastError = why
+            return
+        case .go(let c):
+            candidate = c
+        }
+        HubTrust.beginPairing(url, candidate: candidate)
         do {
             let token = try await client.pair(code: code, deviceName: ProcessInfo.processInfo.isMacCatalystApp ? "Mac" : UIDevice.current.name)
+            HubTrust.finishPairing(url, succeeded: true)
             Keychain.write("hubToken", token)
             UserDefaults.standard.set(client.server, forKey: "server")
             client.token = token
@@ -292,6 +296,7 @@ final class AppState {
             await refreshAll()
             startPolling()
         } catch {
+            HubTrust.finishPairing(url, succeeded: false)
             lastError = HubClient.describe(error)
             pairUnreachable = HubClient.unreachable(error)
         }
@@ -300,6 +305,7 @@ final class AppState {
     func unpair() async {
         stopPolling()
         await client.unpair()
+        HubTrust.removePin(for: client.server)
         Keychain.delete("hubToken")
         client.token = nil
         chats = [:]; board = .empty; bots = []; drafts = [:]; working = [:]

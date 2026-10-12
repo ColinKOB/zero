@@ -74,6 +74,7 @@
 		7DC00383C30703B29100F330 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE273471E8F026EB6C395E7A /* Support.swift */; };
 		7F0C2814B976A4EEDC414B94 /* FluidViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2670BCFE34259FFB970011F /* FluidViews.swift */; };
 		809E72307AE40DD8B150A402 /* AgentArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623780BFEFAF2DFD93117103 /* AgentArt.swift */; };
+		85E7E2A579F096380AECD024 /* PairLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23DF95934BBD360297F10A64 /* PairLink.swift */; };
 		86F1C6470D83E7014D767DFB /* GuideOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05AB368B332BECF8B47DE61 /* GuideOverlayViews.swift */; };
 		8877CC932F73CB4829D393E9 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165189DCBD03F9BB05BF75E3 /* NotificationService.swift */; };
 		8A05C1B221149A834D23D329 /* AccountsE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BA9C22FAFA3C2D95151A61 /* AccountsE2ETests.swift */; };
@@ -210,6 +211,7 @@
 		1C1CCE60C69979AE746BCEA6 /* MacComposerField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposerField.swift; sourceTree = "<group>"; };
 		1EF6F2E92B3EF6096E4AAA97 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		22D32487D0783E7CCAA4A947 /* LoginField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginField.swift; sourceTree = "<group>"; };
+		23DF95934BBD360297F10A64 /* PairLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairLink.swift; sourceTree = "<group>"; };
 		243DC2DCDF3C8F1B29941D8C /* BotActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotActions.swift; sourceTree = "<group>"; };
 		2591D9DB2F4A91DF222BEF28 /* FrontDoor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontDoor.swift; sourceTree = "<group>"; };
 		2C3FC0DED8D9A885F70D62C0 /* ComputerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerCard.swift; sourceTree = "<group>"; };
@@ -386,6 +388,7 @@
 				680FC187BA9182E8A5E896C2 /* MacLink.swift */,
 				F9FECCFE99CE0F69C17CCFDE /* Models.swift */,
 				6975FF8F4C36E4C4E22E08AE /* NotificationZips.swift */,
+				23DF95934BBD360297F10A64 /* PairLink.swift */,
 				AF8D325E936940E1B077AFE0 /* Push.swift */,
 				BE273471E8F026EB6C395E7A /* Support.swift */,
 			);
@@ -912,6 +915,7 @@
 				5178C8394122249880D62D44 /* OnboardingPlan.swift in Sources */,
 				303FC80902B9B59D08D9C552 /* OnboardingSetup.swift in Sources */,
 				9CF58BD19E4E0465E8695B48 /* OnboardingView.swift in Sources */,
+				85E7E2A579F096380AECD024 /* PairLink.swift in Sources */,
 				356C5AA6671E6FA0A6642F71 /* PairScanner.swift in Sources */,
 				2410BCB84D0119DF108FC9F4 /* PocketVoice.swift in Sources */,
 				98A2E95CADDB7CCCFC003EE4 /* Push.swift in Sources */,
