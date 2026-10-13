@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// The Mac's first run, before the onboarding: welcome, set up Zero on this Mac (with progress), sign in to your AI,
-/// then the existing onboarding ("Create Your First Zip") and, at the end, Pair Your Phone. Someone who already has
+/// then the existing onboarding ("Create Your First Zip") and, at the end, Pair a Phone or Mac. Someone who already has
 /// a home elsewhere (Colin's, on his server) chooses Connect to Another Home and signs in or pairs as before.
 /// Nothing here sends anyone to a home that is not on their own Mac.
 struct MacSetupView: View {
@@ -14,6 +14,16 @@ struct MacSetupView: View {
     @State private var problem: String?
 
     enum Screen { case welcome, installing, ai }
+
+    /// DEBUG: `-macsetup welcome|ai|preparing|waiting|failed` shows that screen with sample engine answers and runs
+    /// nothing, on the Mac or in the simulator, for screenshots. Nil in a release build.
+    static var debugScreen: String? {
+        #if DEBUG
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "-macsetup"), i + 1 < args.count { return args[i + 1] }
+        #endif
+        return nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +54,22 @@ struct MacSetupView: View {
         .background(Color.white.ignoresSafeArea())
         .environment(\.colorScheme, .light)
         .task {
+            #if DEBUG
+            if let shot = Self.debugScreen {
+                if shot != "welcome" {
+                    let none = MacEngine.Tool(installed: false, signed_in: false)
+                    engine.ai = MacEngine.AIStatus(claude: none, codex: none, ready: false)
+                    engine.debugSample = true
+                    engine.signingIn = "claude"
+                    engine.signIn = shot == "preparing" ? .preparing("Getting Claude ready on this Mac.")
+                        : shot == "waiting" ? .waiting
+                        : shot == "failed" ? .failed("The sign-in did not finish. Try again.") : .idle
+                    if shot == "waiting" { engine.signInPage = URL(string: "https://claude.com") }
+                    screen = .ai
+                }
+                return
+            }
+            #endif
             // Set up already (the window was closed before the sign-in): go on to the sign-in.
             if screen == .welcome, let s = await engine.status(), s.installed, s.running {
                 engine.phase = .done
@@ -60,15 +86,30 @@ struct MacSetupView: View {
         }
     }
 
+    /// The engine runs on Apple silicon only (zero-engine checks too); an Intel Mac hears it before anything downloads.
+    private var intel: Bool {
+        #if arch(x86_64)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 12) {
             OnboardingHeadline("Welcome to Zero")
-            Text("Zero is a team of assistants that lives on this Mac. Your chats, your Zips and what they learn stay here, except what they send to Claude or ChatGPT to think.")
-                .font(Theme.text(17)).foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Setup takes a few minutes and needs an internet connection. Zero works while your Mac is awake.")
-                .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
-                .fixedSize(horizontal: false, vertical: true)
+            if intel {
+                Text("Zero needs a Mac with Apple silicon, such as an M1 or newer. This Mac has an Intel processor, so Zero can't run on it.")
+                    .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Zero is a team of assistants that lives on this Mac. Your chats and everything Zero learns stay here, except what it sends to Claude or ChatGPT to think.")
+                    .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Setup takes a few minutes and needs an internet connection. Zero works while your Mac is awake.")
+                    .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -99,8 +140,10 @@ struct MacSetupView: View {
         switch screen {
         case .welcome:
             VStack(spacing: 8) {
-                OnboardingButton("Set Up Zero on This Mac") { start() }
-                    .accessibilityIdentifier("macSetUpHere")
+                if !intel {
+                    OnboardingButton("Set Up Zero on This Mac") { start() }
+                        .accessibilityIdentifier("macSetUpHere")
+                }
                 Button("Connect to Another Home") {
                     UserDefaults.standard.set(true, forKey: MacEngine.otherHomeKey)
                     state.onboarding = false   // the sign-in screen: an account or a pairing code
@@ -108,6 +151,7 @@ struct MacSetupView: View {
                 }
                 .font(Theme.text(15, .medium)).foregroundStyle(Theme.inkSoft)
                 .frame(minHeight: 40)
+                .buttonStyle(.plain)   // a text link, not the Mac's gray bordered button
                 .accessibilityIdentifier("macOtherHome")
             }
         case .installing:
@@ -157,108 +201,122 @@ struct MacSetupView: View {
 }
 
 /// Sign In to Your AI: Zero thinks with the person's own Claude or ChatGPT plan, through the official Claude Code or
-/// Codex signed in on this Mac. Zero never sees the password or keeps the sign-in.
+/// Codex on this Mac. One button does it all: the engine gets the tool with its official installer if it is missing
+/// and runs its own sign-in, which opens the page in the person's browser. This screen notices when they are signed
+/// in and goes on by itself, so nobody opens Terminal. Zero never sees the password or keeps the sign-in.
 struct MacAIStep: View {
+    @Environment(\.openURL) private var openURL
     @State private var engine = MacEngine.shared
-    @State private var checking = false
-    @State private var copied: String?
     var onReady: () -> Void
     var connecting: Bool
 
-    static let claudeCommand = "curl -fsSL https://claude.ai/install.sh | bash"
-    static let claudePage = URL(string: "https://docs.claude.com/en/docs/claude-code/setup")!
-    static let codexCommand = "npm install -g @openai/codex"
-    static let codexPage = URL(string: "https://developers.openai.com/codex/cli")!
+    private var ready: Bool { engine.ai?.ready == true }
+    private var label: String { engine.signingIn == "codex" ? "ChatGPT" : "Claude" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            OnboardingHeadline(ready ? "You Are Signed In" : "Sign In to Your AI")
-            if let ai = engine.ai {
-                if ready {
-                    Text(ai.claude.signed_in
-                         ? "Your Zips will think with your Claude plan."
-                         : "Your Zips will think with your ChatGPT plan.")
-                        .font(Theme.text(17)).foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("Zero thinks with your own Claude or ChatGPT plan. Sign in to one of them on this Mac with its official app. Zero never sees your password.")
-                        .font(Theme.text(17)).foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    toolCard(title: "Claude (Pro or Max)", tool: ai.claude, command: Self.claudeCommand,
-                             signIn: "claude", page: Self.claudePage, name: "Claude Code")
-                    toolCard(title: "ChatGPT (Plus or Pro)", tool: ai.codex, command: Self.codexCommand,
-                             signIn: "codex login", page: Self.codexPage, name: "Codex")
-                }
-            } else {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Checking for Claude and ChatGPT on this Mac.").font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
-                }
-            }
             if ready {
+                OnboardingHeadline("You Are Signed In")
+                Text(engine.ai?.claude.signed_in == true
+                     ? "Your Zips will think with your Claude plan."
+                     : "Your Zips will think with your ChatGPT plan.")
+                    .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 OnboardingButton(connecting ? "Getting Zero Ready" : "Continue", busy: connecting) { onReady() }
                     .accessibilityIdentifier("macAIContinue")
-            } else if engine.ai != nil {
-                OnboardingButton(checking ? "Checking" : "Check Again", busy: checking) { Task { await check() } }
-                    .accessibilityIdentifier("macAICheck")
-            }
-        }
-        .task { await check() }
-    }
-
-    private var ready: Bool { engine.ai?.ready == true }
-
-    private func check() async {
-        checking = true
-        _ = await engine.checkAI()
-        checking = false
-    }
-
-    @ViewBuilder
-    private func toolCard(title: String, tool: MacEngine.Tool, command: String, signIn: String, page: URL,
-                          name: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(Theme.text(17, .semibold)).foregroundStyle(Theme.ink)
-            if tool.installed {
-                Text("\(name) is on this Mac but is not signed in. Open Terminal, type the line below and press Return, then sign in on the page that opens.")
-                    .font(Theme.text(15)).foregroundStyle(Theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                commandRow(signIn)
+            } else if engine.ai == nil {
+                OnboardingHeadline("Sign In to Your AI")
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Checking this Mac.").font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                }
             } else {
-                Text("Install \(name), then sign in. Open Terminal, type the line below and press Return. When it finishes, type the second line, press Return and sign in on the page that opens.")
-                    .font(Theme.text(15)).foregroundStyle(Theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                commandRow(command)
-                commandRow(signIn)
-                Link("Read the Official Steps", destination: page)
-                    .font(Theme.text(15, .medium)).foregroundStyle(Theme.taffyDeep)
+                switch engine.signIn {
+                case .preparing:
+                    OnboardingHeadline("Getting \(label) Ready")
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        ProgressView()
+                        Text("This takes about a minute. Your browser opens when it is time to sign in.")
+                            .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    otherChoice
+                case .waiting:
+                    OnboardingHeadline("Sign In in Your Browser")
+                    Text("Sign in to \(label) on the page that just opened. Zero continues by itself when you are done.")
+                        .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Waiting for you to sign in.").font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                    }
+                    .accessibilityElement(children: .combine)
+                    if let page = engine.signInPage {
+                        OnboardingSecondaryButton("Open the Sign-In Page Again", symbol: "arrow.up.right") { openURL(page) }
+                    }
+                    otherChoice
+                case .idle, .failed:
+                    OnboardingHeadline("Sign In to Your AI")
+                    Text("Zero works with the Claude or ChatGPT plan you already have. Pick one and sign in on the page that opens.")
+                        .font(Theme.text(17)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if case .failed(let why) = engine.signIn {
+                        Text(why).font(Theme.text(15, .medium)).foregroundStyle(Theme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    VStack(spacing: 0) {
+                        planButton("claude", title: "Sign In With Claude", plans: "Claude Pro or Max")
+                            .accessibilityIdentifier("macSignInClaude")
+                        Divider().padding(.leading, 58)
+                        planButton("codex", title: "Sign In With ChatGPT", plans: "ChatGPT Plus or Pro")
+                            .accessibilityIdentifier("macSignInChatGPT")
+                    }
+                    .onboardingCard()
+                    Text("Zero never sees your password.")
+                        .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                }
             }
-            Button("Open Terminal") { engine.openTerminal() }
-                .font(Theme.text(15, .medium)).foregroundStyle(Theme.taffyDeep)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onboardingCard(selected: false, radius: 16)
+        .task { if !engine.debugSample { _ = await engine.checkAI() } }
+        // Signed in: go on without another click.
+        .onChange(of: ready) { _, now in if now, !connecting { onReady() } }
     }
 
-    private func commandRow(_ command: String) -> some View {
-        HStack(spacing: 10) {
-            Text(command).font(.system(size: 14, design: .monospaced)).foregroundStyle(Theme.ink)
-                .textSelection(.enabled)
-                .lineLimit(2)
-            Spacer(minLength: 4)
-            Button(copied == command ? "Copied" : "Copy") {
-                UIPasteboard.general.string = command
-                copied = command
+    private func planButton(_ tool: String, title: String, plans: String) -> some View {
+        Button { Task { await engine.signIn(with: tool) } } label: {
+            HStack(spacing: 14) {
+                Image(tool == "claude" ? "AppLogo-claude" : "AppLogo-openai")
+                    .resizable().scaledToFit().frame(width: 26, height: 26)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(Theme.text(17, .semibold)).foregroundStyle(Theme.ink)
+                    Text(plans).font(Theme.text(14)).foregroundStyle(Theme.inkSoft)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.inkSoft)
             }
-            .font(Theme.text(14, .medium)).foregroundStyle(Theme.taffyDeep)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity, minHeight: 68)
+            .contentShape(Rectangle())
         }
-        .padding(10)
-        .background(Theme.field, in: RoundedRectangle(cornerRadius: 10))
+        .buttonStyle(PressStyle())
+    }
+
+    /// Switch plans while one is still getting ready or waiting.
+    private var otherChoice: some View {
+        let other = engine.signingIn == "codex" ? "claude" : "codex"
+        return Button(other == "codex" ? "Use ChatGPT Instead" : "Use Claude Instead") {
+            Task { await engine.signIn(with: other) }
+        }
+        .font(Theme.text(15, .medium)).foregroundStyle(Theme.inkSoft)
+        .frame(minHeight: 40)
+        .buttonStyle(.plain)
     }
 }
 
-/// Pair Your Phone: a QR code the iPhone's Camera reads, holding this Mac's address on the Wi-Fi and a one-time code.
+/// Pair a Phone or Mac: a QR code the iPhone's Camera reads, holding this Mac's address on the Wi-Fi and a one-time code.
 /// Shown once after the onboarding on a Mac home, and from Settings.
 struct PairPhoneView: View {
     @Environment(\.dismiss) private var dismiss
@@ -269,15 +327,15 @@ struct PairPhoneView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            OnboardingHeadline("Pair Your Phone")
-            Text("Open the Camera on your iPhone and point it at this code, then tap the link it shows. The Zero app on your iPhone opens and connects to this Mac.")
+            OnboardingHeadline("Pair a Phone or Mac")
+            Text("Open the Camera on your iPhone and point it at this code, then tap the link it shows. The Zero app on your iPhone opens with the code filled in. Tap Connect.")
                 .font(Theme.text(17)).foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             if let pairing, let image = Self.qr(pairing.link) {
                 HStack {
                     Spacer()
                     Image(uiImage: image).interpolation(.none).resizable().frame(width: 220, height: 220)
-                        .accessibilityLabel("Pairing code for your iPhone")
+                        .accessibilityLabel("Pairing code")
                     Spacer()
                 }
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -291,8 +349,8 @@ struct PairPhoneView: View {
                 }
                 if let url = URL(string: pairing.link) {
                     ShareLink(item: url, subject: Text("Connect to Zero"),
-                              message: Text("Open this on your iPhone to connect it to Zero on my Mac.")) {
-                        Label("Send the Link to Your iPhone", systemImage: "square.and.arrow.up")
+                              message: Text("Open this on your iPhone or Mac to connect it to Zero on my Mac.")) {
+                        Label("Send the Link", systemImage: "square.and.arrow.up")
                     }
                     .font(Theme.text(15, .medium)).foregroundStyle(Theme.taffyDeep)
                 }
@@ -302,11 +360,11 @@ struct PairPhoneView: View {
             } else {
                 ProgressView().frame(maxWidth: .infinity)
             }
-            Text("Your phone works with Zero when it is on the same Wi-Fi as this Mac. Away from home, it shows what it last saw.")
+            Text("To connect another Mac, send it the link and open it there. Your phone and other Macs work with Zero when they are on the same Wi-Fi as this Mac. Away from home, they show what they last saw.")
                 .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             if pairing?.firewall == true {
-                Text("This Mac's firewall is on. If your Mac asks whether to accept incoming connections, choose Allow so your iPhone can reach Zero. If your iPhone still can't connect, open System Settings, then Network, then Firewall, and allow incoming connections.")
+                Text("This Mac's firewall is on. If your Mac asks whether to accept incoming connections, choose Allow so your iPhone can reach Zero, even if it names python instead of Zero. If your iPhone still can't connect, open System Settings, then Network, then Firewall, and allow incoming connections.")
                     .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -346,7 +404,7 @@ struct PairPhoneView: View {
     }
 }
 
-/// Settings on a Mac home: Pair Your Phone, and Remove Zero From This Mac.
+/// Settings on a Mac home: Pair a Phone or Mac, and Remove Zero From This Mac.
 struct MacHomeSection: View {
     @Environment(AppState.self) private var state
     @State private var engine = MacEngine.shared
@@ -357,7 +415,7 @@ struct MacHomeSection: View {
 
     var body: some View {
         Section {
-            Button("Pair Your Phone") { pairing = true }
+            Button("Pair a Phone or Mac") { pairing = true }
                 .foregroundStyle(Theme.ink)
             Button(role: .destructive) { confirmRemove = true } label: {
                 Text(removing ? "Removing Zero" : "Remove Zero From This Mac")

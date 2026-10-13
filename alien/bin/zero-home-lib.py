@@ -381,7 +381,8 @@ def subnet(settings: dict, slot: int) -> str:
 # ---------------------------------------------------------------------------------------------------------
 
 LEAD = "default"
-FALLBACK = [{"provider": "openai-codex", "model": "gpt-6.1-sol"}]
+CHATGPT_MODEL = "gpt-6.1-sol"
+FALLBACK = [{"provider": "openai-codex", "model": CHATGPT_MODEL}]
 PLUGINS = ["claude-subscription-directsdk-experimental", "taffy-tools"]
 
 
@@ -425,6 +426,13 @@ def managed_config(settings: dict, home_dir: Path, zip_id: str, slot: int | None
                       "compression": {"provider": "claude-subscription-directsdk-experimental",
                                       "model": "claude-haiku-5-5"}},
     }
+    if settings["plan"].get("brain") == "chatgpt":
+        # A home signed in to ChatGPT only: the Zips think with it through Codex, as Zero for Mac does
+        # (mac/engine/zero_engine.py, model_block). Without the key, Claude, as before.
+        cfg["model"] = {"provider": "openai-codex", "default": CHATGPT_MODEL}
+        cfg["fallback_providers"] = []
+        cfg["auxiliary"] = {"background_review": {"provider": "openai-codex", "model": CHATGPT_MODEL},
+                            "compression": {"provider": "openai-codex", "model": CHATGPT_MODEL}}
     if local:
         del cfg["bot_desktop"]["placement"]
     if lead:

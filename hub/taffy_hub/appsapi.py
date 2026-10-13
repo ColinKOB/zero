@@ -61,9 +61,10 @@ def install(app, require_device, require_internal) -> None:
         return await asyncio.to_thread(apps.payload, accounts.cached())
 
     @app.post("/api/apps/{app_id}/start")
-    def start_app(app_id: str, _: str = Depends(require_device)):
+    def start_app(app_id: str, relay: int = 0, _: str = Depends(require_device)):
         try:
-            return apps.start(app_id)
+            # ?relay=1: this app build handles Trello's return through Zero's relay; older builds get the paste flow.
+            return apps.start(app_id, relay_ok=bool(relay))
         except apps.AppError as e:
             raise HTTPException(409 if not e.connected else 400, str(e))
 

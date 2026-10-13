@@ -561,7 +561,26 @@ setup_tailscale() {
     done
     [ -n "$port" ] || { note "Tailscale serve already uses ports 443, 8443 and 10443 on this computer."; return 1; }
   fi
-  if ! tailscale serve --bg --https="$port" "http://127.0.0.1:$HUB_PORT" >/dev/null 2>&1; then
+  # A new tailnet has HTTPS certificates off, and serve would wait for them without saying so.
+  if ! tailscale status --json | jq -e '(.CertDomains // []) | length > 0' >/dev/null; then
+    say "Turn on HTTPS for your tailnet: open https://login.tailscale.com/admin/dns, and under HTTPS Certificates"
+    if [ -n "$TTY" ]; then
+      say "click Enable HTTPS. Then come back here and press Return."
+      IFS= read -r _ <&3 || true
+    else
+      say "click Enable HTTPS."
+    fi
+    local i   # the setting takes a few seconds to reach this computer
+    for i in $(seq 1 30); do
+      tailscale status --json | jq -e '(.CertDomains // []) | length > 0' >/dev/null && break
+      sleep 2
+    done
+    if ! tailscale status --json | jq -e '(.CertDomains // []) | length > 0' >/dev/null; then
+      note "HTTPS is still off for your tailnet, so Zero uses the local network. Run this installer again later."
+      return 1
+    fi
+  fi
+  if ! timeout 120 tailscale serve --bg --https="$port" "http://127.0.0.1:$HUB_PORT" >/dev/null 2>&1; then
     note "Tailscale could not publish Zero with HTTPS. Turn on HTTPS for your tailnet at"
     note "https://login.tailscale.com/admin/dns (HTTPS Certificates), then run this installer again."
     return 1
@@ -623,13 +642,48 @@ ai_signin() {
   if [[ "$ZERO_AI" == chatgpt || "$ZERO_AI" == both ]] && command -v codex >/dev/null; then
     if codex login status >/dev/null 2>&1; then say "ChatGPT is already signed in."
     else
-      say "Signing in to ChatGPT. Open the link it shows on any device and enter the code."
+      say "Signing in to ChatGPT. Open the link it shows on any device and enter the code. If the page says device"
+      say "code sign-in is off, turn on device code login in ChatGPT's Settings, under Security, and try again."
       codex login --device-auth <&3 || note "ChatGPT sign-in did not finish. Try again with: bash $ZDATA/install.sh signin"
     fi
   fi
-  if [ "$ZERO_AI" = chatgpt ]; then
-    note "Zips think with Claude today. With ChatGPT only, Zero's voice calls work, and chats need a Claude plan."
+}
+
+# Which plan the Zips think with, as Zero for Mac decides it: Claude when Claude Code is signed in, else ChatGPT
+# through Codex. home.json keeps the choice (plan.brain), so a rerun or a new Zip renders the same model. A Codex
+# sign-in is also copied into Hermes's own, with Hermes's import code, for ChatGPT as the brain or the fallback.
+apply_brain() {
+  [ -f "$TAFFY/home.json" ] && [ -x "$VENV/bin/python" ] || return 0   # not installed yet: the install does this
+  local brain=claude codex=""
+  command -v codex >/dev/null && codex login status >/dev/null 2>&1 && codex=yes
+  if ! { command -v claude >/dev/null && claude auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; }; then
+    [ -n "$codex" ] && brain=chatgpt
   fi
+  # Only when Hermes has no Codex sign-in yet, as on the Mac: the two share one sign-in whose refresh tokens work
+  # once, so copying again over a newer token can get both signed out.
+  if [ -n "$codex" ] && ! jq -e '[.providers["openai-codex"], .credential_pool["openai-codex"]] | any(. != null and . != [] and . != {})' \
+       "$HERMES_HOME/auth.json" >/dev/null 2>&1; then
+    HERMES_HOME="$HERMES_HOME" "$VENV/bin/python" -c '
+import sys
+from hermes_cli import auth
+from hermes_cli.auth_codex import _import_codex_cli_tokens
+t = _import_codex_cli_tokens()
+if not t: sys.exit(3)
+auth._save_codex_tokens(t)' >/dev/null 2>&1 || note "The ChatGPT sign-in was not copied for the Zips. Run: bash $ZDATA/install.sh signin"
+  fi
+  "$VENV/bin/python" - "$TAFFY/home.json" "$brain" <<'PY'
+import json, sys
+path, brain = sys.argv[1], sys.argv[2]
+import os
+s = json.load(open(path))
+s["plan"]["brain"] = brain   # the same key and words Zero for Mac uses
+tmp = path + ".tmp"          # swapped in whole, as the hub saves it
+open(tmp, "w").write(json.dumps(s, indent=2) + "\n")
+os.replace(tmp, path)
+PY
+  "$VENV/bin/python" "$SRC/alien/bin/zero-home-render" "$HOME_ID" --home-dir "$HOME" --settings "$TAFFY/home.json" \
+    >/dev/null || note "The Zips' settings were not updated. Run the install command again."
+  [ "$brain" = chatgpt ] && say "Your Zips think with ChatGPT. To switch them to Claude later, run: bash $ZDATA/install.sh signin"
   systemctl --user restart taffy-gateway 2>/dev/null || true
 }
 
@@ -682,6 +736,7 @@ do_install() {
   save_state
   start_services
   ai_signin
+  apply_brain
   pair
   echo
   say "${B}Zero is running.${R} It starts by itself when this computer starts. To update or repair it, run the"
@@ -748,7 +803,7 @@ do_uninstall() {
 case "${1:-install}" in
   install|repair|update) do_install ;;
   pair) load_state; user_bus; pair ;;
-  signin) load_state; user_bus; ARCH=$(uname -m | sed 's/amd64/x86_64/;s/arm64/aarch64/'); ZERO_AI="${ZERO_AI:-}"; ai_signin ;;
+  signin) load_state; user_bus; ARCH=$(uname -m | sed 's/amd64/x86_64/;s/arm64/aarch64/'); ZERO_AI="${ZERO_AI:-}"; ai_signin; apply_brain ;;
   status) do_status ;;
   uninstall|remove) do_uninstall ;;
   *) say "Usage: bash install.sh [install | pair | signin | status | uninstall]"; exit 2 ;;

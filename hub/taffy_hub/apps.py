@@ -247,7 +247,7 @@ def _sweep(now: float) -> None:
             _starts.pop(s, None)
 
 
-def start(app_id: str) -> dict:
+def start(app_id: str, relay_ok: bool = False) -> dict:
     """POST /api/apps/{id}/start: where the app sends the person to connect."""
     a = BY_ID.get(app_id)
     if not a:
@@ -274,6 +274,12 @@ def start(app_id: str) -> dict:
         _starts[state] = (app_id, now + START_TTL_SEC)
         url = trello.authorize_url(f"{setup['public_url']}/connect/trello/done/{state}")
         return {"mode": "redirect", "url": url, "callback_scheme": CALLBACK_SCHEME}
+    # Zero's OAuth relay is an allowed origin of Zero's Trello key (Oct 12): Trello's Allow page sends the token to the
+    # relay's return page, which hands it to zero://oauth/trello#token=..., and the app posts it to /code as if pasted.
+    relay = str(home.get("apps.relay.url") or "").strip().rstrip("/")
+    if relay_ok and relay.startswith("https://"):
+        return {"mode": "relay", "url": trello.authorize_url(f"{relay}/callback/trello"),
+                "callback_scheme": CALLBACK_SCHEME}
     return {"mode": "paste", "url": trello.authorize_url(), "callback_scheme": CALLBACK_SCHEME}
 
 

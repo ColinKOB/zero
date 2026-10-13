@@ -211,6 +211,13 @@ final class MacLink {
         return true
     }
 
+    /// Once at launch on the Mac: offers to move Zero into Applications when it was opened from the disk image,
+    /// Downloads or the Desktop, before anything is set up from the wrong copy (TaffyMacBridge+Move.swift).
+    func offerMoveToApplications() {
+        guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge(), let bridge else { return }
+        _ = bridge.perform(NSSelectorFromString("offerMoveToApplications"))
+    }
+
     /// Runs a command of Zero's engine installer in the Mac bridge (TaffyMacBridge+Engine.swift): install, status,
     /// ai-status, configure-ai, pair, uninstall, or "terminal" to open Terminal. Its own selector, so the hub cannot
     /// reach it. `events` gets each printed line and then the exit. False when the bridge can't load.

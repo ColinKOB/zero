@@ -34,6 +34,9 @@ struct TaffyApp: App {
                 .preferredColorScheme(Self.scheme)
                 // zero://pair?server=...&code=..., from a QR code read by the Camera app or a link in a message.
                 .onOpenURL { state.open($0) }
+                #if targetEnvironment(macCatalyst)
+                .task { MacLink.shared.offerMoveToApplications() }
+                #endif
         }
     }
 }

@@ -6,47 +6,42 @@ import SwiftUI
 
 // MARK: 4. Your computer
 
+/// Where Should I Live?: the computer Zero will run on. A Mac that stays on comes first, since the Zips work there
+/// day and night. Each choice leads to its own setup guide.
 struct MacScreen: View {
     @Environment(OnboardingModel.self) private var model
-    @State private var copied = false
 
     var body: some View {
         OnboardingPage {
-            GeometryReader { geo in
+            ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    OnboardingHeadline("Do You Have a Mac Nearby?")
-                    Text("That's where I'll do most of my work.")
-                        .font(Theme.text(20)).foregroundStyle(Theme.inkSoft)
+                    OnboardingHeadline("Where Should I Live?")
+                    Text("I do my work on a computer at home. Pick the one I should live on.")
+                        .font(Theme.text(18)).foregroundStyle(Theme.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 8)
-                    Spacer(minLength: 0)
-                    AgentStage(look: model.draft.look, size: max(120, min(geo.size.height * 0.5, 280)))
+                    AgentStage(look: model.draft.look, size: 120)
                         .frame(maxWidth: .infinity)
-                    Spacer(minLength: 0)
+                        .padding(.vertical, 12)
+                    VStack(spacing: 0) {
+                        choice(.alwaysOnMac, symbol: "macmini", title: "A Mac That Stays On",
+                               detail: "Your Zips work day and night, for example on a Mac mini at home.")
+                        Divider().padding(.leading, 58)
+                        choice(.everydayMac, symbol: "laptopcomputer", title: "The Mac You Use Every Day",
+                               detail: "Your Zips work while it is awake.")
+                        Divider().padding(.leading, 58)
+                        choice(.linux, symbol: "server.rack", title: "A Linux Computer",
+                               detail: "Setting it up takes one command in a terminal.")
+                    }
+                    .onboardingCard()
                 }
                 .padding(.horizontal, 24)
             }
+            .scrollIndicators(.hidden)
         } footer: {
-            ShareLink(item: OnboardingLinks.macDownload, subject: Text("Zero for Mac"),
-                      message: Text("Open this link on your Mac to download Zero.")) {
-                Text("Send the Download Link")
-                    .font(Theme.text(17, .semibold))
-                    .foregroundStyle(Theme.mineText)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Theme.mine, in: Capsule())
-            }
-            .buttonStyle(PressStyle())
-            OnboardingSecondaryButton(copied ? "Copied" : "Copy a Setup Prompt", symbol: copied ? "checkmark" : "doc.on.doc") {
-                UIPasteboard.general.string = OnboardingLinks.setupPrompt
-                withAnimation { copied = true }
-            }
-            .padding(.top, 4)
-            Text(copied ? "Paste it into Claude or ChatGPT on your Mac, and it will help you set me up."
-                        : "Or ask Claude or ChatGPT on your Mac to set me up for you.")
-                .font(Theme.caption).foregroundStyle(Theme.inkSoft)
-                .multilineTextAlignment(.center)
-                .padding(.top, 2)
             Button("I Have My Code") {
                 model.draft.noComputer = false
+                model.draft.computer = nil   // Back from the code screen returns here
                 model.go(.code)
             }
             .font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
@@ -58,7 +53,134 @@ struct MacScreen: View {
             .font(Theme.text(14, .medium)).foregroundStyle(Theme.inkSoft)
             .frame(minHeight: 36)
         }
+    }
+
+    private func choice(_ computer: OnboardingModel.Computer, symbol: String, title: String, detail: String) -> some View {
+        Button {
+            model.draft.noComputer = false
+            model.draft.computer = computer
+            model.go(.guide)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: symbol).font(.system(size: 19, weight: .medium)).foregroundStyle(Theme.ink)
+                    .frame(width: 26)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(Theme.text(17, .semibold)).foregroundStyle(Theme.ink)
+                    Text(detail).font(Theme.text(14)).foregroundStyle(Theme.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.inkSoft)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 68)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+    }
+}
+
+// MARK: 4a. The setup guide
+
+/// Hands the setup of the picked computer to the AI assistant the person already pays for: a prompt to copy, and
+/// buttons that copy it and open ChatGPT or Claude.
+struct GuideScreen: View {
+    @Environment(OnboardingModel.self) private var model
+    @Environment(\.openURL) private var openURL
+    @State private var copied = false
+
+    private var computer: OnboardingModel.Computer { model.draft.computer ?? .everydayMac }
+    private var prompt: String { OnboardingLinks.setupPrompt(computer) }
+
+    var body: some View {
+        OnboardingPage {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    OnboardingHeadline(computer == .linux ? "Set Me Up on Your Linux Computer"
+                                       : computer == .alwaysOnMac ? "Set Me Up on the Mac That Stays On"
+                                       : "Set Me Up on Your Mac")
+                    Text("The AI assistant you already pay for can walk you through it. Copy the prompt, then open ChatGPT or Claude and paste it.")
+                        .font(Theme.text(18)).foregroundStyle(Theme.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                    AgentStage(look: model.draft.look, size: 120)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    promptCard
+                    if copied {
+                        Text("The prompt is copied. Paste it into the new chat.")
+                            .font(Theme.text(15)).foregroundStyle(Theme.inkSoft)
+                            .padding(.top, 10)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+            .scrollIndicators(.hidden)
+        } footer: {
+            HStack(spacing: 10) {
+                chatButton("chatgpt", title: "Open ChatGPT", logo: "AppLogo-openai")
+                chatButton("claude", title: "Open Claude", logo: "AppLogo-claude")
+            }
+            Button("I Have My Code") {
+                model.draft.noComputer = false
+                model.go(.code)
+            }
+            .font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
+            .frame(minHeight: 40)
+        }
         .sensoryFeedback(.success, trigger: copied)
+    }
+
+    /// The first lines of the prompt, with Copy. The whole prompt goes to the clipboard.
+    private var promptCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(prompt)
+                .font(.system(size: 14, design: .monospaced)).foregroundStyle(Theme.ink)
+                .lineLimit(4)
+                .accessibilityLabel("Setup prompt")
+            Button { copy() } label: {
+                Label(copied ? "Copied" : "Copy the Prompt", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .font(Theme.text(15, .semibold)).foregroundStyle(Theme.ink)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Color(hex: "#F2F2F2"), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+        }
+        .padding(14)
+        .onboardingCard(radius: 16)
+    }
+
+    private func chatButton(_ tool: String, title: String, logo: String) -> some View {
+        Button {
+            copy()
+            // The app when it is installed, otherwise the website.
+            openURL(OnboardingLinks.chat(tool, prompt: prompt)) { opened in
+                if !opened { openURL(OnboardingLinks.web(tool)) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                // ChatGPT's mark is drawn black; on the black button it shows white.
+                Image(logo).renderingMode(tool == "chatgpt" ? .template : .original)
+                    .resizable().scaledToFit().frame(width: 18, height: 18)
+                    .foregroundStyle(Theme.mineText)
+                    .accessibilityHidden(true)
+                Text(title)
+            }
+            .font(Theme.text(16, .semibold))
+            .foregroundStyle(Theme.mineText)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(Theme.mine, in: Capsule())
+        }
+        .buttonStyle(PressStyle())
+    }
+
+    private func copy() {
+        UIPasteboard.general.string = prompt
+        withAnimation { copied = true }
     }
 }
 
@@ -160,8 +282,8 @@ struct CodeScreen: View {
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     OnboardingHeadline("Type Your Pairing Code")
-                    Text(Theme.onMac ? "Make one in Zero on a device that is already signed in, under Settings and Add a Device. If someone set up Zero for you, open the link they sent."
-                                     : "Make one in Zero on a device that is already signed in, under Settings and Add a Device. If someone set up Zero for you, scan the code they gave you.")
+                    Text(Theme.onMac ? "On the Mac that runs Zero, open Settings with the round button showing your initials at the bottom left, and click Pair a Phone or Mac. On an iPhone that is already signed in, use Settings and Add a Device. If someone set up Zero for you, open the link they sent."
+                                     : "Your Mac or home computer shows a code when Zero's setup finishes. Tap Scan a Code and point your iPhone at it. On a Mac, Settings and Pair a Phone or Mac makes a new one.")
                         .font(Theme.text(18)).foregroundStyle(Theme.inkSoft)
                         .fixedSize(horizontal: false, vertical: true)   // never cut short; the art below gives way
                         .frame(maxWidth: .infinity, alignment: .leading)

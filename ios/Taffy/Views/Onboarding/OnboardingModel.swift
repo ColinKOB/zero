@@ -7,8 +7,11 @@ import Observation
 @MainActor
 @Observable
 final class OnboardingModel {
+    /// The computer Zero will live on, picked on Where Should I Live?. Each has its own setup prompt.
+    enum Computer: String, Codable { case alwaysOnMac, everydayMac, linux }
+
     enum Step: String, CaseIterable, Codable {
-        case meet, name, talk, account, mac, noMac, code, plan, consent, why, mail, ask, google, voice, look, found
+        case meet, name, talk, account, mac, guide, noMac, code, plan, consent, why, mail, ask, google, voice, look, found
     }
 
     /// The about-you questions, in the order the agent asks them. The first five keys match the hub's onboarding.py.
@@ -28,6 +31,8 @@ final class OnboardingModel {
         var voice = AgentVoice.all[0].id
         /// Chose "I Don't Have a Computer": no code, permissions or look-around, and project ideas at the end.
         var noComputer = false
+        /// The computer picked on Where Should I Live?, for the setup guide after it.
+        var computer: Computer? = nil
         var saved = false
         /// What the person chose on the AI data screen: "agreed" or "declined". A rehearsal keeps its own answer here
         /// without changing the one the device really has.

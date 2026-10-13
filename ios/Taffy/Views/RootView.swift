@@ -20,6 +20,9 @@ struct RootView: View {
         .sheet(isPresented: Binding(get: { state.aiConsentSheet }, set: { state.aiConsentSheet = $0 })) {
             AIConsentSheet().environment(state)
         }
+        // A pairing link on a Mac that has no home yet: connect to that home instead of setting one up here.
+        .onChange(of: state.pendingPair) { _, link in if link != nil { connectToLinkedHome() } }
+        .task { if state.pendingPair != nil { connectToLinkedHome() } }
         #if DEBUG
         .task { await Push.shared.runLaunchHooks() }   // -askNotifications, -testNotification (Push.swift)
         .task {   // -openURL zero://pair?...: the same path a tapped link takes, for the simulator
@@ -30,6 +33,27 @@ struct RootView: View {
             }
         }
         #endif
+    }
+
+    /// A Mac that chose Connect to Another Home (or opened a pairing link) and is not connected yet. It stays on the
+    /// sign-in screen after a relaunch instead of the onboarding, which is for the device that runs Zero.
+    private var macJoiningAnotherHome: Bool {
+        Theme.onMac && !state.paired && UserDefaults.standard.bool(forKey: MacEngine.otherHomeKey)
+    }
+
+    /// The same as Connect to Another Home on the Mac welcome: the sign-in screen, which fills in the link's code.
+    private func connectToLinkedHome() {
+        // Not while this Mac is already being set up: that would leave the install or a sign-in half done.
+        let engine = MacEngine.shared
+        guard Theme.onMac, !state.paired, engine.setupShowing else { return }
+        // Mid-setup, the link is let go, so it cannot fill the code screen later (after a Log Out, say).
+        guard engine.phase != .working, engine.phase != .done, engine.signingIn == nil else {
+            state.pendingPair = nil
+            return
+        }
+        UserDefaults.standard.set(true, forKey: MacEngine.otherHomeKey)
+        state.onboarding = false
+        MacEngine.shared.setupShowing = false
     }
 
     @ViewBuilder private var content: some View {
@@ -48,11 +72,13 @@ struct RootView: View {
     @ViewBuilder private var main: some View {
         if state.rehearsingOnboarding {
             OnboardingView(rehearsal: true)
+        } else if MacSetupView.debugScreen != nil {
+            MacSetupView()   // DEBUG: -macsetup <screen>, on any device, for screenshots
         } else if Theme.onMac && !state.paired && !state.demoMode && MacEngine.shared.setupShowing
                     && !fixtureRequested {
             // A Mac with no home yet: set Zero up on this Mac first (Views/MacSetupView.swift).
             MacSetupView()
-        } else if state.onboarding {
+        } else if state.onboarding && !macJoiningAnotherHome {
             OnboardingView()
                 #if DEBUG
                 .task { if fixtureRequested { state.fixtureMode = true } }
@@ -834,6 +860,10 @@ struct SettingsView: View {
         @Bindable var s = state
         ScrollViewReader { scroller in
         List {
+            // First on a Mac home: Pair a Phone or Mac is how every other device joins it.
+            if Theme.onMac && MacEngine.shared.isLocalHome && !state.demoMode {
+                MacHomeSection()
+            }
             Section {
                 ForEach(state.bots) { b in
                     Toggle(isOn: Binding(get: { !state.mutedBots.contains(b.id) },
@@ -1037,15 +1067,16 @@ struct SettingsView: View {
                     Button("Try Onboarding") { state.rehearsingOnboarding = true }
                         .foregroundStyle(Theme.ink)
                 }
-                if Theme.onMac && MacEngine.shared.isLocalHome {
-                    MacHomeSection()
-                }
-                Section {
-                    AddDeviceRow()
-                } header: { Text("Devices") } footer: {
-                    Text(AppState.accountUsername.isEmpty
-                         ? "Makes a link to sign in on another iPhone or Mac. It works once and expires in 15 minutes."
-                         : "On another iPhone or Mac, sign in as \(AppState.accountUsername). Or make a link here that signs it in once and expires in 15 minutes.")
+                // On a Mac home this app reaches Zero at an address only this Mac can use, so its links would not
+                // work elsewhere; Pair a Phone or Mac above makes one with the Wi-Fi address.
+                if !(Theme.onMac && MacEngine.shared.isLocalHome) {
+                    Section {
+                        AddDeviceRow()
+                    } header: { Text("Devices") } footer: {
+                        Text(AppState.accountUsername.isEmpty
+                             ? "Makes a link to sign in on another iPhone or Mac. It works once and expires in 15 minutes."
+                             : "On another iPhone or Mac, sign in as \(AppState.accountUsername). Or make a link here that signs it in once and expires in 15 minutes.")
+                    }
                 }
             }
             Section {

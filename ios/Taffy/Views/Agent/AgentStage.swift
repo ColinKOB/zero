@@ -169,7 +169,6 @@ struct AgentStage: View {
 
     private func staged(_ pose: Pose) -> some View {
         ZStack {
-            if flatArt == nil { shadow }   // flat Zips are flat: no shadow
             figure
                 .scaleEffect(x: pose.sx, y: pose.sy, anchor: UnitPoint(x: 0.5, y: Self.floor))
         }
@@ -236,15 +235,6 @@ struct AgentStage: View {
                     .animation(nil, value: face)   // a cut even when the screen changes the mood inside an animation
             }
         }
-    }
-
-    private var shadow: some View {
-        let width = size * (AgentBody.widths[look.body] ?? 0.75) * 0.78
-        return Ellipse()
-            .fill(Color.black.opacity(0.13))
-            .frame(width: width, height: width * 0.12)
-            .blur(radius: size * 0.018)
-            .position(x: size / 2, y: size * Self.floor)
     }
 
     // MARK: The face's timing

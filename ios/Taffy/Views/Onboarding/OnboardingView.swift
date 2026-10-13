@@ -10,7 +10,7 @@ import SwiftUI
 /// Every paired path then asks How Your Zips Should Ask before the voice.
 ///
 /// DEBUG: `-onboarding` shows it on any launch; `-onboarding <step>` starts at a screen (meet, name, talk, mac,
-/// noMac, code, consent, why, mail, ask, google, voice, look, found); `-noComputer` takes the path for people without a
+/// guide, noMac, code, consent, why, mail, ask, google, voice, look, found); `-noComputer` takes the path for people without a
 /// computer. Add `-fixture` to run without a hub: any code connects and nothing is sent; `-plan shared` (or own) picks
 /// the fixture home. `-server <address> -code <code>` fill the code screen.
 struct OnboardingView: View {
@@ -44,7 +44,7 @@ struct OnboardingView: View {
         // A zero://pair link or QR code before the home is connected: straight to the code screen, filled in.
         .onChange(of: state.pendingPair) { _, link in
             guard link != nil, !state.paired, !model.rehearsal else { return }
-            if [.meet, .name, .talk, .account, .mac, .noMac].contains(model.draft.step) {
+            if [.meet, .name, .talk, .account, .mac, .guide, .noMac].contains(model.draft.step) {
                 model.draft.noComputer = false
                 model.go(.code)
             }
@@ -53,7 +53,7 @@ struct OnboardingView: View {
             #if DEBUG
             if state.fixtureMode || CommandLine.arguments.contains("-fixture") { HomeModel.shared.settings = .fixture(HomeModel.fixtureVariant) }
             #endif
-            if state.pendingPair != nil, !state.paired, [.meet, .name, .talk, .account, .mac, .noMac].contains(model.draft.step) {
+            if state.pendingPair != nil, !state.paired, [.meet, .name, .talk, .account, .mac, .guide, .noMac].contains(model.draft.step) {
                 model.go(.code)
             }
         }
@@ -65,6 +65,7 @@ struct OnboardingView: View {
         case .name: NameScreen()
         case .talk: TalkScreen()
         case .mac: MacScreen()
+        case .guide: GuideScreen()
         case .noMac: NoComputerScreen()
         case .account: AccountScreen()
         case .code: CodeScreen()
@@ -93,8 +94,9 @@ extension OnboardingModel {
         case .talk: return .name
         case .account: return draft.signUpJob == nil ? .talk : nil
         case .mac: return .talk
+        case .guide: return .mac
         case .noMac: return .mac
-        case .code: return rehearsal ? .talk : (FrontDoor.signUpOpen ? .account : .mac)
+        case .code: return rehearsal ? .talk : (FrontDoor.signUpOpen ? .account : draft.computer == nil ? .mac : .guide)
         case .google: return .found
         case .consent: return draft.noComputer ? .noMac : nil
         case .mail: return draft.mailAfterPicks == true ? .found : nil
@@ -118,15 +120,143 @@ extension OnboardingModel {
 
 /// Links the onboarding shares.
 enum OnboardingLinks {
-    // The newest Zero for Mac, from the public repository's releases.
-    static let macDownload = URL(string: "https://github.com/ColinKOB/zero/releases/latest/download/Zero.dmg")!
+    // The newest Zero for Mac: heyzero.app/download sends it from the public repository's releases.
+    static let macDownload = URL(string: "https://heyzero.app/download")!
 
-    static var setupPrompt: String {
-        "Please help me set up Zero on this Mac. Download Zero for Mac from \(macDownload.absoluteString), open it, "
-            + "and walk me through each step, including signing in. When Zero shows an access code, tell me so I can "
-            + "type it into my iPhone. If I have a ChatGPT plan, also help me sign in to Codex with it on this Mac, "
-            + "because Zero's calls use ChatGPT's voice through Codex."
+    /// What the setup guide copies for ChatGPT or Claude, which then walks the person through setting up the chosen
+    /// computer one step at a time. The same steps as the prompts on heyzero.app (zero-site index.html,
+    /// #setup-prompt-*), told from the iPhone, so they leave out installing the iPhone app.
+    static func setupPrompt(_ computer: OnboardingModel.Computer) -> String {
+        switch computer {
+        case .alwaysOnMac:
+            return """
+                I want to set up Zero, a personal assistant app for Mac and iPhone \
+                (https://heyzero.app). Zero is already on my iPhone, and now it needs a computer to live \
+                on. I am not technical, so please walk me through it one step at a time. Keep each \
+                message short, tell me exactly what to click, and wait for me to say I am done before \
+                the next step. If something looks different from what you describe, ask me what I see.
+
+                Zero will live on a Mac at home that stays on, like a Mac mini, and I will use it from \
+                my iPhone and my other Mac.
+
+                First, help me check that I have what Zero needs: a Mac to leave on at home with Apple \
+                silicon (M1 or newer) on macOS 14 or later, and a Claude Pro or Max plan or a ChatGPT \
+                Plus or Pro plan.
+
+                These are the steps:
+                1. On the Mac that stays on, go to https://heyzero.app/download to download Zero for \
+                Mac.
+                2. Open the Zero file in my Downloads folder. In the window that appears, drag Zero onto \
+                the Applications folder.
+                3. Open Zero from the Applications folder. If it offers to move itself to Applications, \
+                I click Move to Applications.
+                4. Click Set Up Zero on This Mac and wait a few minutes.
+                5. Click Sign In With Claude or Sign In With ChatGPT, whichever plan I have, and sign in \
+                on the page that opens in my browser. Zero continues by itself after that.
+                6. Answer Zero's short welcome questions on the Mac.
+                7. When the Mac shows a code, I point my iPhone's Camera at it and tap the link. Zero \
+                opens on my iPhone with the code filled in, and I tap Connect.
+                8. Keep this Mac ready: in System Settings, open Energy (called Energy Saver on older \
+                Macs) and turn on the option that keeps the Mac from sleeping when the display is off, \
+                and the option to start up after a power failure if it is there. On a MacBook, these are \
+                under Battery, then Options. Then open Users & Groups and set Automatically log in as to \
+                my account, so Zero starts again after a restart. If my Mac does not offer that, I log \
+                in after each restart.
+                9. For my other Mac: on the Mac that stays on, open Zero's Settings with the round \
+                button showing my initials at the bottom left of the window (or press Command and \
+                comma), click Pair a Phone or Mac, then click Send the Link and send it to my other Mac \
+                with AirDrop or Messages. On the other Mac, download Zero, drag it to Applications and \
+                open it, but do not click Set Up Zero on This Mac. Then open the link I sent and click \
+                Connect. If the link is not clickable, I copy it, click Connect to Another Home if Zero \
+                shows it, then Sign In With a Pairing Code, then Paste Link.
+
+                If a Mac asks whether to accept incoming network connections, I click Allow, even if it \
+                names python instead of Zero. My iPhone and my other Mac reach Zero when they are on the \
+                same Wi-Fi as the Mac that stays on. If the code expires, I click Make a New Code, or \
+                open Settings again and click Pair a Phone or Mac.
+                """
+        case .everydayMac:
+            return """
+                I want to set up Zero, a personal assistant app for Mac and iPhone \
+                (https://heyzero.app). Zero is already on my iPhone, and now it needs a computer to live \
+                on. I am not technical, so please walk me through it one step at a time. Keep each \
+                message short, tell me exactly what to click, and wait for me to say I am done before \
+                the next step. If something looks different from what you describe, ask me what I see.
+
+                Zero will live on the Mac I use every day.
+
+                First, help me check that I have what Zero needs: a Mac with Apple silicon (M1 or newer) \
+                on macOS 14 or later, and a Claude Pro or Max plan or a ChatGPT Plus or Pro plan.
+
+                These are the steps:
+                1. On my Mac, go to https://heyzero.app/download to download Zero for Mac.
+                2. Open the Zero file in my Downloads folder. In the window that appears, drag Zero onto \
+                the Applications folder.
+                3. Open Zero from the Applications folder. If it offers to move itself to Applications, \
+                I click Move to Applications.
+                4. Click Set Up Zero on This Mac and wait a few minutes.
+                5. Click Sign In With Claude or Sign In With ChatGPT, whichever plan I have, and sign in \
+                on the page that opens in my browser. Zero continues by itself after that.
+                6. Answer Zero's short welcome questions on the Mac.
+                7. When the Mac shows a code, I point my iPhone's Camera at it and tap the link. Zero \
+                opens on my iPhone with the code filled in, and I tap Connect.
+
+                If my Mac asks whether to accept incoming network connections, I click Allow, even if it \
+                names python instead of Zero. Zero works while my Mac is awake, and my iPhone reaches it \
+                when it is on the same Wi-Fi as the Mac. If the code expires, I click Make a New Code.
+                """
+        case .linux:
+            return """
+                I want to set up Zero, a personal assistant app for Mac and iPhone \
+                (https://heyzero.app). Zero is already on my iPhone, and now it needs a computer to live \
+                on. I am not technical, so please walk me through it one step at a time. Keep each \
+                message short, tell me exactly what to click, and wait for me to say I am done before \
+                the next step. If something looks different from what you describe, ask me what I see.
+
+                Zero will live on a Linux computer at home that stays on. I will run one command in its \
+                terminal, and you will help me answer what it asks. The full guide is at \
+                https://github.com/ColinKOB/zero/blob/main/docs/install-server.md.
+
+                First, help me check that I have what Zero needs: a computer running Ubuntu 24.04 or \
+                another Debian-like Linux, with at least 8 GB of memory and 20 GB of free disk space; a \
+                user account on it that can use sudo; and a Claude Pro or Max plan or a ChatGPT Plus or \
+                Pro plan.
+
+                These are the steps:
+                1. On the Linux computer, log in as myself and open a terminal.
+                2. Run this command: curl -fsSL \
+                https://raw.githubusercontent.com/ColinKOB/zero/main/install.sh | bash
+                3. Type my password when it asks, then wait a few minutes until it asks my name, my time \
+                zone and whether to use Tailscale. Tailscale lets me use Zero away from home with my own \
+                free Tailscale account. If I say yes, I open the sign-in link it shows, turn on HTTPS \
+                for my tailnet if it asks, and install the Tailscale app on my iPhone and sign in with \
+                the same account.
+                4. Wait while it works, which takes 10 to 20 minutes, and stay nearby: near the end it \
+                asks which AI plan to sign in to. I open the link it shows on any device and sign in. \
+                For Claude, I paste the code from the page back into the terminal. For ChatGPT, I type \
+                the code from the terminal into the page; if the page says device code sign-in is off, I \
+                turn on device code login in ChatGPT's Settings, under Security, and try again. Then it \
+                shows a QR code.
+                5. Point my iPhone's Camera at the QR code and tap the link. Zero opens on my iPhone \
+                with the code filled in, and I tap Connect.
+
+                If the code expires, I run bash ~/.local/share/zero/install.sh pair in the terminal for \
+                a new one.
+                """
+        }
     }
+
+    /// Where Open ChatGPT and Open Claude go, after the prompt is copied. Claude opens an empty chat in its app (its
+    /// web fallback is `web`): a prompt sent in a link shows a caution banner there, so the person pastes it instead.
+    /// ChatGPT has no such banner, so its link carries the prompt; its app may ignore it, and the copy covers that.
+    static func chat(_ tool: String, prompt: String) -> URL {
+        if tool == "claude" { return URL(string: "claude://claude.ai/new")! }
+        let q = prompt.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        return URL(string: "https://chatgpt.com/?q=\(q)")!
+    }
+
+    /// Claude in the browser, for an iPhone without the Claude app.
+    static func web(_ tool: String) -> URL { URL(string: tool == "claude" ? "https://claude.ai/new" : "https://chatgpt.com/")! }
 }
 
 // MARK: Shared pieces

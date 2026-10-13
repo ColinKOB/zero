@@ -363,7 +363,7 @@ extension HubClient {
     }
 
     func startApp(_ id: String) async throws -> AppStart {
-        try await send(try request("/api/apps/\(id)/start", method: "POST"), as: AppStart.self)
+        try await send(try request("/api/apps/\(id)/start?relay=1", method: "POST"), as: AppStart.self)
     }
 
     /// Trello's pasted code, or the code and state a provider's page sent back to zero://oauth/<provider>.
@@ -493,6 +493,20 @@ final class AppsModel {
             guard let back else { return .closed }
             let ok = URLComponents(url: back, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "ok" }?.value
             return ok == "1" ? .connected : .failed("Trello didn't connect. Try again.")
+        case "relay":
+            // Trello sends the token back in the link's fragment (zero://oauth/trello#token=...), through the relay.
+            guard let url = start.url.flatMap(URL.init(string:)) else { return .failed("Trello couldn't be opened.") }
+            guard let back = await WebSheet().open(url, scheme: start.callback_scheme ?? "zero") else { return .closed }
+            let fragment = URLComponents(url: back, resolvingAgainstBaseURL: false)?.fragment ?? ""
+            let token = URLComponents(string: "?" + fragment)?.queryItems?.first { $0.name == "token" }?.value ?? ""
+            guard !token.isEmpty else { return .failed("Trello didn't connect. Try again.") }
+            do {
+                let r = try await state.client.sendAppCode(app.id, code: token)
+                await refresh(state)
+                return r.ok ? .connected : .failed(r.detail ?? "Trello didn't connect. Try again.")
+            } catch {
+                return .failed(HubClient.describe(error))
+            }
         case "paste":
             guard let url = start.url.flatMap(URL.init(string:)) else { return .failed("Trello couldn't be opened.") }
             return .paste(url)

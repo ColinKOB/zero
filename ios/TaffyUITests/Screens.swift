@@ -173,10 +173,20 @@ struct PlanScreen: OnboardingScreen {
 // MARK: 4 and 5: the computer and the code
 
 struct MacScreen: OnboardingScreen {
-    let name = "mac", step = "mac", headlines = ["Do You Have a Mac Nearby?"]
-    func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool { app.labeledButton("I Have My Code").exists }
+    let name = "mac", step = "mac", headlines = ["Where Should I Live?"]
+    func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool {
+        app.labeledButton("I Have My Code").exists && app.labeledButton("I Don't Have a Computer").exists
+    }
     func complete(_ app: XCUIApplication, _ run: OnboardingRun) {
-        run.require(tapFirst(app, ["I Have My Code"]), "Your Computer: no I Have My Code button")
+        run.require(tapFirst(app, ["A Mac That Stays On"]), "Where Should I Live?: no A Mac That Stays On")
+    }
+}
+
+struct GuideScreen: OnboardingScreen {
+    let name = "guide", step = "guide", headlines = ["Set Me Up on the Mac That Stays On"]
+    func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool { app.labeledButton("Copy the Prompt").exists }
+    func complete(_ app: XCUIApplication, _ run: OnboardingRun) {
+        run.require(tapFirst(app, ["I Have My Code"]), "Setup guide: no I Have My Code button")
     }
 }
 
@@ -392,6 +402,6 @@ struct GoogleScreen: OnboardingScreen {
 }
 
 let allScreens: [OnboardingScreen] = [
-    MeetScreen(), NameScreen(), TalkScreen(), AccountScreen(), PlanScreen(), MacScreen(), ScanScreen(), CodeScreen(), ConsentScreen(), WhyScreen(),
+    MeetScreen(), NameScreen(), TalkScreen(), AccountScreen(), PlanScreen(), MacScreen(), GuideScreen(), ScanScreen(), CodeScreen(), ConsentScreen(), WhyScreen(),
     MailboxScreen(), CalendarScreen(), AskScreen(), VoiceScreen(), LookScreen(), FoundScreen(), GoogleScreen(),
 ]

@@ -3,7 +3,7 @@ import Observation
 
 /// Zero's home on this Mac: the engine that runs in the background, set up by the installer inside the app
 /// (mac/engine/zero-engine, run through the Mac bridge because Catalyst cannot start processes). The setup screens
-/// (Views/MacSetupView.swift), Pair Your Phone and Remove Zero From This Mac use it. Mac only.
+/// (Views/MacSetupView.swift), Pair a Phone or Mac and Remove Zero From This Mac use it. Mac only.
 @MainActor
 @Observable
 final class MacEngine {
@@ -13,7 +13,7 @@ final class MacEngine {
     /// home yet, until the person sets Zero up here or chooses to connect to another home.
     var setupShowing: Bool = Theme.onMac && !UserDefaults.standard.bool(forKey: MacEngine.otherHomeKey)
 
-    /// This app is connected to the engine on this Mac (not to another home): Settings shows Pair Your Phone and
+    /// This app is connected to the engine on this Mac (not to another home): Settings shows Pair a Phone or Mac and
     /// Remove Zero From This Mac.
     var isLocalHome: Bool { UserDefaults.standard.bool(forKey: Self.localKey) }
     /// The person still has to pair their phone (shown once after the onboarding).
@@ -77,6 +77,8 @@ final class MacEngine {
     }
 
     var ai: AIStatus?
+    /// DEBUG screenshots (MacSetupView.debugScreen): the sample answers stay and nothing is asked of the engine.
+    var debugSample = false
 
     struct Status: Decodable { let installed: Bool; let running: Bool }
 
@@ -128,8 +130,54 @@ final class MacEngine {
     /// After the onboarding: the lead's instructions name the person it met (no restart).
     func refreshSoul() async { _ = await run("soul") }
 
-    /// Opens Terminal for the official Claude Code or Codex installer, which the person runs themselves.
-    func openTerminal() { MacLink.shared.engine(["action": "terminal"]) { _ in } }
+    // MARK: Signing in without Terminal
+
+    /// Where a sign-in is: getting Claude Code or Codex onto this Mac, then waiting for the person to sign in on the
+    /// page the engine opened in their browser.
+    enum SignIn: Equatable { case idle, preparing(String), waiting, failed(String) }
+    var signIn: SignIn = .idle
+    /// "claude" or "codex", while a sign-in runs.
+    var signingIn: String?
+    /// The sign-in page, so the person can open it again if they closed the tab.
+    var signInPage: URL?
+
+    /// Gets the tool with its official installer if it is missing, then runs its own sign-in in the browser
+    /// (zero-engine sign-in). True once signed in. Ends any other sign-in first.
+    func signIn(with tool: String) async -> Bool {
+        if signingIn != nil { await stopSignIn() }
+        signingIn = tool
+        signInPage = nil
+        signIn = .preparing("Getting ready.")
+        let result = await run("sign-in", args: [tool]) { [weak self] line in
+            guard let self, self.signingIn == tool else { return }
+            let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            if parts.first == "ZERO-STEP", parts.count == 4 {
+                self.signIn = parts[1] == "1" ? .preparing(parts[3]) : .waiting
+            } else if line.hasPrefix("ZERO-URL "), let url = URL(string: String(line.dropFirst("ZERO-URL ".count))) {
+                self.signInPage = url
+            } else if line.hasPrefix("ZERO-ERROR ") {
+                self.signIn = .failed(String(line.dropFirst("ZERO-ERROR ".count)))
+            }
+        }
+        // Another sign-in took over, or the person stopped this one (the engine exits 3).
+        guard signingIn == tool, result.code != 3 else { return false }
+        signingIn = nil
+        if result.code == 0 {
+            signIn = .idle
+            _ = await checkAI()
+            return ai?.ready == true
+        }
+        if case .failed = signIn {} else { signIn = .failed("The sign-in did not finish. Try again.") }
+        return false
+    }
+
+    /// Ends a sign-in that is still waiting.
+    func stopSignIn() async {
+        signingIn = nil
+        signInPage = nil
+        signIn = .idle
+        _ = await run("sign-in-stop")
+    }
 
     // MARK: Remove
 

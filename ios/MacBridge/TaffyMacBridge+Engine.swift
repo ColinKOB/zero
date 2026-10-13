@@ -6,7 +6,8 @@ import AppKit
 /// nothing from the hub can reach it, and only the commands listed here run.
 extension TaffyMacBridge {
     private static let engineActions: Set<String> = [
-        "install", "start", "stop", "status", "ai-status", "configure-ai", "pair", "soul", "uninstall",
+        "install", "start", "stop", "status", "ai-status", "configure-ai", "pair", "soul", "uninstall", "sign-in",
+        "sign-in-stop",
     ]
 
     /// `command`: `{action, args?: [String]}`; or `{action: "terminal"}` to open Terminal for an official

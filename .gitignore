@@ -27,3 +27,4 @@ docs/design/website-reference/*/video/
 
 # Release builds made by ios/scripts/release.sh (Zero.dmg)
 /release/
+*.egg-info/

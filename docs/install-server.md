@@ -10,7 +10,7 @@ If you only have a Mac, use Zero for Mac instead. This guide is for a Linux comp
 
 - A computer running Ubuntu 24.04 or another Debian-like Linux, with an Intel, AMD or ARM processor. It should have at least 8 GB of memory and 20 GB of free disk space.
 - A user account on that computer that can use sudo.
-- A Claude Pro or Max plan, or a ChatGPT Plus or Pro plan. Your Zips think with Claude, so a Claude plan is the one to have. A ChatGPT plan adds voice calls.
+- A Claude Pro or Max plan, or a ChatGPT Plus or Pro plan. Your Zips think with whichever plan you sign in to, and Claude comes first when you have both. A ChatGPT plan also adds voice calls.
 - The Zero app on your iPhone.
 - A free Tailscale account if you want to reach Zero when you are away from home. You can skip it and use Zero on your home Wi-Fi only.
 
@@ -25,8 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/ColinKOB/zero/main/install.sh | bas
 The installer asks for your sudo password once. Then it asks a few questions:
 
 1. Your name and your time zone.
-2. Whether to use Tailscale. If you say yes, it installs Tailscale and shows a link where you sign in with your own Tailscale account.
-3. Which AI plan to use. It installs the official Claude Code or Codex command line and signs it in with your own account. Open the link it shows on any device, sign in, and paste the code back if it asks for one. You can skip this step and sign in later.
+2. Whether to use Tailscale. If you say yes, it installs Tailscale and shows a link where you sign in with your own Tailscale account. If your tailnet has HTTPS turned off, it shows the page where you turn it on.
+3. Which AI plan to use, after it builds the sandbox. It installs the official Claude Code or Codex command line and signs it in with your own account. Open the link it shows on any device and sign in. For Claude, paste the code from the page back into the terminal. For ChatGPT, type the code from the terminal into the page; if the page says device code sign-in is off, turn on device code login in ChatGPT's Settings, under Security, and try again. You can skip this step and sign in later.
 
 The first install takes 10 to 20 minutes, most of it spent building the sandbox your Zips work in. When it finishes it shows a QR code.
 
@@ -50,7 +50,7 @@ Run this on the computer:
 bash ~/.local/share/zero/install.sh signin
 ```
 
-You can also choose Sign In With Claude in the app after pairing.
+You can also choose Sign In With Claude in the app after pairing. If your Zips think with ChatGPT and you add a Claude plan later, run the signin command above so they switch to Claude.
 
 ## How Do I Check That It Is Running?
 

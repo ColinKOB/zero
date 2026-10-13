@@ -15,6 +15,13 @@ struct SignInView: View {
     enum Field { case username, password }
 
     var body: some View {
+        content
+            // A pairing link (a QR code, or a link sent from another device): the code screen, which fills it in.
+            .onAppear { if state.pendingPair != nil { mode = .code } }
+            .onChange(of: state.pendingPair) { _, link in if link != nil { go(.code) } }
+    }
+
+    @ViewBuilder private var content: some View {
         switch mode {
         case .code:
             PairingView(showSample: false)

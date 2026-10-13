@@ -65,9 +65,15 @@ RUNS = OUT / "app-runs"
 BASE = OUT / "app-baseline"
 RESULTS = Path(os.environ.get("SIM_RESULTS") or OUT / "app-results.json")
 BOT = "default"
-MODELS = {"opus": {"provider": "claude-subscription-directsdk-experimental", "default": "opus"},
-          "sol": {"provider": "openai-codex", "default": "gpt-6.1-sol"}}
-SERVED = {"opus": "opus", "sol": "gpt-6.1-sol"}
+ALL_MODELS = {"opus": {"provider": "claude-subscription-directsdk-experimental", "default": "opus"},
+              "sonnet": {"provider": "claude-subscription-directsdk-experimental", "default": "sonnet"},
+              "sol": {"provider": "openai-codex", "default": "gpt-6.1-sol"},
+              # The plugin's "haiku" alias is still Haiku 4.5; an id it does not list passes through as is.
+              "haiku": {"provider": "claude-subscription-directsdk-experimental", "default": "claude-haiku-5-5"}}
+SERVED = {"opus": "opus", "sonnet": "sonnet", "sol": "gpt-6.1-sol", "haiku": "claude-haiku-5-5"}
+# The models under test (Oct 12: opus and sol, then opus, sonnet and haiku). SIM_MODELS=opus,sonnet,haiku; each set
+# writes to its own SIM_RESULTS file.
+MODELS = {m: ALL_MODELS[m] for m in (os.environ.get("SIM_MODELS") or "opus,sol").split(",")}
 VISIBLE = {"colin", "bot", "board_reply", "call_reply"}   # history.VISIBLE: what the app's chat shows
 CARD_KINDS = {"choices", "login", "account", "signin", "signin_decision", "action", "image", "checkin", "mac_ask",
               "mac", "event", "team", "call"}
@@ -186,6 +192,22 @@ class Hub:
         deadline = time.time() + limit
         while not self.idle(bot) and time.time() < deadline:
             time.sleep(2)
+
+    def working(self) -> list[dict]:
+        return self.get("/api/board")["working"]
+
+    def wait_team(self, limit: float = 1200) -> list[str]:
+        """Until no team task is in progress and every Zip is idle. On Oct 12 the lead handed scenario 6's checklist
+        to the To-Do Zip, whose report reached the lead's chat in the middle of scenario 7. Returns the titles of
+        tasks still in progress at the limit."""
+        deadline = time.time() + limit
+        while time.time() < deadline:
+            if not self.working() and self.idle(None):
+                time.sleep(15)   # a finished task's report can start the lead's turn a moment later
+                if not self.working() and self.idle(None):
+                    return []
+            time.sleep(5)
+        return [t.get("title") or t.get("id") for t in self.working()]
 
 
 # MARK: Changing only the model, as alien/bin/model-trial.py does
@@ -381,15 +403,19 @@ def phone_text(rows: list[dict]) -> str:
     return "\n\n".join(out)
 
 
-def user_turn(brief: str, rows: list[dict]) -> dict:
-    p = subprocess.run(["claude", "-p", "--model", "sonnet", "--tools", "", "--output-format", "json"],
-                       input=USER_PROMPT.format(brief=brief, transcript=phone_text(rows)), capture_output=True,
-                       text=True, timeout=300, cwd=str(HOME))
-    try:
-        text = json.loads(p.stdout.strip().splitlines()[-1]).get("result", "")
-        return json.loads(text[text.find("{"): text.rfind("}") + 1])
-    except (ValueError, IndexError):
-        return {"message": "", "done": True, "error": (p.stderr or p.stdout)[-300:]}
+def user_turn(brief: str, rows: list[dict], attempts: int = 2) -> dict:
+    """The simulated person's next message. Asked again once when its JSON does not parse: on Oct 12 one bad reply
+    ended Opus's trip scenario after its first answer."""
+    for _ in range(attempts):
+        p = subprocess.run(["claude", "-p", "--model", "sonnet", "--tools", "", "--output-format", "json"],
+                           input=USER_PROMPT.format(brief=brief, transcript=phone_text(rows)), capture_output=True,
+                           text=True, timeout=300, cwd=str(HOME))
+        try:
+            text = json.loads(p.stdout.strip().splitlines()[-1]).get("result", "")
+            return json.loads(text[text.find("{"): text.rfind("}") + 1])
+        except (ValueError, IndexError):
+            continue
+    return {"message": "", "done": True, "error": (p.stderr or p.stdout)[-300:]}
 
 
 # MARK: One conversation
@@ -418,6 +444,9 @@ def card_row(item: dict) -> dict:
 
 
 def run(scn: dict, model: str, hub: Hub, b: dict) -> dict:
+    left = hub.wait_team()
+    if left:
+        raise RuntimeError("team tasks from before this scenario are still in progress: " + "; ".join(left))
     rid = f"{scn['id']}-{model}-{time.strftime('%H%M%S')}"
     keep = RUNS / rid
     keep.mkdir(parents=True)
@@ -483,7 +512,9 @@ def run(scn: dict, model: str, hub: Hub, b: dict) -> dict:
         else:
             tap, message = None, nxt["message"]
     ended = time.time()
-    hub.wait_idle(None)
+    left = hub.wait_team()
+    if left:
+        errors.append("team tasks still in progress after 20 minutes: " + "; ".join(left))
     time.sleep(SETTLE)   # the facts reader and Hermes's memory review run just after a turn
     product = {}
     for rel in scn["product"]:

@@ -32,6 +32,7 @@
 		2410BCB84D0119DF108FC9F4 /* PocketVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB6D27B70F7B308CCFE48DD /* PocketVoice.swift */; };
 		2648BB1D91B841CFB1A68D52 /* MailAndCalendarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A83194D775B5034D5A8702 /* MailAndCalendarViews.swift */; };
 		28792C6A3DAD844536DCEF57 /* TeamMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40912027B72E1AAA8C3374A8 /* TeamMessage.swift */; };
+		2BE3325FFD02360EAFB7FB4E /* TaffyMacBridge+Move.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2978D4324EE78E898E6016A7 /* TaffyMacBridge+Move.swift */; };
 		2D681C460CC623DCAFE40B28 /* HubTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75D95C5BF0F5785860CAF3F8 /* HubTrust.swift */; };
 		2EE37ACCF61B1DF98D50AF1C /* MacLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680FC187BA9182E8A5E896C2 /* MacLink.swift */; };
 		2FA337A8B9AFED5FC9FBDDD0 /* MacAskViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E27A8725B9E2CC055627FBD /* MacAskViews.swift */; };
@@ -217,6 +218,7 @@
 		23DF95934BBD360297F10A64 /* PairLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairLink.swift; sourceTree = "<group>"; };
 		243DC2DCDF3C8F1B29941D8C /* BotActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotActions.swift; sourceTree = "<group>"; };
 		2591D9DB2F4A91DF222BEF28 /* FrontDoor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontDoor.swift; sourceTree = "<group>"; };
+		2978D4324EE78E898E6016A7 /* TaffyMacBridge+Move.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaffyMacBridge+Move.swift"; sourceTree = "<group>"; };
 		2C3FC0DED8D9A885F70D62C0 /* ComputerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerCard.swift; sourceTree = "<group>"; };
 		31482298D405F30F32370F25 /* zero-bubble.caf */ = {isa = PBXFileReference; path = "zero-bubble.caf"; sourceTree = "<group>"; };
 		358F6136B62CC6A6E6DF89FD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -353,6 +355,7 @@
 				14B0100714FD736D034A0D71 /* TaffyMacBridge.swift */,
 				A1236C154E5893A344A9A9FD /* TaffyMacBridge+Engine.swift */,
 				8F24C0903735BE0F1E988040 /* TaffyMacBridge+Guide.swift */,
+				2978D4324EE78E898E6016A7 /* TaffyMacBridge+Move.swift */,
 				F54E75B5DB7C6960C2AD27F8 /* TaffyMacBridge+Phone.swift */,
 				0184940C0F165F452A0F220B /* TaffyMacBridge+UI.swift */,
 				B7E7A075D822E1F28E9767A7 /* VoiceGuide.swift */,
@@ -838,6 +841,7 @@
 				4074CD263835CC6A64153CEC /* PermissionGuide.swift in Sources */,
 				DB87F6C2C587332537737DE4 /* TaffyMacBridge+Engine.swift in Sources */,
 				02116C2444CD6483E2F4AC89 /* TaffyMacBridge+Guide.swift in Sources */,
+				2BE3325FFD02360EAFB7FB4E /* TaffyMacBridge+Move.swift in Sources */,
 				BF8B86367D53C721EE1ED0DE /* TaffyMacBridge+Phone.swift in Sources */,
 				E831DD2AF1AF5C86736E52BF /* TaffyMacBridge+UI.swift in Sources */,
 				10024392940F6F051C1672EB /* TaffyMacBridge.swift in Sources */,

@@ -164,6 +164,18 @@ class Golden(unittest.TestCase):
         self.assertEqual(data["terminal"]["docker_forward_env"], ["GH_TOKEN"])
         self.assertEqual(data["model"]["provider"], "claude-subscription-directsdk-experimental")
 
+    def test_chatgpt_brain(self):
+        """A home signed in to ChatGPT only thinks with Codex in every Zip; without the key, Claude as before."""
+        s = test_settings()
+        self.assertEqual(lib.managed_config(s, self.home, "inbox", 0, False)["model"]["provider"],
+                         "claude-subscription-directsdk-experimental")
+        s["plan"]["brain"] = "chatgpt"
+        for z in (lib.LEAD, "inbox"):
+            cfg = lib.managed_config(s, self.home, z, 0, False)
+            self.assertEqual(cfg["model"], {"provider": "openai-codex", "default": lib.CHATGPT_MODEL})
+            self.assertEqual(cfg["fallback_providers"], [])
+            self.assertEqual({v["provider"] for v in cfg["auxiliary"].values()}, {"openai-codex"})
+
     @unittest.skipUnless(have_yaml(), "needs a YAML reader (run with the Hermes venv)")
     def test_emitted_yaml_reads_back(self):
         self.run_render()

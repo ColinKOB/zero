@@ -49,9 +49,18 @@ SHARED_MESSAGES = {
 }
 
 
+# A home whose Zips think with ChatGPT (plan.brain, set by Zero for Mac and install.sh) has no Claude to fall back from.
+CHATGPT_MESSAGES = {
+    ("claude", False): "Your Zips have used up the ChatGPT plan's limit for now. They will answer again when it resets.",
+    ("claude", True): "Your Zips are answering again; the ChatGPT plan's limit has reset.",
+}
+
+
 def message(name: str, ok: bool) -> str:
     if home.plan_kind() == "shared" and (name, ok) in SHARED_MESSAGES:
         return SHARED_MESSAGES[(name, ok)]
+    if home.get("plan.brain") == "chatgpt" and (name, ok) in CHATGPT_MESSAGES:
+        return CHATGPT_MESSAGES[(name, ok)]
     return MESSAGES[(name, ok)]
 
 

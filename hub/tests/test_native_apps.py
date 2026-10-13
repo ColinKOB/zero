@@ -193,7 +193,18 @@ class Connecting(TrelloCase):
         self.assertNotIn(TOKEN, self.fake.valid)
         self.assertEqual(apps.secret("trello"), OTHER)
 
+    def test_start_through_the_relay_comes_back_to_the_app(self):
+        home_fixture.use_in(self, {**self.settings, "apps": {"trello": {"key": KEY},
+                                                             "relay": {"url": "https://relay.example"}}})
+        self.assertEqual(apps.start("trello")["mode"], "paste")   # an older app build that can't take the relay
+        out = apps.start("trello", relay_ok=True)
+        self.assertEqual(out["mode"], "relay")
+        q = parse_qs(urlparse(out["url"]).query)
+        self.assertEqual(q["return_url"], ["https://relay.example/callback/trello"])
+        self.assertEqual(q["callback_method"], ["fragment"])
+
     def test_start_without_the_redirect_shows_the_code_on_trellos_page(self):
+        home_fixture.use_in(self, {**self.settings, "apps": {"trello": {"key": KEY}, "relay": {"url": ""}}})
         out = apps.start("trello")
         self.assertEqual(out["mode"], "paste")
         q = parse_qs(urlparse(out["url"]).query)

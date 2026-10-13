@@ -132,7 +132,6 @@ EOF
   STAGE="$OUT/dmg"
   rm -rf "$STAGE"; mkdir -p "$STAGE"
   ditto "$OUT/mac/Taffy.app" "$STAGE/Zero.app"
-  ln -s /Applications "$STAGE/Applications"
   codesign --verify --deep --strict "$STAGE/Zero.app"
   if (( UPLOAD )); then
     echo "Mac: notarizing the app..."
@@ -145,7 +144,11 @@ EOF
   echo "Mac: making the DMG..."
   DMG="$OUT/Zero.dmg"
   rm -f "$DMG"
-  run mac-dmg hdiutil create -volname Zero -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG"
+  # dmgbuild lays out the window (Zero, an arrow, Applications) without driving Finder; it lives in a venv under build/.
+  DMGTOOLS="$PWD/build/dmgtools"
+  [[ -x "$DMGTOOLS/bin/dmgbuild" ]] || { python3 -m venv "$DMGTOOLS" && "$DMGTOOLS/bin/pip" -q install "dmgbuild==1.6.7"; }
+  run mac-dmg "$DMGTOOLS/bin/dmgbuild" -s scripts/dmg/dmg-settings.py -D app="$STAGE/Zero.app" \
+    -D background="$PWD/scripts/dmg/background.tiff" Zero "$DMG"
   run mac-sign-dmg codesign --force --sign "$DEVID" --timestamp "$DMG"
   if (( UPLOAD )); then
     echo "Mac: notarizing the DMG..."

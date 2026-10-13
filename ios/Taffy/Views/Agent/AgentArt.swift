@@ -2,30 +2,6 @@
 import CoreGraphics
 
 extension AgentBody {
-    /// Each body's width at its widest, as a share of its square picture (for the ground shadow).
-    static let widths: [String: CGFloat] = [
-        "o": 0.7188,
-        "star": 0.8906,
-        "moon": 0.7637,
-        "bolt": 0.5527,
-        "drop": 0.6816,
-        "squircle": 0.6855,
-        "pill": 0.4375,
-        "hex": 0.8281,
-        "gem": 0.8027,
-        "cube": 0.6543,
-        "mushroom": 0.8691,
-        "bean": 0.4609,
-        "arch": 0.7402,
-        "flower": 0.791,
-        "dome": 0.7246,
-        "leaf": 0.6426,
-        "bell": 0.7637,
-        "plus": 0.7715,
-        "pebble": 0.6699,
-        "gumdrop": 0.6738,
-    ]
-
     /// Each body's main color, for giving a Zip that has only a color the closest body.
     static let colors: [String: String] = [
         "o": "#EDB626",

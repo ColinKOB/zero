@@ -78,7 +78,7 @@ struct MacHomeView: View {
             WelcomeView().environment(state)
         }
         .sheet(isPresented: $savingLogin) { SaveLoginSheet().environment(state) }
-        // Once, after the first run on a Mac home: Pair Your Phone (Views/MacSetupView.swift).
+        // Once, after the first run on a Mac home: Pair a Phone or Mac (Views/MacSetupView.swift).
         .sheet(isPresented: $pairingPhone) { PairPhoneView() }
         .task {
             try? await Task.sleep(for: .seconds(1.5))
@@ -237,6 +237,7 @@ struct MacHomeView: View {
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("Settings")
+                .help("Settings")
                 .keyboardShortcut(",", modifiers: .command)
                 Button { detail = .work } label: {
                     HStack(spacing: 8) {
