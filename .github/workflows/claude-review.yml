@@ -38,9 +38,9 @@ jobs:
             1. Read CLAUDE.md, AGENTS.md, and README if present for project rules.
             2. Read the diff with `gh pr diff`. For every changed function, type, route, or schema, search the repo for its callers and dependents and check whether the change breaks them.
             3. Report only real problems: bugs, broken callers, security issues, data loss, race conditions, missing error handling on a live path, and violations of the project rules. Skip style nitpicks and praise.
-            4. Before posting, list existing review comments with `gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments`. Do not repeat an issue that is already raised.
+            4. Before posting, list existing review comments with `gh api --paginate repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments`. Do not repeat an issue that is already raised.
             5. Post each problem as an inline comment on the exact line, starting with `[blocking]` or `[minor]`.
-            6. Post or update one summary comment with `gh pr comment ${{ github.event.pull_request.number }} --edit-last --create-if-none --body "..."`. Start it with `Claude review: APPROVE` or `Claude review: CHANGES_REQUESTED`, then list the blocking issues in one line each.
+            6. Write one summary comment. Its first line is `<!-- claude-review -->`, then `Claude review: APPROVE` or `Claude review: CHANGES_REQUESTED`, then the blocking issues in one line each. Find an earlier summary with `gh api --paginate repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id'`. If one exists, replace it with `gh api -X PATCH repos/${{ github.repository }}/issues/comments/<id> -f body="..."`. Otherwise post it with `gh pr comment ${{ github.event.pull_request.number }} --body "..."`.
 
             Use CHANGES_REQUESTED only when at least one blocking issue exists.
           claude_args: |
