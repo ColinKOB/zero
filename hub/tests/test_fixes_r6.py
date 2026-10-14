@@ -22,8 +22,6 @@ import hermes_detector  # noqa: E402
 tiers = tt.tiers
 REPO = Path(__file__).resolve().parents[2]
 
-# Read-only mail watches shaped like the two live no-agent jobs on alien ("Theo Avery reply watch" and "Walmart privacy
-# request watch"): they list envelopes with himalaya, keep a state file, and print a notice. Addresses are made up.
 MAIL_WATCH = '''#!/usr/bin/env python3
 """Read-only watch for a reply. Never sends or changes mail."""
 import json
@@ -137,11 +135,11 @@ class ScheduledScripts(ScriptsCase):
         self.script("nightly_deploy.sh", DEPLOY)
         self.create("nightly_deploy.sh")
         plugin.decide(self.cards()[-1]["id"], True)
-        self.assertIsNone(self.create("nightly_deploy.sh"))          # the same call, the same script: once
-        self.assertIsNotNone(self.create("nightly_deploy.sh"))       # and only once
+        self.assertIsNone(self.create("nightly_deploy.sh"))
+        self.assertIsNotNone(self.create("nightly_deploy.sh"))
         plugin.decide(self.cards()[-1]["id"], True)
         self.script("nightly_deploy.sh", DEPLOY + "himalaya message send < note.eml\n")
-        self.assertIsNotNone(self.create("nightly_deploy.sh"))       # the script changed: asks again
+        self.assertIsNotNone(self.create("nightly_deploy.sh"))
         self.assertIn("email", self.cards()[-1]["inputs"])
         update = {"action": "update", "job_id": "abc123", "script": "nightly_deploy.sh"}
         self.assertIsNotNone(self.call("cronjob_manage", update))
@@ -316,7 +314,7 @@ class DatabaseClients(HubCase):
                 self.assertIn("Not done yet", self.run_command(cmd)["message"])
                 card = [r for r in plugin.pending() if r["kind"] == "delete"][-1]
                 self.client.post(f"/api/signin-requests/{card['id']}", json={"decision": "once"})
-                self.assertIsNone(self.run_command(cmd))   # Hermes's prompt is answered: one card, not two
+                self.assertIsNone(self.run_command(cmd))
                 self.assertEqual(self.cards(), [])
 
     def test_sql_piped_into_a_client_asks(self):

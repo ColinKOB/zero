@@ -2,10 +2,10 @@ import SwiftUI
 
 /// What a Zip's computer is doing, as the Computer card says it.
 enum ComputerMode {
-    case working   // the Zip is using it
-    case control   // Colin holds it
-    case waiting   // the Zip needs Colin on it
-    case earlier   // a sign-in the Zip asked for before the person's latest message: still there to use, not waited on
+    case working
+    case control
+    case waiting
+    case earlier
 
     var pill: String {
         switch self {
@@ -47,7 +47,7 @@ struct ComputerCard: View {
     var signIn: SignInPrompt? = nil
     var gap: CGFloat = 48
 
-    @State private var held: Bool?          // nil until the first look at who holds the computer
+    @State private var held: Bool?
     @State private var picture: UIImage?
     @State private var asleep = false
     @State private var opened: ScreenOpen?
@@ -135,7 +135,6 @@ struct ComputerCard: View {
             } else {
                 pill("Take Over", dark: true) { opened = ScreenOpen(takeOver: true) }
             }
-            // On the phone, I'm Done only means something after Colin took the screen himself.
             if mode == .control || (mode != .working && !phoneSignIn) {
                 pill("I'm Done", dark: false) { Task { await done() } }
                     .disabled(busy)
@@ -247,7 +246,6 @@ struct StatusPill: View {
             }
             Text(mode.pill).font(Theme.text(14, .medium)).lineLimit(1)
         }
-        // A card asked for earlier is not waited on: quiet gray instead of amber.
         .foregroundStyle(mode == .earlier ? Theme.inkSoft : Theme.amber)
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(mode == .earlier ? Theme.inkSoft.opacity(0.12) : Theme.amberFill, in: Capsule())

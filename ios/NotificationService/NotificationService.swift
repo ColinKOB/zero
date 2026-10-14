@@ -41,7 +41,6 @@ final class NotificationService: UNNotificationServiceExtension {
             fallback = content
             let shown = await Self.fromZip(content, bot: bot, name: name)
             #if DEBUG
-            // What the last notification became, for checking in the simulator (docs/qa/2026-10-10-notifications.md).
             if let url = ZipNotify.container?.appendingPathComponent("last-notification.json") {
                 let note: [String: Any] = ["bot": bot, "name": name, "category": content.categoryIdentifier,
                                            "from_zip": shown != nil, "at": Date().timeIntervalSince1970]

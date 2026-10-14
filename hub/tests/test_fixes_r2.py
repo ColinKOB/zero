@@ -88,7 +88,7 @@ class PaidCallsOffContent(PageCase):
         self.assertIsNone(self.call("browser_click", {"ref": "@e7"}))
         self.assertEqual(self.cards(), [])
         self.assertEqual(plugin.recent_actions(1)[0]["how"], "tell")
-        self.assertTrue(self.call("browser_click", {"ref": "@e8"})["message"].startswith("Not done"))   # Buy Now
+        self.assertTrue(self.call("browser_click", {"ref": "@e8"})["message"].startswith("Not done"))
 
     def test_trello_move_after_reading_email_is_done_and_told(self):
         self.ask("Find Theo's email and move the Trello card to Doing")
@@ -99,7 +99,7 @@ class PaidCallsOffContent(PageCase):
         self.assertEqual(self.cards(), [])
         act = plugin.recent_actions(1)[0]
         self.assertEqual((act["kind"], act["how"]), ("write", "tell"))
-        self.assertIn("Move the Repo card to Doing", act["summary"])   # the activity row keeps the detail
+        self.assertIn("Move the Repo card to Doing", act["summary"])
 
     def test_with_no_request_from_colin_a_change_after_reading_still_asks(self):
         self.snapshot(AMAZON)
@@ -118,7 +118,7 @@ class PaidCallsOffContent(PageCase):
         self.assertEqual([c["kind"] for c in cards], ["send", "delete", "publish"])
         for c in cards:
             self.assertIn("donor list", c["excerpt"])
-            self.assertNotIn("[ref=", c["excerpt"])   # the words on the page, not snapshot markup
+            self.assertNotIn("[ref=", c["excerpt"])
         self.assertEqual(self.judge_calls, [])
 
     def test_judge_on_still_decides_when_it_answers(self):
@@ -154,8 +154,8 @@ class DeployAndDelete(GateCase):
                 self.assertEqual(self.kind(cmd), "publish")
         self.assertEqual(self.kind("railway down"), "delete")
         self.assertEqual(self.kind("gh api -X DELETE repos/colin/site"), "delete")
-        self.assertEqual(self.kind("npx netlify-cli deploy --dir dist"), "write")   # a preview is told, not asked
-        self.assertIsNone(self.kind("gh api repos/colin/site/pulls"))                 # reading
+        self.assertEqual(self.kind("npx netlify-cli deploy --dir dist"), "write")
+        self.assertIsNone(self.kind("gh api repos/colin/site/pulls"))
         self.assertIsNone(self.kind("railway status"))
         a = tiers.classify_command("npx netlify-cli deploy --prod --dir dist")
         self.assertEqual(a.summary, "Publish the site to production on Netlify")
@@ -186,7 +186,7 @@ class DeployAndDelete(GateCase):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(self.kind(cmd))
         self.assertIsNone(self.kind("rm draft.md", cwd="~/taffy/work/school"))
-        self.assertEqual(self.kind("rm draft.md", cwd="~/taffy"), "delete")   # where a Zip's terminal starts
+        self.assertEqual(self.kind("rm draft.md", cwd="~/taffy"), "delete")
 
     def test_code_that_deletes_under_home_asks(self):
         code = "from pathlib import Path\nfor p in (Path.home() / 'Downloads').glob('*.dmg'):\n    p.unlink()"
@@ -201,7 +201,6 @@ class DeployAndDelete(GateCase):
             self.assertIsNone(self.call("terminal", {"command": "rm other-notes.txt"}))
 
     def test_a_production_deploy_follows_the_tier_rules(self):
-        # No known working folder, as off Hermes; on alien the gateway's own folder would name the site.
         cwd = mock.patch.object(gate, "_terminal_cwd", return_value=None)
         cwd.start(); self.addCleanup(cwd.stop)
         self.ask("publish the Blue Heron site")
@@ -210,7 +209,6 @@ class DeployAndDelete(GateCase):
         card = self.cards()[0]
         self.assertEqual((card["kind"], card["reason"], card["scope"]),
                          ("publish", "Publish the site to production on Netlify", ""))
-        # L1: the card leads with what it does; the command sits behind Details.
         self.assertEqual((card["inputs"], card["details"]), ("", "npx netlify-cli deploy --prod --dir dist"))
         plugin.decide(card["id"], True)
         self.assertIsNone(self.call("terminal", {"command": "npx netlify-cli deploy --prod --dir dist"}))
@@ -275,9 +273,9 @@ class Buttons(PageCase):
             with self.subTest(label=label):
                 self.assertIsNone(self.kind(label))
         self.assertIsNone(self.kind("Accept", page={"cookie": True}))
-        self.assertEqual(self.kind("Accept"), "account")                       # terms, not a cookie banner
+        self.assertEqual(self.kind("Accept"), "account")
         self.assertEqual(self.kind("I agree to the terms", page={"cookie": True}), "account")
-        self.assertEqual(self.kind("Remove"), "write")                          # a filter or a tag
+        self.assertEqual(self.kind("Remove"), "write")
         self.assertEqual(self.kind("Remove member"), "delete")
         self.assertEqual(self.kind("Apply now"), "submit")
         self.assertEqual(self.kind("Send"), "send")
@@ -287,7 +285,6 @@ class Buttons(PageCase):
 
     def test_cookie_banner_on_a_page_snapshot(self):
         self.ask("find the opening hours")
-        # Round 3, M4: the button counts as a cookie button because it sits inside the cookie dialog.
         self.snapshot('- dialog "We use cookies" [ref=e1]:\n  - button "Accept all" [ref=e2]')
         self.assertIsNone(self.call("browser_click", {"ref": "@e2"}))
         self.assertEqual(self.cards(), [])
@@ -317,9 +314,9 @@ class BrowserSends(PageCase):
         self.assertIn("Subject: Dinner", card["inputs"])
         plugin.decide(card["id"], True)
         self.snapshot(self.COMPOSE.replace('"Message Body" [ref=e3]', '"Message Body" [ref=e3]: Dinner is at 7.'))
-        self.assertIsNone(self.call("browser_click", {"ref": "@e4"}))          # same text: the approval covers it
+        self.assertIsNone(self.call("browser_click", {"ref": "@e4"}))
         self.type("@e3", "Dinner is at 8.")
-        self.assertIsNotNone(self.call("browser_click", {"ref": "@e4"}))       # different text: a new card
+        self.assertIsNotNone(self.call("browser_click", {"ref": "@e4"}))
 
     def test_a_send_from_a_file_shows_the_file_and_counts_its_contents(self):
         d = Path(tempfile.mkdtemp())
@@ -330,10 +327,10 @@ class BrowserSends(PageCase):
         card = self.action_cards()[0]
         self.assertEqual(card["target"], "ken@brightpath.test")
         self.assertIn("Hi Theo, all set.", card["inputs"])
-        self.assertTrue(card["details"].startswith("himalaya template send <"))   # the command, behind Details
+        self.assertTrue(card["details"].startswith("himalaya template send <"))
         plugin.decide(card["id"], True)
         eml.write_text("To: ken@brightpath.test\nSubject: Repo access\n\nSomething else entirely.\n")
-        self.assertIsNotNone(self.call("terminal", {"command": cmd}))           # the file changed after the yes
+        self.assertIsNotNone(self.call("terminal", {"command": cmd}))
         eml.write_text("To: ken@brightpath.test\nSubject: Repo access\n\nHi Theo, all set.\n")
         self.assertIsNone(self.call("terminal", {"command": cmd}))
 
@@ -393,8 +390,8 @@ class ScheduledCards(GateCase):
     def test_allow_once_covers_one_change_in_the_next_run(self):
         self.add("Add a card Pay rent to Next")
         plugin.decide(self.cards()[0]["id"], True)
-        self.assertIsNone(self.add("Add the card 'Pay rent' to the Next list", run="run2"))   # worded afresh
-        self.assertIsNotNone(self.add("Add a card Call the landlord to Next", run="run3"))    # used up
+        self.assertIsNone(self.add("Add the card 'Pay rent' to the Next list", run="run2"))
+        self.assertIsNotNone(self.add("Add a card Call the landlord to Next", run="run3"))
 
 
 class PaidCallsSwitch(GateCase):
@@ -419,11 +416,9 @@ class PaidCallsSwitch(GateCase):
         self.assertFalse(fast_steps.paid_calls_on())
 
     def test_email_watch_state_stays_readable(self):
-        # The inbox watches keep their notes in ~/taffy/state; only Colin's switch folder is protected.
         self.assertIsNone(self.call("terminal", {"command": "cat ~/taffy/state/walmart-privacy-watch.json"}))
 
     def test_the_real_switch_reads_colins_owner_folder(self):
-        # Colin turns paid checks on and off himself (on since Oct 8 evening), so only where the switch lives is tested.
         seen = []
         with mock.patch("os.path.exists", side_effect=lambda path: seen.append(path) or False):
             self.assertFalse(self.saved["paid"]())
@@ -455,8 +450,6 @@ class PaidCallsSwitch(GateCase):
         self.assertIn("connectors", names)
         self.assertNotIn("browser_steps", names)
 
-
-# ── The hub side ──────────────────────────────────────────────────────────────────────────────────────────
 
 from test_fixes_r1 import AppCase  # noqa: E402
 from taffy_hub import accounts, config, store, turns  # noqa: E402
@@ -533,7 +526,7 @@ class ConnectCards(AppCase):
         self.assertEqual((bot, session), ("school", "chat-7"))
         self.assertIn("closed the card without connecting Google Drive", note)
         self.client.post(f"/api/bots/school/account-requests/{fid}", json={"outcome": "declined"})
-        self.assertEqual(len(self.followed), 1)                       # closing twice resumes once
+        self.assertEqual(len(self.followed), 1)
 
 
 class ConnectWording(unittest.TestCase):

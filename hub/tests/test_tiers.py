@@ -45,8 +45,6 @@ class FableFloor(unittest.TestCase):
             got = tiers.floor(c["tool_kind"], c["site_class"], c["context"], c.get("mode"), c["action"])
             if got != c["label"]:
                 wrong.append(c["id"])
-        # The six floor-only misses in analysis.txt: two scheduled writes the judge fixes, two content-originated
-        # sends that stay a card by design, and two judgment labels Colin approved as labeled.
         self.assertEqual(sorted(wrong), sorted(["gmail_unsubscribe", "email_send_donor_list", "cal_move_event_scheduled",
                                                 "trello_card_injection", "school_grade_wrong_site", "brief_archive"]))
 
@@ -54,7 +52,7 @@ class FableFloor(unittest.TestCase):
         cases = _eval_module("cases").CASES
         through = [c["id"] for c in cases if c["label"] in ("ask", "never") and
                    tiers.floor(c["tool_kind"], c["site_class"], c["context"], c.get("mode"), c["action"]) in ("act", "tell")]
-        self.assertEqual(sorted(through), ["brief_archive", "cal_move_event_scheduled"])   # both are scheduled writes
+        self.assertEqual(sorted(through), ["brief_archive", "cal_move_event_scheduled"])
 
     def test_every_tier_rule(self):
         f = tiers.floor
@@ -70,7 +68,7 @@ class FableFloor(unittest.TestCase):
         self.assertEqual(f("signin", context="scheduled", mode="anytime"), "act")
         self.assertEqual(f("signin"), "act")
         self.assertEqual(f("write"), "tell")
-        self.assertEqual(f("write", context="scheduled"), "tell")   # the routine judge decides tell or ask
+        self.assertEqual(f("write", context="scheduled"), "tell")
         for kind in ("read", "navigate"):
             self.assertEqual(f(kind), "act")
 
@@ -118,7 +116,7 @@ class Commands(unittest.TestCase):
                     "npx wrangler deploy", "npm publish", "gh release create v1.2", "firebase deploy"]:
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.kind(cmd), "publish")
-        self.assertEqual(self.kind("netlify deploy --dir dist"), "write")   # a preview
+        self.assertEqual(self.kind("netlify deploy --dir dist"), "write")
 
     def test_deleting(self):
         for cmd in ["rm -rf ~/Documents/old", "rm -r /home/jdoe/Pictures", "sudo rm -rf /var/lib/x",
@@ -211,18 +209,18 @@ class Checkpoint(GateCase):
                          ("send", "ken@brightpath.test", "asked", "ken@brightpath.test"))
         self.assertIn("still waiting on the setup details", card["inputs"])
         self.run_cmd()
-        self.assertEqual(len(self.action_cards()), 1)                 # a repeat updates the same card
+        self.assertEqual(len(self.action_cards()), 1)
 
     def test_allow_once_lets_the_same_call_through_once(self):
         self.run_cmd()
         req = self.action_cards()[0]["id"]
         plugin.decide(req, True)
-        self.assertIsNone(self.run_cmd())                              # the approved call goes through
+        self.assertIsNone(self.run_cmd())
         self.assertEqual(plugin.recent_actions(1)[0]["how"], "button")
-        self.assertIsNotNone(self.run_cmd())                           # a second send needs a second yes
+        self.assertIsNotNone(self.run_cmd())
         other = HIMALAYA.replace("still waiting", "all set")
         plugin.decide(self.action_cards()[0]["id"], True)
-        self.assertIsNotNone(self.run_cmd(other))                      # a different message is a different action
+        self.assertIsNotNone(self.run_cmd(other))
 
     def test_not_now_holds(self):
         self.run_cmd()
@@ -236,10 +234,10 @@ class Checkpoint(GateCase):
         plugin.decide(self.action_cards()[0]["id"], True, always=True)
         rules = plugin.rules(self.bot)
         self.assertEqual([(r["kind"], r["scope"]) for r in rules], [("send", "ken@brightpath.test")])
-        self.assertIsNone(self.run_cmd(HIMALAYA.replace("still waiting", "thanks")))   # same person, new text
+        self.assertIsNone(self.run_cmd(HIMALAYA.replace("still waiting", "thanks")))
         self.assertEqual(plugin.rules(self.bot)[0]["uses"], 1)
         riley = HIMALAYA.replace("ken@brightpath.test", "riley@gmail.com")
-        self.assertIsNotNone(self.run_cmd(riley))                      # someone else still asks
+        self.assertIsNotNone(self.run_cmd(riley))
         plugin.remove_rule(rules[0]["id"])
         self.assertIsNotNone(self.run_cmd(HIMALAYA.replace("still waiting", "again")))
 
@@ -297,7 +295,7 @@ class Checkpoint(GateCase):
             self.assertIsNone(self.run_cmd(session=""))
             self.assertEqual(plugin.recent_actions(1)[0]["how"], "review")
             riley = HIMALAYA.replace("ken@brightpath.test", "riley@gmail.com")
-            self.assertIsNotNone(self.run_cmd(riley, session=""))      # not the recipient he saw
+            self.assertIsNotNone(self.run_cmd(riley, session=""))
         finally:
             os.environ.pop("HERMES_KANBAN_TASK")
 
@@ -312,9 +310,9 @@ class Tell(GateCase):
         self.assertEqual(self.cards(), [])
         out = json.loads(tt.transform_result(tool_name="connectors", result=json.dumps({"result": "Moved."}),
                                              session_id="chat-1"))
-        self.assertIn("Mention this to Colin", out["tell_person"])   # was tell_colin (plan section 9)
+        self.assertIn("Mention this to Colin", out["tell_person"])
         self.assertNotIn("tell_colin", out)
-        self.assertIsNone(tt.transform_result(tool_name="connectors", result="{}", session_id="chat-1"))   # once
+        self.assertIsNone(tt.transform_result(tool_name="connectors", result="{}", session_id="chat-1"))
 
     def test_branch_push_is_told(self):
         self.assertIsNone(self.call("terminal", {"command": "git push origin fix-flaky-test"}))
@@ -354,7 +352,7 @@ class ScheduledWrites(GateCase):
         card = self.cards()[0]
         self.assertEqual((card["why"], card["scope"]), ("uncovered", "routine:brief"))
         plugin.decide(card["id"], True, always=True)
-        self.assertIsNone(self.archive())                              # the routine may do this from now on
+        self.assertIsNone(self.archive())
 
     def test_low_confidence_failure_and_refusal_ask(self):
         for judge in (lambda b: {"type": "choice", "choice": "tell", "confidence": 0.4},
@@ -453,7 +451,6 @@ class BrowserClicks(GateCase):
         calls = []
 
         def dispatch(name, a):
-            # As the plugin's browser_steps does: the gate's own pre and post checks around each call.
             blocked = gate.pre_tool_call(name, a, session_id="chat-1")
             if blocked:
                 raise fast_steps.Blocked(blocked["message"])

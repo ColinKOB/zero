@@ -53,7 +53,7 @@ from datetime import datetime, timedelta
 from . import config, home, store
 
 log = logging.getLogger("taffy.notices")
-ET = home.TZ   # the home's time zone (home.json `person.timezone`), followed live
+ET = home.TZ
 
 
 def now() -> float:
@@ -65,33 +65,31 @@ def now() -> float:
 
 SETTING = "proactivity"
 DEFAULTS = {
-    "enabled": True,           # on from the start; Colin can turn it off in Settings (Oct 9)
+    "enabled": True,
     "daily_pushes": 3,
     "weekly_pushes": 12,
-    "spacing_min": 120,        # one notification every two hours
+    "spacing_min": 120,
     "open_max": 5,
-    "cards_open": 1,           # proactive cards open at once (Oct 10: three at once felt like spam)
-    "card_spacing_min": 120,   # time between new cards, unless something is due within three hours
-    "per_noticer_daily": 1,    # new cards (and pushes) from one kind of question a day
-    "pass_max": 1,             # new cards one look may raise: the most important one wins (Oct 9 flood)
-    "daily_cards": 3,          # new cards a day across every kind
-    "first_day_cards": 2,      # in the first day after proactivity is turned on: no backlog dump
-    "gate_per_pass": 4,        # Haiku checks one look may spend before it waits for the next
-    "enabled_at": 0,           # when proactivity was turned on (0: the next look records it)
-    "expiry_days": 7,          # an unanswered card closes after a week (it can still be answered)
-    "haiku_daily": 60,         # every candidate now passes a Haiku check (Oct 9); Colin's Claude plan, no API cost
-    "quiet_start": 23,         # the person's night: always home.json `person.quiet_hours` (see settings())
+    "cards_open": 1,
+    "card_spacing_min": 120,
+    "per_noticer_daily": 1,
+    "pass_max": 1,
+    "daily_cards": 3,
+    "first_day_cards": 2,
+    "gate_per_pass": 4,
+    "enabled_at": 0,
+    "expiry_days": 7,
+    "haiku_daily": 60,
+    "quiet_start": 23,
     "quiet_end": 7,
     "busy_words": ["ups", "shift", "class", "church", "client"],
-    "noticers": {},            # id -> {"mode": on | digest | off, "why": str, "since": ts}
-    "prep_daily": 5,           # prepared actions a day (each is a model turn in the owning Zip)
-    "quiet_wakes": 4,          # quiet looks a day, 9 a.m. to 9 p.m.
-    "calendar_every_min": 60,  # the calendar and Trello copies, refreshed in waking hours (calcache.py)
+    "noticers": {},
+    "prep_daily": 5,
+    "quiet_wakes": 4,
+    "calendar_every_min": 60,
     "trello_every_min": 60,
-    "school_checks_daily": 4,  # the School Zip's look at the course site before an "is it done?" (schoolcheck.py)
+    "school_checks_daily": 4,
 }
-# Defaults that changed after homes had saved every setting (before Oct 9's "save only what differs"): a saved value
-# equal to the old default is read as the default, so the new one reaches those homes too.
 OLD_DEFAULTS = {"daily_cards": 4}
 NUDGE = "nudge"
 NOTICERS = {
@@ -122,11 +120,6 @@ NOTICERS = {
 }
 MODES = ("on", "digest", "off")
 
-# Kinds of question that fit only some people. Whether one fits is read from what the person told onboarding (their
-# work and age answers), the Zips they have and the home's own keywords, never from a list of homes (live convo QA 2:
-# "School Deadlines With Nothing Planned" was listed in a bakery owner's Settings). The money kinds read what only
-# some homes have: charges come from Tally, bills from Money's notes. A kind the person turned on themselves always
-# fits. Every other kind reads mail, the calendar or the board, which anyone can add in the app.
 STUDENT = re.compile(r"\b(students?|studying|school|schoolwork|college|university|class(es)?|courses?|coursework|"
                      r"degree|semester|homework|grad school|phd|freshman|sophomore|junior year|senior year)\b", re.I)
 JOB_HUNT = re.compile(r"\b(job (search|hunt|hunting)|looking for (a )?(new )?(job|work|role)|between jobs|"
@@ -138,7 +131,7 @@ FITS = {
     "charge": ("money",),
     "bill": ("money",),
 }
-TOLD_FITS = {"school_deadline", "due_soon", "window"}   # the kinds a person's own onboarding answers can turn on
+TOLD_FITS = {"school_deadline", "due_soon", "window"}
 
 
 def _told_about_work() -> str:
@@ -156,7 +149,7 @@ def fits(noticer: str) -> bool:
     if (settings()["noticers"].get(noticer) or {}).get("mode") in ("on", "digest"):
         return True
     if noticer == "due_soon" and (settings()["noticers"].get("school_deadline") or {}).get("mode") in ("on", "digest"):
-        return True   # it takes the last hours of school_deadline's window (calendar_noticers.due_soon)
+        return True
     if noticer == "charge":
         return home.tally() is not None
     if any(z in config.BOTS_BY_ID for z in zips):
@@ -184,8 +177,6 @@ def noticer_words(noticer: str) -> tuple[str, str]:
     return name, detail
 
 
-# A home on a shared plan spends someone else's limits (home.json `plan.frugal`): fewer Haiku checks, prepared
-# actions and quiet looks a day, unless the person set them.
 FRUGAL = {"haiku_daily": 30, "prep_daily": 3, "quiet_wakes": 2}
 
 
@@ -199,10 +190,8 @@ def settings() -> dict:
     return out
 
 
-# Always saved as they are. Every other setting is saved only when it differs from its default, so a later change
-# of default (Oct 9: expiry 3 to 7 days, 20 to 60 Haiku checks) reaches homes that never changed it themselves.
 ALWAYS_SAVED = {"enabled", "enabled_at", "noticers"}
-HOME_KEYS = {"quiet_start", "quiet_end"}   # kept in home.json, changed with PUT /api/home-settings
+HOME_KEYS = {"quiet_start", "quiet_end"}
 
 
 def _save(s: dict) -> None:
@@ -218,7 +207,7 @@ def enabled() -> bool:
 def set_enabled(on: bool) -> None:
     s = settings()
     if on and not s["enabled"]:
-        s["enabled_at"] = now()   # a fresh start: the first day stays gentle
+        s["enabled_at"] = now()
     s["enabled"] = bool(on)
     _save(s)
 
@@ -300,7 +289,6 @@ def date_short(ts: float) -> str:
 # MARK: Candidates
 
 ACTION_KINDS = {"act", "send", "decide", "hub", "prepared"}
-# Words no option may ask a Zip to do: Zips never pay, move money, buy or sign (tiers.NEVER_KINDS).
 NEVER_SAY = re.compile(r"\b(please (pay|transfer|wire|buy|order|purchase|sign)|pay (it|the|this|my|for)|"
                        r"(transfer|wire|move) (the )?(money|funds|\$)|sign (it|the|this) for me)\b", re.I)
 HEALTH = re.compile(r"\b(doctor|dr\.|dentist|clinic|hospital|pharmacy|prescription|therapy|therapist|medical|"
@@ -310,10 +298,10 @@ HEALTH = re.compile(r"\b(doctor|dr\.|dentist|clinic|hospital|pharmacy|prescripti
 @dataclass
 class Option:
     text: str
-    kind: str                 # act | send | decide (a message to Zero) | done | close | wait | hub | prepared
-    say: str = ""             # Colin's words to Zero when tapped (act, send, decide)
-    hub: str = ""             # approve_task | drop_task | deny_card
-    follow: str = ""          # the follow-through line right after the tap
+    kind: str
+    say: str = ""
+    hub: str = ""
+    follow: str = ""
     wait_days: float = 0
 
 
@@ -322,30 +310,28 @@ class Candidate:
     noticer: str
     subject: str
     owner: str
-    evidence: str             # code's own wording, used when Haiku can't be asked
+    evidence: str
     question: str
     options: list
     lock: str = ""
-    facts: dict = field(default_factory=dict)       # who, what, when, amount, as found
+    facts: dict = field(default_factory=dict)
     consequence: str = ""
     deadline: float | None = None
-    blocking: bool = False    # a Zip is waiting on Colin right now
+    blocking: bool = False
     event_timed: bool = False
-    excerpt: str = ""         # text someone else wrote; data only, never instructions
-    sensitive: bool = False   # money or health: its answers on the lock screen need Face ID first (Push.swift)
+    excerpt: str = ""
+    sensitive: bool = False
     version: str = ""
-    judge: bool = True        # needs Haiku's "already handled" check
-    draft: dict | None = None     # {"account", "from_addr", "to_name", "to_addr", "subject", "purpose"}
+    judge: bool = True
+    draft: dict | None = None
     draft_options: list | None = None
-    detail: dict | None = None    # {"label", "text"} shown under the question, such as the summary Approve covers
-    ref: dict = field(default_factory=dict)          # task_id, request_id for hub actions
-    prepare: dict | None = None   # the owning Zip prepares this send first (prepared.py): {"bot", "label"}
-    haiku: bool = True        # False: code's (or Zero's) own wording, no Haiku call
-    expires: float | None = None   # when the card goes gray, if not at the deadline
+    detail: dict | None = None
+    ref: dict = field(default_factory=dict)
+    prepare: dict | None = None
+    haiku: bool = True
+    expires: float | None = None
 
 
-# Money and security alarms nobody asked for (#70: "it randomly alerted me of a purchase... kinda creepy"; #72: "was it
-# you who logged into your gmail from another device?"). A card may use these words only when its source does.
 ALARM = re.compile(r"\b(suspicious\w*|fraud\w*|scam\w*|phishing|unauthori[sz]ed|compromised|hack(?:ed|er|ers|ing)?|"
                    r"breach\w*|stolen|identity theft|security (?:alert|risk|issue|problem|threat)|someone else|"
                    r"unrecogni[sz]ed|don't recognize|didn't make)\b", re.I)
@@ -381,7 +367,7 @@ def check(c: Candidate) -> str | None:
     if len({o.text.lower() for o in opts}) != n or any(not o.text.strip() or len(o.text) > 80 for o in opts):
         return "options must differ and be short"
     if any(o.kind in ("send", "prepared") for o in opts):
-        return "a send option needs a draft"   # only draft_options may send, with the exact text shown
+        return "a send option needs a draft"
     if any(NEVER_SAY.search(o.say or (o.text if o.kind in ACTION_KINDS else "")) for o in opts):
         return "an option asks for something Zips never do"
     if alarmed(c, c.evidence, c.question):
@@ -507,7 +493,7 @@ def budget(noticer: str, batch: int = 0, batch_same: int = 0, subject: str | Non
 
 # MARK: Busy blocks
 
-CALENDAR_FILE = config.HUB_DIR / "calendar.json"   # the hourly calendar copy (calcache.py)
+CALENDAR_FILE = config.HUB_DIR / "calendar.json"
 
 
 def _ts(v) -> float | None:
@@ -567,7 +553,7 @@ def _haiku_ok() -> bool:
     try:
         from . import health
         if not health.status.get("claude", True):
-            return False   # the plan's limit is hit: only code-only noticers run
+            return False
     except Exception:
         pass
     return haiku_left() > 0
@@ -579,7 +565,6 @@ def prefs_heading() -> str:
     return f"How {who.first()} wants proactivity"
 
 
-# Any person's name: an entry saved before a rename still counts.
 _PREFS_RE = re.compile(r"\bhow [\w.' -]{1,40} wants? proactivity\b", re.I)
 
 
@@ -710,10 +695,10 @@ _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
 _AMOUNT = re.compile(r"[$€£]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d\d)\s?(?:dollars|usd)\b", re.I)
 
 
-_RANGE_DASH = re.compile(r"(?<=[\d.])\s*[—–]\s*(?=\d)")           # 11 p.m.–7 a.m., 9–5
-_DASH = re.compile(r"\s*[—–]+\s*|\s+--?\s+")                       # em and en dashes, a spaced hyphen
+_RANGE_DASH = re.compile(r"(?<=[\d.])\s*[—–]\s*(?=\d)")
+_DASH = re.compile(r"\s*[—–]+\s*|\s+--?\s+")
 _CLAUSE = re.compile(r"(?:[.;!?]\s+|,\s*|:\s+|\(|^)")
-_CODE_END = re.compile(r"\b[A-Z]{2,5}[ -]?\d{2,4}[A-Z]?$")                   # POL 101, BUS 305
+_CODE_END = re.compile(r"\b[A-Z]{2,5}[ -]?\d{2,4}[A-Z]?$")
 
 
 def tidy(text: str) -> str:
@@ -735,15 +720,13 @@ def tidy(text: str) -> str:
             0 < len(clause.split()) <= 4 and all(w[:1].isupper() or w[:1].isdigit() for w in clause.split()))
         out = out.rstrip() + (": " if label else ", ") + nxt
     t = re.sub(r"\s+([.,;:?!])(?=\s|$)", r"\1", out)
-    t = re.sub(r"(?<!\.)\.\.(?!\.)", ".", t)             # "11:55 p.m.." and "done.."
-    t = re.sub(r"([?!:;,])\.(?=\s|$)", r"\1", t)          # "?." and ",."
+    t = re.sub(r"(?<!\.)\.\.(?!\.)", ".", t)
+    t = re.sub(r"([?!:;,])\.(?=\s|$)", r"\1", t)
     t = re.sub(r",\s*,", ",", t)
     t = re.sub(r":\s*:", ":", t)
     return t
 
 
-# Words for the machinery that reach Colin's cards from the model's text despite the prompt ("The hub found Colin's
-# September 25 email..." on every card of Oct 9 morning). Said as the Zip would say it.
 def _notes_verb(m: re.Match) -> str:
     """"The briefing says" becomes "your notes say" (or "Your notes say" at the start of a sentence)."""
     your = "Your" if m.group(1) == "T" else "your"
@@ -784,11 +767,7 @@ def clean(text: str, limit: int, block: bool = False) -> str:
     return t
 
 
-# The lock-screen line (Oct 10, Colin: "Bill names and amounts should be on the lock screen once you sign in with Face
-# ID"). One specific sentence with the key fact and the question, for every kind of question, money and health too.
-# The person's iPhone hides it until Face ID when Show Previews is When Unlocked; the hidden preview still says who it
-# is from (the category's placeholder, Push.swift). This replaced the fixed and vague lines of QA round 10 (M3).
-NO_YES = ("conflict", "quiet")   # their question can't be answered with a plain Yes
+NO_YES = ("conflict", "quiet")
 
 
 def card_line(c: Candidate, words: dict, evidence: str, question: str) -> str:
@@ -920,12 +899,9 @@ async def judge(c: Candidate) -> dict | None:
         words.update(handled=True, veto=True, why=words["why"] or "not worth asking")
     conf = str(out.get("confidence") or "").strip().lower()
     if conf and conf != "high" and not words["handled"] and c.judge:
-        # Fewer, better (Oct 10): a question Haiku isn't sure of is dropped, not asked.
         words.update(handled=True, veto=True, why=words["why"] or "not sure it is worth asking")
     for key, limit in (("evidence", 320), ("question", 200)):
         v = clean(out.get(key) or "", limit)
-        # An alarm Haiku added keeps code's calm wording instead, and so does wording that speaks of the person by
-        # name or of the machinery (Oct 10: "no reply from Colin is recorded. The briefing material...").
         if v and not alarmed(c, v) and not off_voice(v):
             words[key] = v
     if out.get("lock"):
@@ -942,8 +918,6 @@ async def judge(c: Candidate) -> dict | None:
     return words
 
 
-# The card is the Zip talking to the person like a teammate. These words are the machinery talking, or someone
-# talking about the person (Oct 10).
 OFF_VOICE = re.compile(r"\b(the hub|hub's|briefing|(the|briefing|their) material|is recorded|was recorded|"
                        r"(is|are) logged|records? (show|shows|say|says)|noticer|candidate|database|"
                        r"the system|the user)\b", re.I)
@@ -990,8 +964,6 @@ def _send_say(c: Candidate, body: str) -> str:
             f"exactly as written:\n\n{body}")
 
 
-# Which kind of question wins when several are new at once: a Zip waiting on Colin, then dated school and money
-# matters, then the rest. Something due inside a day moves up two steps and a Zip waiting right now goes first.
 PRIORITY = {"waiting_in_app": 0, "due_soon": 0, "school_deadline": 1, "bill": 1, "form": 2, "prep": 2, "conflict": 2,
             "followup": 2, "reply_waiting": 3, "renewal": 3, "promise": 3, "charge": 4, "window": 4,
             "unreplied": 5, "quiet": 5, "running_low": 4}
@@ -1159,13 +1131,13 @@ async def _consider_one(c: Candidate) -> int | None:
         if st == "stopped":
             return None
         if st == "open":
-            if changed and old["pushes"] < 2:   # a nearer date may push once more
+            if changed and old["pushes"] < 2:
                 _set(old["id"], version=c.version, deadline=c.deadline,
                      urgent=int(urgent(c.deadline, c.blocking, c.event_timed)),
                      push_due=int(urgent(c.deadline, c.blocking, c.event_timed) and m == "on"))
             return None
         if st == "nudge":
-            pass   # the alert went out when it happened; the question about it is its one more push
+            pass
         elif st == "waiting" and old["recheck"] and now() >= old["recheck"] and old["raised"] < 2:
             pass
         elif changed and old["raised"] < 2 and st in ("picked", "dismissed", "expired", "handled", "waiting"):
@@ -1210,7 +1182,7 @@ def _post(c: Candidate, words: dict, old: dict | None) -> int:
         body = words["draft"]
         options = [Option(**{**asdict(o), "say": _send_say(c, body)}) if o.kind == "send" else o
                    for o in c.draft_options]
-        try:   # the gate never lets a standing rule send this text (QA round 10, M2)
+        try:
             from . import consent
             consent.remember_proactive_draft(body)
         except Exception:
@@ -1220,14 +1192,12 @@ def _post(c: Candidate, words: dict, old: dict | None) -> int:
     life = float(settings()["expiry_days"]) * 86400
     expires = min(c.expires or deadline, t + life) if deadline else t + life
     if expires < t + 3600:
-        expires = max(expires, day_start(t) + 86400 - 60)   # due today: open until the day ends (QA round 10, L6)
+        expires = max(expires, day_start(t) + 86400 - 60)
     card_opts = [{**asdict(o), "text": tidy(o.text)} for o in options]
     evidence = _scrub(tidy(words["evidence"] if not off_voice(words["evidence"]) else c.evidence))
     question = _scrub(tidy(words["question"] if not off_voice(words["question"]) else c.question))
     sensitive = c.sensitive or bool(HEALTH.search(f"{evidence} {question}"))
     lock = _scrub(card_line(c, words, evidence, question))
-    # The owning Zip prepares the exact send first (prepared.py); the question goes up when it is ready, or with the
-    # draft as Colin's own words if the preparation can't be used.
     from . import prepared
     preparing = bool(c.prepare and c.draft and words.get("draft") and c.draft_options) and prepared.allowed()
     nid = _record(c, old, state="preparing" if preparing else "open",
@@ -1364,7 +1334,7 @@ def expire() -> int:
         except Exception:
             continue
         if not req or req.get("status") != "pending":
-            _moved_on(r["subject"])   # Colin answered the card in Work
+            _moved_on(r["subject"])
     return n
 
 
@@ -1405,11 +1375,10 @@ def answer(feed_id: int, picked: str | None, custom: bool = False) -> dict:
     try:
         return _picked(r, card, opt, picked, t)
     except Exception:
-        _set(r["id"], state=r["state"])   # nothing happened; the card can be answered again
+        _set(r["id"], state=r["state"])
         raise
 
 
-# A closed card ("expired" here, Closed in the app) can still be answered, exactly like an open one (Oct 9).
 ANSWERABLE = ("open", "expired")
 
 
@@ -1463,7 +1432,7 @@ def _picked(r: dict, card: dict, opt: Option, picked: str, t: float) -> dict:
     elif opt.kind == "done":
         follow = follow or "Closed."
         _log("done", r["noticer"], r["subject"])
-    else:   # close: it was already handled, so this kind of question came late
+    else:
         follow = follow or "Closed. I won't ask about this again."
         _log("close", r["noticer"], r["subject"])
     if late:
@@ -1472,11 +1441,7 @@ def _picked(r: dict, card: dict, opt: Option, picked: str, t: float) -> dict:
          push_due=0)
     if opt.kind == "close":
         _learn_closures(r["noticer"])
-    # `sent`: the exact words that go to Zero as the person's message, so the app shows them once, as the answer
-    # bubble the card turns into, and never again as a second bubble under it (Oct 10, card answers).
     out = _update_card(r, state="picked", picked=picked, follow=follow, at=t, sent=send) or {}
-    # An answer the hub handles itself still reaches the Zip, so it answers like a teammate and remembers what it
-    # learned (Colin, Oct 10: "Already canceled" on agentmax.app got only "Closed." and the Zip never heard it).
     ack = None if send else ack_note(card.get("question", ""), picked, follow)
     return {**out, "send": send, "ack": ack}
 
@@ -1529,13 +1494,13 @@ def _hub_action(action: str, ref: dict, r: dict) -> str:
         task = board.get_task(tid) or {}
         want = "review" if r["subject"].endswith(":review") else "blocked"
         if task.get("status") != want:
-            return "This already moved on in Work, so nothing was changed."   # QA round 10, L7
+            return "This already moved on in Work, so nothing was changed."
     if action == "approve_task" and tid:
         ok, _ = board.approve(tid, None)
         return f"Approved {at_clock(now())} {_bot_name(r['owner'])} goes ahead as prepared." if ok else \
             "That could not be approved from here. Try it in Work."
     if action == "drop_task" and tid:
-        ok, _ = board.drop_waiting(tid, "You dropped this.")   # never closes a live run
+        ok, _ = board.drop_waiting(tid, "You dropped this.")
         return "Dropped." if ok else "That could not be dropped from here. Try it in Work."
     if action == "deny_card" and ref.get("request_id"):
         from . import consent
@@ -1624,9 +1589,6 @@ async def send_push(title: str, body: str, collapse: str, feed_id: int | None, c
                                    actions=actions, relevance=notify.relevance("card"))
 
 
-# The app's notification categories (Push.swift). A question whose lock-screen line says what Yes does gets Yes, Not
-# Now and Reply. A send, a prepared action, a money or health question, or several questions in one notification get
-# Open and Not Now: the lock screen can't show the recipient and the text, so Yes there could never be the approval.
 QUESTION, OPEN_ONLY = "zero.question", "zero.open"
 
 
@@ -1636,7 +1598,7 @@ def category(card: dict) -> str:
             card.get("noticer") in NO_YES:
         return OPEN_ONLY
     if opts[0].get("kind") == "hub" and opts[0].get("hub") == "approve_task":
-        return OPEN_ONLY   # Approve covers what the review's summary shows, which the lock screen can't
+        return OPEN_ONLY
     return QUESTION
 
 
@@ -1689,7 +1651,6 @@ async def _deliver() -> int:
         return 0
     t = now()
     if quiet_hours() or store.quiet("default"):
-        # Night, or Zero muted or snoozed: they stay in the chat and join the morning brief.
         for r in rows:
             _set(r["id"], push_due=0)
             _log("held", r["noticer"], r["subject"])
@@ -1708,7 +1669,7 @@ async def _deliver() -> int:
         why = budget(r["noticer"], batch=len(going), batch_same=sum(g["noticer"] == r["noticer"] for g in going),
                      subject=r["subject"])
         if why == "spacing":
-            break   # the next notification waits; these stay due
+            break
         if why:
             _set(r["id"], push_due=0)
             _log("held", r["noticer"], r["subject"])
@@ -1740,19 +1701,16 @@ async def nudge(subject: str, title: str, body: str, bot_id: str | None = None, 
     if not enabled():
         return await watcher.push(title, body, bot_id, bots=bots, kind=kind)
     if watcher._night():
-        return await watcher.push(title, body, bot_id, bots=bots, kind=kind)   # held for "While you slept"
+        return await watcher.push(title, body, bot_id, bots=bots, kind=kind)
     old = row(subject)
-    # A blocked or failed task is always told (QA round 10, L8): a Zip can't go on without Colin. They still count
-    # toward the day's notifications, so questions make room for them, not the other way round.
     must = subject.endswith((":blocked", ":failed"))
     why = None if must else ("subject" if old and old["pushes"] >= 2 else budget(NUDGE))
     if why:
         _log("held", NUDGE, subject)
-        _hold_for_brief(title, body)   # never dropped: it is in the next morning brief
+        _hold_for_brief(title, body)
         return False
     blk = busy_block()
     if blk:
-        # At a shift, a class, church or a meeting: told in one notification when the block ends.
         held = [h for h in (store.get_setting(BUSY_HELD, []) or []) if h.get("subject") != subject]
         held.append({"subject": subject, "title": title[:120], "body": body[:300], "bot": bot_id,
                      "until": blk["end"], "kind": kind})
@@ -1800,7 +1758,7 @@ async def release_busy_held() -> bool:
         who_ = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
         title, body = "While you were busy", f"While you were busy, {len(held)} updates came in from {who_}."
     store.set_setting(BUSY_HELD, [])
-    kinds = {h.get("kind") or "needs" for h in held}   # the most important kind among them decides
+    kinds = {h.get("kind") or "needs" for h in held}
     kind = next(k for k in ("needs", "done", "progress") if k in kinds) if kinds <= {"needs", "done", "progress"} \
         else "needs"
     ok = await watcher.push(title, body, held[0].get("bot") if len(held) == 1 else None,
@@ -2032,7 +1990,7 @@ async def post_brief(force: bool = False) -> bool:
     t = _db().execute("SELECT created_at FROM feed WHERE id=?", (fid,)).fetchone()[0]
     for i, r in enumerate(_open_rows()):
         if r["feed_id"]:
-            store.touch_feed(r["feed_id"], t + 1 + i)   # the cards sit under the paragraph
+            store.touch_feed(r["feed_id"], t + 1 + i)
     return True
 
 
@@ -2092,7 +2050,7 @@ def status() -> dict:
 
 # MARK: When to look
 
-WAKE_START, WAKE_END = 7, 23   # the default waking day; waking() follows the home's quiet hours
+WAKE_START, WAKE_END = 7, 23
 QUIET_WAKE_IDLE_SEC = 2 * 3600
 QUIET_WAKES_A_DAY = 4
 PASS_EVERY_SEC = 10 * 60
@@ -2221,6 +2179,6 @@ async def tick() -> None:
             _wakes.clear()
             _pass_task = asyncio.create_task(run_pass(wakes))
         if _et().hour >= 8 and _due("brief_fallback", 15 * 60):
-            await post_brief()   # the brief job did not run today: the paragraph still comes
+            await post_brief()
     except Exception:
         log.exception("proactivity tick failed")

@@ -56,11 +56,11 @@ class Defaults(unittest.TestCase):
             self.assertFalse(home.get("backup.mac_copy_expected"))
             self.assertIsNone(home.get("zips.owner_keywords"))
             self.assertIsNone(home.get("mail.owner_by_domain"))
-            self.assertEqual(home.get("ports.hub"), 8650)          # the layout is shared
+            self.assertEqual(home.get("ports.hub"), 8650)
         with home_fixture.use({"home_id": "sam"}):
             self.assertEqual(home.person_name(), "the person")
         with home_fixture.use({"home_id": "colin", "person": {"timezone": "America/Chicago"}}):
-            self.assertEqual(home.person_name(), "Colin O'Brien")   # Colin's own file keeps his facts
+            self.assertEqual(home.person_name(), "Colin O'Brien")
             self.assertEqual(home.trello()["board_id"], "AbCd1234")
 
     def test_zero_home_names_the_file(self):
@@ -84,7 +84,7 @@ class Merge(unittest.TestCase):
         with home_fixture.use({"person": {"name": "Sam Rivera"}, "mail": {"accounts": []},
                                "integrations": {"tally": None}}):
             self.assertEqual(home.person_name(), "Sam Rivera")
-            self.assertEqual(home.get("person.timezone"), "America/New_York")   # kept from the defaults
+            self.assertEqual(home.get("person.timezone"), "America/New_York")
             self.assertEqual(home.mail_accounts(), [])
             self.assertIsNone(home.tally())
             self.assertIsNone(home.get("integrations.tally", "missing"))
@@ -148,7 +148,7 @@ class TimeZone(unittest.TestCase):
     def test_home_tz_matches_zoneinfo_across_the_clock_change(self):
         with home_fixture.use({"person": {"timezone": "America/Los_Angeles"}}):
             z = ZoneInfo("America/Los_Angeles")
-            for ts in (1762074000, 1762077600, 1762081200, 1773568800, 1760000000):   # around Nov 2 and Mar 15
+            for ts in (1762074000, 1762077600, 1762081200, 1773568800, 1760000000):
                 a, b = datetime.fromtimestamp(ts, home.TZ), datetime.fromtimestamp(ts, z)
                 self.assertEqual(a.replace(tzinfo=None), b.replace(tzinfo=None))
                 self.assertEqual(a.utcoffset(), b.utcoffset())
@@ -179,7 +179,7 @@ class TimeZone(unittest.TestCase):
 
 
 PLUGIN_HOME = Path(__file__).resolve().parents[2] / "alien" / "plugins" / "taffy-tools" / "home.py"
-if not PLUGIN_HOME.exists():   # on alien the hub is deployed without the repo; use the installed plugin
+if not PLUGIN_HOME.exists():
     PLUGIN_HOME = Path.home() / "taffy" / "plugins" / "taffy-tools" / "home.py"
 
 

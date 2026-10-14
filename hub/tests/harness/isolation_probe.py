@@ -40,7 +40,6 @@ from pathlib import Path
 
 ZIPS = ("school", "builder", "clients", "money", "career", "inbox", "errands")
 
-# (category, check, path relative to the victim's home). "*" in a profile path is filled from ZIPS.
 TARGETS = [
     ("files", "home_listing", "."),
     ("files", "work", "taffy/work"),

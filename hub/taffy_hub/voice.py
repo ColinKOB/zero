@@ -32,49 +32,37 @@ from . import briefing, calllog, config, home, store, turns, who
 
 log = logging.getLogger("taffy.voice")
 
-# The Codex the call voice runs: the real one, or the plan broker's client in a home on a shared plan
-# (home.json `plan.chatgpt.codex_command`).
 CODEX = str(home.expand(home.get("plan.chatgpt.codex_command") or "~/.local/bin/codex"))
 VOICES = ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "arbor", "sol"]
 DEFAULT_VOICE = "cove"
 IDLE_LIMIT_SEC = 30 * 60
 RELAY_MODEL = "gpt-6-luna"
-ENGINE = "chatgpt-realtime"     # what speaks; saved with each call (calllog.py)
+ENGINE = "chatgpt-realtime"
 ROUTE = "codex app-server, WebRTC straight to the phone"
-QUICK_ANSWER_SEC = 10      # longer turns become the call's live job, so the person never sits in silence
+QUICK_ANSWER_SEC = 10
 PROGRESS_GAP_SEC = 20
-START_DEADLINE_SEC = 35    # under the phone's 45-second wait, so a call that starts can always be stopped
+START_DEADLINE_SEC = 35
 # Codex keeps each call's thread loaded, with a warm connection that pings every 20 s, for as long as the app
 # server runs (Oct 9 test). With no call live for this long the app server is stopped; the next call starts a
 # fresh one, which takes about 0.15 s.
 CODEX_IDLE_SEC = 10 * 60
 SPOKEN_LIMIT = 1500
-# Spoken results: the result itself, up to about four sentences. Oct 11 call review: with two sentences the voice
-# kept saying "the details are in our chat" instead of the result, so Colin never heard it. The whole reply is still
-# in the chat under the call (history "call_reply"), but the voice points there only for a genuinely long list, and
-# at most once per call (Call.details_said).
 BRIEF_SENTENCES = 4
 BRIEF_CHARS = 600
 LONG_LIST_ITEMS = 4
 DETAILS_IN_CHAT = "I put the details in our chat."
-# A call that took this long to connect opens with an honest line instead of the usual hello (#16 to #18).
 LATE_GREETING_MS = 6000
-# Soft sounds the phone plays into silence while work runs (#29): when a hand-off starts, while it is still
-# running (first after a real delay, then now and then), and just before its result is said.
 CUES = ("started", "working", "done")
 WORKING_FIRST_SEC = 6
 WORKING_EVERY_SEC = 15
 WORKING_MAX = 16
-CUE_LEAD_SEC = 0.6          # the "done" sound plays, then the result is said
-# A line from the person that got no answer at all (#30, "it wouldn't respond until I said 'did you hear me'").
+CUE_LEAD_SEC = 0.6
 MISSED_TURN_SEC = 4.5
-# The person said goodbye and the voice said it back: the phone ends the call (vendor behavior for dots).
 GOODBYE = re.compile(r"\b(?:good ?bye|bye(?:-bye)?|bye now|good night|talk (?:to you )?(?:later|soon|tomorrow)|"
                      r"gotta go|got to go|have to go|need to go|that'?s all(?: for now)?|that'?s it(?: for now)?|"
                      r"i'?ll let you go|see you(?: later| soon)?|catch you later)\b", re.I)
 FAREWELL = re.compile(r"\b(?:good ?bye|bye|good night|talk (?:to you )?(?:later|soon|tomorrow)|take care|"
                       r"see you|have a (?:good|great|nice)|catch you later)\b", re.I)
-# Home settings for one voice across calls and devices (#33, #34): the last voice chosen on any device.
 VOICE_SETTING = "call_voice"
 
 
@@ -121,9 +109,6 @@ def brief(text: str, chat_line: bool = True) -> str:
     if not t:
         return t
     parts = [p.strip() for p in _SENTENCE_END.split(t) if p.strip()]
-    # A question the work ends on is asked on the call, never left in the chat (Oct 10: Clients's "Should I include
-    # the scraper-blocking change?" was cut, so Colin heard "the details are in our chat" and no question). Oct 11
-    # call review: it must also come with the sentence it depends on, so that sentence goes with it.
     ask = _closing_question(parts)
     tail = parts[max(ask - 1, 0):] if ask is not None else []
     body = parts[:len(parts) - len(tail)]
@@ -136,7 +121,7 @@ def brief(text: str, chat_line: bool = True) -> str:
         kept.append(part)
     said = " ".join(kept)
     rest = len(" ".join(body)) - len(said)
-    if len(said) > chars:                # one runaway sentence: cut at a word
+    if len(said) > chars:
         cut = speakable(said, chars)
         rest += len(said) - len(cut)
         said = cut
@@ -167,8 +152,6 @@ def _closing_question(parts: list[str]) -> int | None:
     return None
 
 
-# Labels a Zip writes for the job follower ("Question: Should I ...?") that the voice must never read out. Oct 11
-# call review: Colin heard the voice say "Question" aloud. Only a label at the start of a sentence is taken off.
 _SPOKEN_LABEL = re.compile(r"(^|(?<=[.!?])\s+|\n)[ \t]*(?:questions?|q|answer|note|update|progress|status)"
                            r"[ \t]*:[ \t]*(\S)", re.I)
 
@@ -184,12 +167,6 @@ def has_question(text: str) -> bool:
     return bool(re.search(r"(?:^|[.!?\n]\s*)\s*questions?\s*:", t, re.I)) or "?" in t
 
 
-# Said to the voice before every call. The "How to sound" rules come from the call tests (Oct 9): long either-or
-# questions fall flat, two questions joined by a comma run together, interjections set off by commas pause oddly,
-# and "um" means the person is still thinking. From Colin's Oct 11 call review: results are said in full rather than
-# sent to the chat, a question comes with the sentence it depends on, no label is read out, the voice's work is "I",
-# and a date it is not sure of is never guessed. Wording only; the transport is elsewhere. Rendered for the home's
-# person, units and time zone on every call (home.json `person`, `locale`), so nothing here names anyone.
 SPEAKING_RULES_TEMPLATE = """\
 How to sound:
 - Short plain sentences, one thought each. In your own replies, say the key point first, in one or two short \
@@ -292,7 +269,6 @@ JOB_GUIDE_TEMPLATE = (
     "mid-task. Never place an order or pay; stop at checkout with a read-back and the total.\n\n"
     "Request from the call: "
 )
-# The marker before the request in a call turn (history.CALL_REQUEST_MARKERS reads it, with the older form).
 CALL_REQUEST_MARKER = "Request from the call: "
 
 
@@ -437,9 +413,6 @@ def speakable(text: str, limit: int | None = None) -> str:
     return t
 
 
-# Zero Cloud's monthly voice minutes (docs/specs/zero-cloud-design.md in taffy-cloud): the cloud writes how many
-# are left to the hub setting below. Unset means the home's own plan, with no count. At 0 the ChatGPT voice is not
-# used and calls use On-Device Voice, never Apple's built-in voice.
 MINUTES_SETTING = "voice_minutes_left"
 MINUTES_USED = "You've used this month's voice minutes. Calls use On-Device Voice until next month."
 
@@ -458,8 +431,6 @@ def engines() -> dict:
         reason = "signed_out"
     elif left is not None and left <= 0:
         reason = "minutes"
-    # The greetings go along so the phone can make its On-Device Voice takes of them ahead of time, and the
-    # home's voices so every device calls in the same one (#33, #34).
     from . import ondevice
     saved = store.get_setting(VOICE_SETTING, None)
     local = store.get_setting(ondevice.VOICE_SETTING, None)
@@ -474,7 +445,6 @@ SIGNED_OUT = ("ChatGPT isn't signed in on your computer, so calls can't connect.
 NO_CODEX = ("Calls use ChatGPT's voice through Codex on your computer, and Codex isn't installed there yet. Install "
             "it, sign in with your ChatGPT plan, then call again.")
 VOICE_LIMIT = "You've reached ChatGPT's voice limit for now. Try again later."
-# A home on a shared plan (home.json plan modes "broker"): the person cannot sign Codex in; the plan's owner does.
 SIGNED_OUT_SHARED = ("Calls can't connect until the shared ChatGPT plan is signed in again. The person who shares it "
                      "needs to sign in again.")
 NO_CODEX_SHARED = "Calls aren't set up for this home yet. The person who shares the ChatGPT plan can set them up."
@@ -518,8 +488,8 @@ class Call:
     voice: str
     started: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
-    events: asyncio.Queue = field(default_factory=asyncio.Queue)   # for the phone (captions, status)
-    transcript: list = field(default_factory=list)                  # (who, text) for the wrap-up
+    events: asyncio.Queue = field(default_factory=asyncio.Queue)
+    transcript: list = field(default_factory=list)
     job: turns.Turn | None = None
     job_task: str = ""
     last_user_sound: float = 0.0
@@ -528,39 +498,39 @@ class Call:
     closed: bool = False
     greeted: bool = False
     answer: asyncio.Future | None = None
-    colin_talking: bool = False        # from the phone's microphone level, the earliest sign he is speaking
-    away: bool = False                 # on hold (he took a phone call, Siri): nothing is said until he's back
-    talking_at: float = 0.0            # when the phone last said he is talking (it repeats every 2 s)
-    talking_since: float = 0.0         # when he started talking this time
-    last_user_delta: float = 0.0       # when words of his last arrived; noise makes no words
+    colin_talking: bool = False
+    away: bool = False
+    talking_at: float = 0.0
+    talking_since: float = 0.0
+    last_user_delta: float = 0.0
     greeted_at: float = 0.0
-    pending_turn: turns.Turn | None = None   # a request still inside its quick-answer window
-    awaiting_answer: bool = False      # Colin asked the running job something; its next note answers him
-    heard_upto: int = 0                # transcript lines already passed to the bot
-    speech: list = field(default_factory=list)          # (text, must) waiting for a pause, in order
+    pending_turn: turns.Turn | None = None
+    awaiting_answer: bool = False
+    heard_upto: int = 0
+    speech: list = field(default_factory=list)
     speech_ready: asyncio.Event = field(default_factory=asyncio.Event)
-    wait_since: dict = field(default_factory=dict)       # for the saved call: since when a reply is due, by cause
-    seen_methods: set = field(default_factory=set)       # realtime events with no handler, saved once each
-    engine: str = ENGINE               # what speaks: ChatGPT's realtime voice, or the phone (ondevice.ENGINE)
-    local: object = None               # an on-device call's conversation (ondevice.Local)
-    tools_running: int = 0             # hand-offs of this call still being answered
-    tasks: dict = field(default_factory=dict)   # hand-off turn id: its number in this call, for the phone's cues
-    tasks_done: set = field(default_factory=set)   # tasks whose "done" sound went out: no "working" after it
-    last_user_line_at: float = 0.0     # when the person's last recognized line ended
+    wait_since: dict = field(default_factory=dict)
+    seen_methods: set = field(default_factory=set)
+    engine: str = ENGINE
+    local: object = None
+    tools_running: int = 0
+    tasks: dict = field(default_factory=dict)
+    tasks_done: set = field(default_factory=set)
+    last_user_line_at: float = 0.0
     last_user_line: str = ""
-    last_voice_line_at: float = 0.0    # when the voice's last whole line was recognized
-    last_tool_at: float = 0.0          # when the last hand-off started
-    mic_heard_at: float = 0.0          # the phone's microphone last heard the person
-    watch_seq: int = 0                 # the missed-turn watch for the newest line
-    goodbye_at: float = 0.0            # the person said goodbye (is_goodbye)
-    hanging_up: bool = False           # the phone was told to end the call after the goodbye
-    hearing: str = ""                  # the person's words of the line being recognized now (context search)
-    ctx_pushed: set = field(default_factory=set)   # facts and messages already given to the voice on this call
+    last_voice_line_at: float = 0.0
+    last_tool_at: float = 0.0
+    mic_heard_at: float = 0.0
+    watch_seq: int = 0
+    goodbye_at: float = 0.0
+    hanging_up: bool = False
+    hearing: str = ""
+    ctx_pushed: set = field(default_factory=set)
     ctx_task: asyncio.Task | None = None
-    ctx_searched: str = ""             # the words the last search ran on
-    ctx_again: bool = False            # more words arrived while a search ran
-    refines: int = 0                   # Haiku's closer looks on this call
-    details_said: bool = False         # "I put the details in our chat" was said: never twice on a call (Oct 11)
+    ctx_searched: str = ""
+    ctx_again: bool = False
+    refines: int = 0
+    details_said: bool = False
 
 
 class CodexServer:
@@ -572,14 +542,14 @@ class CodexServer:
         self.waiters: dict[int, asyncio.Future] = {}
         self.listeners: dict[str, Call] = {}
         self.lock = asyncio.Lock()
-        self.serving = 0                     # tool requests from Codex still being answered
+        self.serving = 0
         self.idle_task: asyncio.Task | None = None
 
     async def ensure(self):
         async with self.lock:
             if self.proc and self.proc.returncode is None:
                 return
-            from .accounts import codex_bin     # also finds Homebrew's Codex on a Mac
+            from .accounts import codex_bin
             exe = codex_bin() or CODEX
             env = dict(os.environ, HOME=str(config.HOME),
                        PATH=f"{config.HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
@@ -587,13 +557,13 @@ class CodexServer:
             env.setdefault("RUST_LOG", "warn")
             log_path = config.HUB_DIR / "codex-app-server.log"
             try:
-                if log_path.stat().st_size > 5 * 1024 * 1024:   # a reconnect loop must not fill the disk
+                if log_path.stat().st_size > 5 * 1024 * 1024:
                     log_path.replace(log_path.with_suffix(".log.1"))
             except OSError:
                 pass
             # Its own process group: `codex` is a small launcher that starts the real app server as a child, and
             # stopping only the launcher would leave that child running.
-            with open(log_path, "ab") as err:   # the child keeps its own copy; the hub's closes here
+            with open(log_path, "ab") as err:
                 self.proc = await asyncio.create_subprocess_exec(
                     exe, "app-server", stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                     stderr=err, env=env, cwd=str(config.HOME), limit=2 ** 24, start_new_session=True)
@@ -640,7 +610,7 @@ class CodexServer:
             proc = self.proc
             if proc is None or proc.returncode is not None or calls or self.listeners or self.waiters or self.serving:
                 return
-            self.proc = None     # first, so the reader knows this exit was meant
+            self.proc = None
             await stop_process(proc)
             log.info("codex app-server stopped after %d idle minutes", CODEX_IDLE_SEC // 60)
 
@@ -650,12 +620,12 @@ class CodexServer:
             line = await proc.stdout.readline()
             if not line:
                 if proc is not self.proc:
-                    return       # stopped on purpose (idle), or already replaced
+                    return
                 log.warning("codex app-server exited")
                 for call in list(self.listeners.values()):
                     await call.events.put({"type": "closed", "text": "The voice connection ended."})
                     calllog.write(call.id, "error", stage="voice", message="The voice service (codex app-server) exited.")
-                    asyncio.create_task(stop(call.id, reason="the voice service exited"))   # still summarized and wrapped up
+                    asyncio.create_task(stop(call.id, reason="the voice service exited"))
                 self.listeners.clear()
                 return
             try:
@@ -719,7 +689,7 @@ class CodexServer:
             log.warning("refusing codex request %s", method)
             reply = {"id": req_id, "error": {"code": -32601, "message": "Not available in voice calls."}}
         if proc is None or proc is not self.proc or proc.returncode is not None:
-            return       # the app server that asked is gone; a new one has never heard of this request
+            return
         try:
             proc.stdin.write((json.dumps(reply) + "\n").encode())
             await proc.stdin.drain()
@@ -740,7 +710,7 @@ async def stop_process(proc: asyncio.subprocess.Process, grace: float = 3.0) -> 
         except asyncio.TimeoutError:
             continue
     await asyncio.sleep(0.3)
-    try:   # anything in the group that outlived the launcher
+    try:
         os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
@@ -775,7 +745,7 @@ async def start(bot_id: str, sdp: str, voice: str | None, chosen: bool | None = 
     left = minutes_left()
     if left is not None and left <= 0:
         raise MinutesUsed(MINUTES_USED)
-    began = time.time()   # one budget for everything, under the phone's 45-second wait
+    began = time.time()
     brief_task = asyncio.create_task(briefing.for_call(bot_id))
     th = await server.call("thread/start", {
         "ephemeral": True, "model": RELAY_MODEL, "config": {"model_reasoning_effort": "low"},
@@ -824,7 +794,6 @@ async def on_event(call: Call, method: str, params: dict):
             call.answer.set_exception(RuntimeError(msg))
         await call.events.put({"type": "error", "text": plain_error(msg)})
     elif method == "thread/realtime/closed":
-        # Ended from the far side (the phone vanished, the session timed out): still summarized and wrapped up.
         calllog.write(call.id, "closed_by_voice")
         await call.events.put({"type": "closed", "text": ""})
         asyncio.create_task(stop(call.id, reason="the voice ended it"))
@@ -841,9 +810,7 @@ async def on_event(call: Call, method: str, params: dict):
     elif method == "thread/realtime/transcript/done":
         role, text = params.get("role"), (params.get("text") or "").strip()
         if text:
-            # The person's lines carry the person's name; the voice's lines are "You" (person_lines reads them).
             call.transcript.append((who.first() if role == "user" else "You", text))
-            # His final words can be recognized after the voice has already begun answering; that is not a new wait.
             if role == "user" and ("mic" in call.wait_since or time.time() - call.last_voice_sound > 1.0):
                 call.wait_since["words"] = time.time()
             bot = config.BOTS_BY_ID.get(call.bot_id)
@@ -859,18 +826,14 @@ async def on_event(call: Call, method: str, params: dict):
         call.last_voice_sound = time.time()
         _voice_sounded(call, "audio")
     elif method not in call.seen_methods and len(call.seen_methods) < 40:
-        call.seen_methods.add(method)    # a realtime event this hub does not use yet: worth knowing it exists
+        call.seen_methods.add(method)
         calllog.write(call.id, "other_event", method=method[:80])
 
 
 # MARK: Quiet context while the person talks (facts.call_context; docs/qa/2026-10-10-memory-facts.md)
 
-CONTEXT_ON = False          # set by the running hub (app.lifespan): a test never reads a live home's chats
+CONTEXT_ON = False
 CONTEXT_MIN_WORDS = 4
-# Haiku's closer look after a line where the person thinks something through: measured p50 6.2 s at low effort and
-# 7.2 s at medium through the claude CLI (Oct 10, scripts/call_context_bench.py), so it informs the next exchange, never
-# the first answer, which the quick search covers (p50 1.2 ms, landing while the person still talks). On by default;
-# the home setting "call_refine" set to false turns it off.
 REFINE_MIN_WORDS = 10
 REFINE_SETTING = "call_refine"
 REFINE_PER_CALL = 3
@@ -1058,23 +1021,18 @@ def _voice_sounded(call: Call, via: str) -> None:
 async def ask_bot(call: Call, request: str) -> str:
     if not request:
         return "There was no request."
-    # What comes back here is said by the voice, and the work is the voice's own, so it is worded as "I". Oct 11 call
-    # review: the voice said "It checked eLearning" about its own work.
     running = call.job if call.job and not call.job.done else (
         call.pending_turn if call.pending_turn and not call.pending_turn.done else None)
     if running is not None:
-        # The bot runs one turn at a time; a question during this call's own work rides along as a steer.
         _add_words(call)
         if await turns.steer(call.bot_id, f"{who.first()} also asks, on the call: " + request +
                              " Answer it in one short note now, then carry on."):
             call.awaiting_answer = True
             if running is call.pending_turn and call.job is None:
-                call.job, call.job_task = running, request   # its answers now come through the speech queue
+                call.job, call.job_task = running, request
                 asyncio.create_task(_follow_job(call, running, skip=len(running.events)))
             return "I'm still working on your earlier request too, and I'll answer this in a moment."
     turn = None
-    # Only Colin's own words from the call count as his go-ahead for sign-ins, not the relay's version. Taken
-    # once, before any retry, so a busy bot does not lose them.
     own_words = _colin_since_last(call)
     for _ in range(20):
         try:
@@ -1098,13 +1056,12 @@ async def ask_bot(call: Call, request: str) -> str:
         return ("A question came in meanwhile, so I'm now working on this as the call's job. I'll say the answers as "
                 "they come.")
     if reply is not None:
-        if call.closed:   # he hung up while it was answering; it still reaches him
+        if call.closed:
             await _after_hang_up(call, reply)
             return "Done."
         await call.events.put({"type": "reply", "text": reply})
         await cue(call, "done", task)
         return brief_for(call, reply) or "Done."
-    # Still working: this is now the call's live job.
     call.job, call.job_task = turn, request
     calllog.write(call.id, "job_started", request=calllog.short(request))
     asyncio.create_task(_follow_job(call, turn, skip=len(turn.events)))
@@ -1183,7 +1140,7 @@ async def _follow_job(call: Call, turn: turns.Turn, skip: int = 0):
                 continue
             seen += 1
             if seen <= skip:
-                continue   # already reported while waiting for a quick answer
+                continue
             if ev["type"] == "reply" and ev.get("text"):
                 replied = True
             elif ev["type"] == "error":
@@ -1194,9 +1151,6 @@ async def _follow_job(call: Call, turn: turns.Turn, skip: int = 0):
                 continue
             if ev["type"] == "commentary" and ev.get("text"):
                 text = speakable(ev["text"], SPOKEN_LIMIT)
-                # A question for Colin, or the answer to his question, is always said, whole and with the sentences
-                # around it; other notes are progress. Oct 11 call review: a note like "Added the chips. Question:
-                # salsa too?" counted as progress, so its question could be cut, dropped for a newer note, or held.
                 must = has_question(text) or call.awaiting_answer
                 call.awaiting_answer = False
                 say(call, unlabel(text) if must else brief(text, chat_line=False), must)
@@ -1238,7 +1192,7 @@ async def cue(call: Call, kind: str, task: int) -> None:
     if call.closed or call.away or kind not in CUES:
         return
     if kind == "working" and task in call.tasks_done:
-        return   # the result is about to be said (the speaker's CUE_LEAD_SEC gap): never "working" after "done"
+        return
     if kind == "done":
         call.tasks_done.add(task)
     calllog.write(call.id, "cue", cue=kind, task=task)
@@ -1303,7 +1257,7 @@ def work_status(call: Call) -> str:
     if len(working) > 2 or len(waiting) > 1 or len(finished) > 1:
         try:
             store.add_feed("checkin", call.bot_id, None, "Where things stand", "\n".join(f"- {l}" for l in lines)[:4000])
-            if not call.details_said:     # at most once per call (Oct 11 call review)
+            if not call.details_said:
                 text += f" {DETAILS_IN_CHAT}"
                 call.details_said = True
         except Exception:
@@ -1318,7 +1272,7 @@ async def _after_hang_up(call: Call, reply: str, title: str = "Finished what you
     store.add_feed("checkin", call.bot_id, None, title, reply[:4000])
     calllog.write(call.id, "after_call_result", title=title, text=calllog.short(reply, 1000))
     try:
-        await watcher.push(title, reply, call.bot_id, urgent=True, kind="done")   # asked for on the call
+        await watcher.push(title, reply, call.bot_id, urgent=True, kind="done")
     except Exception:
         log.warning("could not send the after-call result", exc_info=True)
     log.info("%s finished a call job after hang-up", name)
@@ -1352,20 +1306,20 @@ async def _speaker(call: Call):
                 text, must, _, done_cue = item
                 if not must:
                     if any(not it[1] for it in call.speech[1:]):
-                        call.speech.pop(0)       # a newer progress note supersedes this one
+                        call.speech.pop(0)
                         continue
                     if time.time() - call.last_progress < PROGRESS_GAP_SEC:
                         if any(it[1] for it in call.speech[1:]):
-                            call.speech.append(call.speech.pop(0))   # a question goes ahead of waiting progress
+                            call.speech.append(call.speech.pop(0))
                             continue
                         await asyncio.sleep(0.5)
                         continue
                 ready = await _wait_for_pause(call, must)
                 if item not in call.speech:
-                    continue                 # withdrawn while waiting
+                    continue
                 call.speech.remove(item)
                 if not ready:
-                    continue                 # stale progress is not worth interrupting for
+                    continue
                 if not must:
                     call.last_progress = time.time()
                 if done_cue:
@@ -1374,9 +1328,7 @@ async def _speaker(call: Call):
                 said_at = time.time()
                 calllog.write(call.id, "news", text=calllog.short(text), must=must)
                 if await speak(call, text) is False and must:
-                    # The voice could not take it: it still reaches the person, in the chat (#23).
                     asyncio.create_task(_after_hang_up(call, text, title="From your call"))
-                # Wait for the voice to start saying it (up to 5 s), so the next item cannot talk over it.
                 while not call.closed and call.last_voice_sound < said_at and time.time() - said_at < 5:
                     await asyncio.sleep(0.2)
     except Exception:
@@ -1420,7 +1372,7 @@ def set_away(call_id: str, away: bool):
             calllog.write(call.id, "hold", on=away)
         call.away = away
         if not away:
-            call.speech_ready.set()   # anything held is said at the next pause
+            call.speech_ready.set()
 
 
 def set_talking(call_id: str, talking: bool):
@@ -1447,10 +1399,10 @@ def set_talking(call_id: str, talking: bool):
 
 async def speak(call: Call, text: str) -> bool:
     """Has the voice say `text`. False when it could not (tried twice), so the caller can put it in the chat."""
-    text = unlabel(text)      # "Question:" and the like are never read out (Oct 11 call review)
+    text = unlabel(text)
     if not text or call.closed:
         return True
-    if call.engine != ENGINE:   # an on-device call: the phone asks for it at its next pause (ondevice.py)
+    if call.engine != ENGINE:
         from . import ondevice
         await ondevice.news(call, text)
         return True
@@ -1478,7 +1430,7 @@ async def greet(call_id: str, waited_ms: int | None = None):
     late = isinstance(waited_ms, int) and waited_ms >= LATE_GREETING_MS
     calllog.write(call.id, "greeting", secs_since_start=round(call.greeted_at - call.started, 2),
                   waited_ms=waited_ms if isinstance(waited_ms, int) else None, late=late or None)
-    if call.engine != ENGINE:   # the phone already played its own greeting
+    if call.engine != ENGINE:
         from . import ondevice
         ondevice.greeted(call, late=late)
         return
@@ -1495,20 +1447,19 @@ async def stop(call_id: str, reason: str = ""):
                       duration=int(now - call.greeted_at) if call.greeted_at else 0,
                       total_secs=round(now - call.started, 1), lines=len(call.transcript),
                       colin_lines=len(person_lines(call.transcript)))
-        call.speech_ready.set()   # lets the speech queue end
-        # Answers and results that were waiting to be said still reach him, in the chat and as a notification.
+        call.speech_ready.set()
         unsaid = [text for text, must, tag, _ in call.speech if must and not tag]
         call.speech = []
         await call.events.put({"type": "closed", "text": ""})
         if unsaid:
             asyncio.create_task(_after_hang_up(call, "\n\n".join(unsaid), title="Left over from your call"))
         asyncio.create_task(_wrap_up(call))
-        if call.engine != ENGINE:   # nothing of it runs in Codex
+        if call.engine != ENGINE:
             from . import ondevice
             ondevice.closed(call)
             return
     if server.proc is None or server.proc.returncode is not None:
-        return   # Codex already exited; stopping would only start it again
+        return
     try:
         await server.call("thread/realtime/stop", {"threadId": call_id}, timeout=10)
     except Exception:
@@ -1538,7 +1489,7 @@ async def _record(call: Call):
     got as far as hello (cancelled or failed while ringing) leaves nothing behind."""
     if not call.greeted and not call.transcript:
         return
-    duration = int(time.time() - (call.greeted_at or call.started))   # from hello, like a phone call
+    duration = int(time.time() - (call.greeted_at or call.started))
     summary = ""
     if call.transcript:
         lines = "\n".join(f"{who.first() if speaker != 'You' else 'Assistant'}: {t}"
@@ -1551,11 +1502,9 @@ async def _record(call: Call):
     if not summary:
         summary = "Nothing was said on this call." if not call.transcript else "The summary could not be made."
     calllog.write(call.id, "summary", text=summary[:4000])
-    # Where the call started, so what the Zip sent during it sits under the call (Oct 10: Clients's result arrived
-    # mid-call but showed above a call bubble placed at its end, which read as coming after the call).
     store.add_feed("call", call.bot_id, None, "Voice call", json.dumps({"duration": duration, "summary": summary}),
                    at=time.time() - (duration or 0))
-    try:   # the questions still waiting go under the call, as cards, and a next step can become a follow-up question
+    try:
         from . import notices
         notices.after_call(call.bot_id)
     except Exception:
@@ -1566,7 +1515,7 @@ async def _wrap_up(call: Call):
     """After the call: its entry in the chat, then the transcript to the bot once, to remember what matters."""
     await _record(call)
     said = person_lines(call.transcript)
-    try:   # facts in the person's own words on the call (extract.py), whatever the Zip saves from the transcript
+    try:
         from . import extract
         asyncio.create_task(extract.after_call(call.bot_id, said, call.id))
     except Exception:
@@ -1584,7 +1533,7 @@ async def _wrap_up(call: Call):
         await turns.run_internal(call.bot_id, text)
     except Exception:
         log.warning("call wrap-up failed", exc_info=True)
-    briefing.refresh_soon(call.bot_id)   # a call straight after this one knows what was said
+    briefing.refresh_soon(call.bot_id)
 
 
 async def _watchdog(call: Call):

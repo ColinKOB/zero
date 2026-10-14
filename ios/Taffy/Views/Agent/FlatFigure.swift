@@ -1,10 +1,5 @@
 import SwiftUI
 
-// Flat Zips: exact vector shapes (traced from the references by ios/scripts/make-flat-shapes.py into FlatArt.swift)
-// with eyes drawn in code, so they are sharp at any size and need no pictures. No outline, texture, gradient or
-// accessories. They move only through their eyes: blinks and the happy look are upward arcs, glances shift the
-// eyes a little, and talking squashes them in rhythm (flat Zips have no mouth).
-
 /// One flat body: its filled parts (most have one; the mushroom has a stem and a cap) and where its eyes sit.
 struct FlatArt {
     let name: String
@@ -58,9 +53,9 @@ struct FlatOutline: Shape {
 
 /// How a flat Zip's eyes look right now.
 struct FlatEyesState: Equatable {
-    var closed = false              // blinking or happy: upward arcs
-    var gaze = CGSize.zero          // a glance, in shares of the square
-    var squash: CGFloat = 1         // talking: the eyes squash a little in rhythm
+    var closed = false
+    var gaze = CGSize.zero
+    var squash: CGFloat = 1
 }
 
 /// A flat Zip at `size` points square: its shape and its eyes.
@@ -96,7 +91,6 @@ struct FlatFigure: View {
     @ViewBuilder private var eye: some View {
         let w = FlatArt.eyeSize.width * size * eyeScale, h = FlatArt.eyeSize.height * size * eyeScale
         if eyes.closed {
-            // An upward arc, the happy squint: the same width as an open eye's stroke, about as wide as two eyes.
             UpwardArc()
                 .stroke(Color.white, style: StrokeStyle(lineWidth: w * 0.85, lineCap: .round))
                 .frame(width: w * 1.9, height: h * 0.42)
@@ -158,8 +152,7 @@ enum FlatEyeFit {
         let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
         let shapes = art.parts.map { FlatOutline(part: $0).path(in: unit) }
         func inside(_ p: CGPoint) -> Bool { shapes.contains { $0.contains(p, eoFill: true) } }
-        let room = max(0.8 / size, 0.01)   // about a point of body around each eye
-        // Spots near the drawn eyes first, nearest first.
+        let room = max(0.8 / size, 0.01)
         var spots: [CGPoint] = []
         for dy in stride(from: -0.2, through: 0.3, by: 0.01) {
             for dx in stride(from: -0.3, through: 0.3, by: 0.01) {
@@ -186,8 +179,6 @@ enum FlatEyeFit {
                 return true
             }
         }
-        // Staying near the drawn spot matters more than size: a smaller pair of eyes in place reads better than a
-        // big pair slid down the body (Colin, Oct 9: "too low"). So try a short move at every size first.
         for reach: CGFloat in [0.045, 0.09, 0.4] {
             let near = spots.filter { hypot($0.x - art.eyes.x, $0.y - art.eyes.y) <= reach }
             var scale = wanted

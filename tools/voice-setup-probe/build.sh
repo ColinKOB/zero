@@ -6,7 +6,6 @@ mkdir -p $out
 xcrun swiftc -O -swift-version 5 -target arm64-apple-macos14.0 $here/testbrowser.swift -o $out/testbrowser
 cp $here/harness.swift $out/main.swift
 xcrun swiftc -O -swift-version 5 -target arm64-apple-macos14.0 $ios/Shared/VoiceGuide/*.swift $ios/MacBridge/VoiceGuide.swift $ios/MacBridge/GuideOverlayViews.swift $out/main.swift -o $out/harness
-# The same browser as an app bundle, so the guide can open pages in it like it opens the person's browser.
 app=$out/ZeroTestBrowser.app
 mkdir -p $app/Contents/MacOS
 cp $out/testbrowser $app/Contents/MacOS/ZeroTestBrowser

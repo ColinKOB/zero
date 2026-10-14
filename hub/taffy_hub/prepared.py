@@ -28,9 +28,9 @@ from . import config, consent, notices, store, who
 
 log = logging.getLogger("taffy.prepared")
 
-PREP_WAIT_SEC = 10 * 60      # a preparation that isn't ready by then: the question goes up without it
+PREP_WAIT_SEC = 10 * 60
 START_HOUR, END_HOUR = 7, 21
-KINDS = ("unreplied", "reply_waiting", "followup")   # where the draft is the obvious next step
+KINDS = ("unreplied", "reply_waiting", "followup")
 
 NOTE = """[Preparation from the hub, not a message from {first}]
 {lead} is about to ask {first} about this: {evidence}
@@ -72,8 +72,6 @@ def allowed() -> bool:
 
 def plan(c: notices.Candidate, draft: str) -> dict:
     d = c.draft or {}
-    # A name that is only the address again makes "store1234@... <store1234@...>", which the email tool refuses
-    # (Oct 9, 8:49 a.m.: School's prepared nudge failed once and was retried).
     name = str(d.get("to_name") or "").strip()
     to = f"{name} <{d['to_addr']}>" if name and "@" not in name else d["to_addr"]
     label = (c.prepare or {}).get("label") or f"{c.draft_options[0].text} as written"
@@ -113,7 +111,7 @@ async def prepare(nid: int) -> bool:
         return False
     p = _prep(r)
     card = json.loads(r["card"] or "{}")
-    p.update(state="running", started=notices.now(), since=time.time())   # consent.db keeps wall-clock times
+    p.update(state="running", started=notices.now(), since=time.time())
     _save(nid, p)
     text = NOTE.format(first=who.first(), possessive=who.possessive(), lead=notices._lead(), evidence=card.get("evidence", ""), account=p["account"], to=p["to"],
                        subject=p["subject"], body=p["body"])
@@ -184,11 +182,10 @@ def approve(r: dict, card: dict) -> tuple[str, str | None]:
     req_id = (card.get("ref") or {}).get("prepared")
     req = consent.get_request(int(req_id)) if req_id else None
     if req and req["status"] == "pending" and (req.get("why") or "") == consent.PREPARED:
-        consent.decide(int(req_id), True)          # Allow Once on exactly this call; never a standing rule
+        consent.decide(int(req_id), True)
         p.update(state="approved", approved=notices.now())
         _save(r["id"], p)
         return f"Approved {notices.at_clock(notices.now())} {notices._bot_name(p.get('bot'))} is sending it now.", None
-    # The prepared card expired: the exact text goes to Zero as Colin's words, and the send card shows it again.
     text = (card.get("detail") or {}).get("text") or ""
     p.update(state="expired")
     _save(r["id"], p)
@@ -236,7 +233,7 @@ async def tick() -> None:
         if r["state"] == "preparing":
             began = float(p.get("started") or p.get("queued") or t)
             if t - began > PREP_WAIT_SEC:
-                finish(r["id"])        # too slow: the question goes up without it
+                finish(r["id"])
             elif p.get("state") == "queued" and not _busy(bot):
                 _tasks[bot] = asyncio.create_task(prepare(r["id"]))
         elif p.get("state") == "approved" and not _busy(bot):

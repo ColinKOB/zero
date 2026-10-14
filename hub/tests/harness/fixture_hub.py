@@ -35,7 +35,7 @@ import threading
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-HUB_DIR = HERE.parents[1]                     # hub/
+HUB_DIR = HERE.parents[1]
 REPO = HUB_DIR.parent
 sys.path.insert(0, str(HERE))
 
@@ -141,8 +141,6 @@ def load_hub(root: Path, api_port: int, hub_port: int):
     """Imports the hub with every path pointed into `root`. Returns the FastAPI app."""
     sys.path.insert(0, str(HUB_DIR))
     from taffy_hub import config
-    # Before WP1, config derives everything from the running user's home; afterwards it reads ZERO_HOME, which
-    # already names this home. Setting both is harmless.
     config.HOME = root
     config.HERMES_HOME = root / ".taffy"
     config.HERMES_BIN = root / "taffy" / "bin" / "taffy"
@@ -159,7 +157,6 @@ def load_hub(root: Path, api_port: int, hub_port: int):
     import taffy_hub
     for m in pkgutil.iter_modules(taffy_hub.__path__):
         importlib.import_module(f"taffy_hub.{m.name}")
-    # Whatever still points into the real home (a module computed it from pwd, or from config before the patch).
     for name, mod in list(sys.modules.items()):
         if not (name.startswith("taffy_hub") or name.startswith("taffy_consent") or name.startswith("taffy_tools")
                 or name.startswith("taffy_safe_files")):

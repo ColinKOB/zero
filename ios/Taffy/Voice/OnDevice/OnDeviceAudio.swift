@@ -366,8 +366,6 @@ final class MicPipeline: @unchecked Sendable {
         lock.lock(); lastRMS = rms; lock.unlock()
         if isVoicePlaying() {
             lock.lock(); let guarded = echoGuardOn; lock.unlock()
-            // Only a clear, sustained voice counts while the voice talks; on the speaker the bar is twice as high and
-            // sits above the loudest recent echo.
             let thr = guarded ? max(noiseFloor * 6, bargeMin * 2, echoPeak * 1.5) : max(noiseFloor * 6, bargeMin)
             if rms > thr {
                 bargeRun += 1
@@ -387,7 +385,7 @@ final class MicPipeline: @unchecked Sendable {
                 }
             } else {
                 bargeRun = 0
-                if guarded && !candidateOpen { echoPeak = max(echoPeak * 0.998, rms) }   // about a 3 s half-life
+                if guarded && !candidateOpen { echoPeak = max(echoPeak * 0.998, rms) }
             }
             return
         }
@@ -397,7 +395,7 @@ final class MicPipeline: @unchecked Sendable {
         if rms > thr {
             run += 1
             voicedStreak += 1
-            if voicedStreak > 500 { noiseFloor = min(noiseFloor * 1.01, 0.05) }   // a loud steady room
+            if voicedStreak > 500 { noiseFloor = min(noiseFloor * 1.01, 0.05) }
             lock.lock()
             if run >= 3 && !inSpeech {
                 inSpeech = true

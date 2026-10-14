@@ -93,15 +93,13 @@ def all_mail_folder(account: str) -> str | None:
     return None
 TIMEOUT_SEC = 60
 READ_MAX = 6000
-# The headers a message is read with: who and what, and the ones a mailing list or a bulk sender adds (is_bulk).
 READ_HEADERS = ("From", "To", "Cc", "Subject", "Date", "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted")
 
-# Senders that are not a person: lists, receipts, notifications. A question from one of these is not a reply owed.
 AUTOMATED = re.compile(
     r"^(no-?reply|do-?not-?reply|donotreply|notifications?|notify|mailer|mailer-daemon|postmaster|bounces?|news|"
     r"newsletters?|marketing|info|support|help|billing|receipts?|orders?|alerts?|updates?|hello|team|admin|accounts?|"
     r"service|services|security|digest|calendar|feedback|reply|contact|store|shop|deals|offers|rewards|statements?)"
-    r"(\d+)?([+._-].*)?@", re.I)   # store1234@theupsstore.com is a shop's inbox, not a person (Oct 9)
+    r"(\d+)?([+._-].*)?@", re.I)
 AUTOMATED_DOMAINS = re.compile(r"@(.+\.)?(mailchimp|sendgrid|substack|linkedin|facebookmail|amazonses|mandrillapp|"
                                r"hubspot|intercom|zendesk|github|google|apple|paypal|venmo|chase|walmart|amazon)\.",
                                re.I)

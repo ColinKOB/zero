@@ -1,10 +1,3 @@
-// Fluid calls (docs/qa/2026-10-09-fluid-voice.md): the soft sounds a call makes while work runs, when they may
-// play, and the small rules both voices share. No UIKit, so the Mac bench's tests (ios/OnDeviceBench) compile this
-// same file.
-//
-// What people asked for (docs/research/2026-10-09-grokbot-dots-user-feedback.md): no fake ringing (#16, #17);
-// "earcons (short sounds that signal 'task started', 'still working', 'done')" and no silence while work runs (#29);
-// never talk over the person (#26, #37); one voice identity across calls and devices (#33, #34).
 import AVFoundation
 import Foundation
 
@@ -67,7 +60,7 @@ enum Earcon: String, CaseIterable {
         return (0..<n).map { i in
             let t = Double(i) / rate
             let k = min(1, t / glideSeconds)
-            let f = f0 + (f1 - f0) * (1 - pow(1 - k, 2))     // eases into the top note
+            let f = f0 + (f1 - f0) * (1 - pow(1 - k, 2))
             phase += 2 * .pi * f / rate
             let v = sin(phase) + 0.12 * sin(2 * phase)
             return Float(v * envelope(t, seconds: seconds, decay: 0.07, hold: glideSeconds * 0.6))
@@ -136,7 +129,7 @@ struct CueGate {
 
     mutating func add(_ kind: Earcon, task: Int, now: Double) {
         if kind == .done {
-            pending.removeAll { $0.task == task }                 // its start or progress is old news now
+            pending.removeAll { $0.task == task }
         } else {
             pending.removeAll { $0.task == task && $0.kind == kind }
         }

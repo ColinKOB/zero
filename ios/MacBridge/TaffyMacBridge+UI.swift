@@ -105,13 +105,10 @@ extension TaffyMacBridge {
     /// "the switch for Zero" and "Privacy & Security" both have something to match.
     static func borrowNames(_ items: [Item]) -> [Item] {
         var out = items
-        // Controls whose name is the text beside them. An unlabeled button is usually an icon; a neighbor's words
-        // would name it wrongly (Oct 10: three toolbar buttons all came out as "VPN").
         let borrowers: Set<String> = ["AXCheckBox", "AXSwitch", "AXTextField", "AXSearchField", "AXTextArea",
                                       "AXPopUpButton", "AXComboBox", "AXSlider", "AXRadioButton", "AXRow", "AXCell"]
         for i in out.indices where borrowers.contains(out[i].role) && (out[i].name.isEmpty || out[i].role == "AXRow" || out[i].role == "AXCell") {
             if out[i].role == "AXRow" || out[i].role == "AXCell" {
-                // The first text inside it.
                 var j = i + 1
                 while j < out.count, out[j].depth > out[i].depth {
                     if out[j].role == "AXStaticText", !out[j].label.isEmpty { out[i].name = out[j].label; break }
@@ -156,7 +153,6 @@ extension TaffyMacBridge {
         let query = (args["query"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespaces)
         var row: Item? = nil
         for (i, item) in found.enumerated() {
-            // A row already carries its words: its cell and text with the same words add nothing to read.
             if item.role == "AXRow" { row = item } else if let r = row, item.depth <= r.depth { row = nil }
             if let r = row, item.role != "AXRow", item.role == "AXCell" || item.role == "AXStaticText", item.name == r.name {
                 continue
@@ -236,7 +232,6 @@ extension TaffyMacBridge {
         let scored = ranked(phrase, in: items, roles: roles)
         guard let best = scored.first else { return nil }
         let second = scored.count > 1 ? scored[1].score : 0
-        // Sure when it clearly beats the next one, or matches every word.
         return (best.index, best.score >= 1.2 || (best.score - second) / best.score >= 0.25)
     }
 
@@ -258,8 +253,6 @@ extension TaffyMacBridge {
         targetPid = app.processIdentifier
         items = readItems(app).items
         elements = items.map(\.element)
-        // Text goes into something that takes it; a press goes to a control rather than the words beside it
-        // (Oct 10: "type into Full name" first found the label "Full name").
         let fillable: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXPopUpButton",
                                      "AXMenuButton", "AXSecureTextField"]
         let roles: Set<String>? = args["text"] != nil ? fillable
@@ -275,8 +268,6 @@ extension TaffyMacBridge {
             fail("More than one control could be \"\(name)\": " + near.joined(separator: "; ") + ". Press one by its number.")
             return nil
         }
-        // Words that send, pay or remove something: only a control with exactly those words, or one that is far
-        // ahead of every other, is pressed by name. A near match is never good enough there.
         if Self.weighty(name) {
             let exact = items[hit.index].name.lowercased().trimmingCharacters(in: .whitespaces)
                 == name.lowercased().trimmingCharacters(in: .whitespaces)
@@ -315,7 +306,7 @@ extension TaffyMacBridge {
             if role == "AXButton", cur.map({ CFEqual($0, e) }) == true {
                 let words = ((attr(c, kAXTitleAttribute) as? String) ?? (attr(c, kAXDescriptionAttribute) as? String) ?? "")
                     .lowercased()
-                if ["add", "remove", "+", "-", "−"].contains(words) { isSwitch = true }   // the list's + and - buttons
+                if ["add", "remove", "+", "-", "−"].contains(words) { isSwitch = true }
             }
             if (attr(c, kAXIdentifierAttribute as String) as? String)?.hasSuffix("_Toggle") == true { isSwitch = true }
             if role == "AXWindow" { window = c; break }
@@ -448,7 +439,7 @@ extension TaffyMacBridge {
         Self.postText(String(last), to: pid != 0 ? pid : targetPid)
         Thread.sleep(forTimeInterval: 0.08)
         var now = Self.attr(e, kAXValueAttribute) as? String ?? ""
-        if now != text {   // the key went somewhere else: put the whole value in directly
+        if now != text {
             AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, text as CFString)
             now = Self.attr(e, kAXValueAttribute) as? String ?? text
         }

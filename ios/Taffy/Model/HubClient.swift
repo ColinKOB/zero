@@ -12,7 +12,6 @@ final class HubClient {
     static func normalizedAddress(_ typed: String) -> String {
         var s = typed.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if !s.isEmpty && !s.lowercased().hasPrefix("http://") && !s.lowercased().hasPrefix("https://") {
-            // Loopback is the Mac app talking to the engine on its own Mac; everything else is https.
             let host = s.split(separator: ":").first.map(String.init)?.lowercased() ?? ""
             s = (host == "127.0.0.1" || host == "localhost" ? "http://" : "https://") + s
         }
@@ -464,7 +463,7 @@ final class HubClient {
 
     func feed(after: Int, changedAfter: Double = 0) async throws -> FeedPage {
         var r = try request("/api/feed?after=\(after)&changed_after=\(changedAfter)")
-        r.timeoutInterval = 8   // a poll that can't get through should say so quickly
+        r.timeoutInterval = 8
         return try await send(r, as: FeedPage.self)
     }
 
@@ -702,7 +701,7 @@ final class HubClient {
             let task = Task {
                 do {
                     var r = try make()
-                    r.timeoutInterval = 120   // the hub sends a keepalive every 15 s
+                    r.timeoutInterval = 120
                     let (bytes, resp) = try await HubSession.shared.bytes(for: r)
                     let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                     guard (200..<300).contains(code) else {

@@ -34,19 +34,16 @@ def kind(service: str, request: str) -> str:
     return tiers.classify_connector(service, request).kind
 
 
-# ── M1 and L1: what a request to another connector does ─────────────────────────────────────────────────────
-
-
 class MoneyIsNever(unittest.TestCase):
     """Zips never pay, refund, charge, pay out, transfer or change billing, whatever the connector."""
 
     CASES = [
-        ("stripe", "Refund Theo's last payment"),                             # P02
-        ("stripe", "Issue a $40 refund to ken@example.com"),                 # P03
-        ("stripe", "Create and finalize an invoice for Theo for $300"),       # P07
-        ("stripe", "Charge Theo's card on file $50"),                         # P08
-        ("paypal", "Send $20 to Riley"),                                     # P09
-        ("stripe", "Pay out the balance to the bank"),                       # P10
+        ("stripe", "Refund Theo's last payment"),
+        ("stripe", "Issue a $40 refund to ken@example.com"),
+        ("stripe", "Create and finalize an invoice for Theo for $300"),
+        ("stripe", "Charge Theo's card on file $50"),
+        ("paypal", "Send $20 to Riley"),
+        ("stripe", "Pay out the balance to the bank"),
         ("stripe", "Cancel Theo's subscription"),
         ("stripe", "Upgrade Theo to the annual plan"),
         ("stripe", "Create a payment link for the $25 class"),
@@ -87,11 +84,11 @@ class MoneyIsNever(unittest.TestCase):
 class PublishingAsks(unittest.TestCase):
     def test_merges_rollbacks_promotions_and_deploys_ask(self):
         for service, request in (
-                ("github", "Open a pull request from feat to main"),                 # G01
-                ("github", "Merge pull request 42 into main"),                       # G02
-                ("netlify", "Deploy the Heron site to production"),               # T02
-                ("netlify", "Roll back the Heron site to yesterday's deploy"),    # T03
-                ("vercel", "Promote the preview to production"),                     # T04
+                ("github", "Open a pull request from feat to main"),
+                ("github", "Merge pull request 42 into main"),
+                ("netlify", "Deploy the Heron site to production"),
+                ("netlify", "Roll back the Heron site to yesterday's deploy"),
+                ("vercel", "Promote the preview to production"),
                 ("github", "Push the changes to main"),
                 ("github", "Merge #42"),
                 ("netlify", "Trigger a new build of the Heron site"),
@@ -109,8 +106,8 @@ class PublishingAsks(unittest.TestCase):
 class OrdinaryChangesTell(unittest.TestCase):
     def test_changes_tell(self):
         for service, request in (
-                ("linear", "Close the login bug issue"),           # L03
-                ("atlassian", "Transition PROJ-12 to Done"),       # A02
+                ("linear", "Close the login bug issue"),
+                ("atlassian", "Transition PROJ-12 to Done"),
                 ("linear", "Reopen ENG-12"),
                 ("linear", "Assign ENG-4 to Theo"),
                 ("linear", "Push the due date to Friday"),
@@ -120,7 +117,7 @@ class OrdinaryChangesTell(unittest.TestCase):
             a = tiers.classify_connector(service, request)
             self.assertEqual((a.kind, tiers.floor(a.kind)), ("write", "tell"), request)
 
-    def test_a_scheduled_slack_message_is_a_send(self):                     # S06
+    def test_a_scheduled_slack_message_is_a_send(self):
         a = tiers.classify_connector("slack", "Schedule a message to #general for 9am saying standup moved")
         self.assertEqual((a.kind, tiers.floor(a.kind)), ("send", "ask"))
 
@@ -138,9 +135,6 @@ class OrdinaryChangesTell(unittest.TestCase):
         self.assertEqual(kind("calendar", "Add Soccer practice Saturday at 9am"), "write")
 
 
-# ── M1 and L1: the run's guard, by tool name ─────────────────────────────────────────────────────────────────
-
-
 def ok(server: str, tool: str, kinds) -> bool:
     return guard.allowed(f"{server}__{tool}", kinds, server)
 
@@ -149,16 +143,16 @@ class GuardOnARead(unittest.TestCase):
     """On a read request only reading tools run, and names that say nothing (W01 to W28)."""
 
     def test_asking_never_and_change_tools_are_closed(self):
-        for server, tool in ((SLACK, "slack_send_message"),                  # W01
-                             (SLACK, "slack_schedule_message"),              # W02
-                             (NETLIFY, "netlify-deploy-services-updater"),   # W13
-                             (STRIPE, "create_refund"),                      # W15
-                             (STRIPE, "cancel_subscription"),                # W16
-                             (STRIPE, "finalize_invoice"),                   # W17
-                             (STRIPE, "create_payment_link"),                # W18
-                             (GITHUB, "merge_pull_request"),                 # W20
-                             (GITHUB, "create_or_update_file"),              # W21
-                             (GITHUB, "push_files"),                         # W22
+        for server, tool in ((SLACK, "slack_send_message"),
+                             (SLACK, "slack_schedule_message"),
+                             (NETLIFY, "netlify-deploy-services-updater"),
+                             (STRIPE, "create_refund"),
+                             (STRIPE, "cancel_subscription"),
+                             (STRIPE, "finalize_invoice"),
+                             (STRIPE, "create_payment_link"),
+                             (GITHUB, "merge_pull_request"),
+                             (GITHUB, "create_or_update_file"),
+                             (GITHUB, "push_files"),
                              (GITHUB, "create_pull_request"),
                              (NOTION, "notion-create-comment"),
                              (NOTION, "notion-update-page"),
@@ -264,7 +258,6 @@ class TheHook(unittest.TestCase):
         command = self.settings(STRIPE, ["read"])["hooks"][0]["command"]
         self.assertEqual(self.run_hook(command, "not json").returncode, 2)
         self.assertEqual(self.run_hook(command, "[]").returncode, 2)
-        # No Python at that path: the shell's own failure becomes a block too.
         argv = shlex.split(command.rsplit(" || ", 1)[0])
         argv[0] = "/nonexistent/python3"
         broken = " ".join(shlex.quote(a) for a in argv) + " || exit 2"
@@ -273,9 +266,6 @@ class TheHook(unittest.TestCase):
     def test_the_script_sits_beside_the_tools(self):
         self.assertEqual(os.path.dirname(tt.tools.GUARD_SCRIPT), os.path.dirname(os.path.abspath(tt.tools.__file__)))
         self.assertTrue(os.path.isfile(tt.tools.GUARD_SCRIPT))
-
-
-# ── Through the connectors tool and the gate ────────────────────────────────────────────────────────────────
 
 
 class ConnectorRuns(unittest.TestCase):
@@ -338,7 +328,7 @@ class ConnectorRuns(unittest.TestCase):
 
 
 class ThroughTheGate(GateCase):
-    def test_a_refund_is_refused_with_no_card(self):                          # X01
+    def test_a_refund_is_refused_with_no_card(self):
         self.ask("Theo asked for his money back, can you handle it?")
         out = self.call("connectors", {"service": "stripe", "request": "Refund Theo's last payment"})
         self.assertTrue(out["message"].startswith("Not done"))
@@ -367,7 +357,7 @@ class ThroughTheGate(GateCase):
         self.assertIsNotNone(self.call("connectors", args))
         plugin.decide(self.cards()[-1]["id"], True)
         self.assertIsNone(self.call("connectors", args))
-        self.assertIsNotNone(self.call("connectors", args))   # used up
+        self.assertIsNotNone(self.call("connectors", args))
 
 
 if __name__ == "__main__":

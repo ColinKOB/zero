@@ -9,8 +9,8 @@ import CryptoKit
 /// when the card closes), and it starts the grant only if that signature checks out against a trusted phone. A hub
 /// that was changed or broken into can pass requests along or close the card, but it cannot allow one.
 extension TaffyMacBridge {
-    private static let trustedKey = "zero.mac.trustedPhones"     // [key id: public key, base64 X9.63]
-    private static let declinedKey = "zero.mac.declinedPhones"   // [public key] Colin said no to, asked once
+    private static let trustedKey = "zero.mac.trustedPhones"
+    private static let declinedKey = "zero.mac.declinedPhones"
     private static var lastTrustAskAt = Date.distantPast
     private var lastTrustAsk: Date {
         get { Self.lastTrustAskAt }
@@ -32,14 +32,13 @@ extension TaffyMacBridge {
               let key = try? P256.Signing.PublicKey(x963Representation: keyData) else {
             return fail("This phone isn't trusted on the Mac yet. The Mac asks once, the next time \(who) is at it.")
         }
-        // The same check the logic tests run (Shared/MacGrant.swift): this key, this exact request, not expired.
         guard let sigData = Data(base64Encoded: args["signature"] as? String ?? ""),
               MacGrant.verify(key: key, signature: sigData, id: p.id, bot: p.bot, task: p.task, said: p.said,
                               expires: p.expires) else {
             return fail("The phone's approval did not match the request on the Mac, so the Mac did not allow it.")
         }
         answeredVia = "phone"
-        allowPressed()   // the same grant, limits, in-use bar and Stop as Allow on this Mac
+        allowPressed()
         ok(true)
     }
 
@@ -49,8 +48,6 @@ extension TaffyMacBridge {
     func phonesSeen(_ keys: [[String: Any]]) {
         let declined = Set(UserDefaults.standard.stringArray(forKey: Self.declinedKey) ?? [])
         var trusted = Self.trustedPhones
-        // A phone that is no longer paired stops being trusted. An empty list (a hub restoring, or one from before
-        // this feature) never clears trust.
         let ids = Set(keys.compactMap { $0["id"] as? String })
         if !ids.isEmpty {
             trusted = trusted.filter { ids.contains($0.key) }
@@ -81,7 +78,6 @@ extension TaffyMacBridge {
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 22, left: 22, bottom: 18, right: 22)
-        // A known phone with a new key gets its own words: it is the case an attacker would use.
         let title = NSTextField(wrappingLabelWithString: changed
             ? "A different key is asking to approve for \(name)"
             : "Let \(name) allow Zips to use this Mac?")

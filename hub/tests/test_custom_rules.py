@@ -43,11 +43,11 @@ class AskFirstInTheGate(GateCase):
         card = self.action_cards()[0]
         self.assertEqual((card["kind"], card["ask_rule"], card["scope"]), ("write", rid, ""))
         self.assertEqual(plugin.get_rule(rid)["uses"], 1)
-        plugin.decide(card["id"], True)                     # Allow Once still covers that one call
+        plugin.decide(card["id"], True)
         self.assertIsNone(self.push("second-branch"))
-        self.assertIsNotNone(self.push("second-branch"))    # and only once
+        self.assertIsNotNone(self.push("second-branch"))
         plugin.remove_rule(rid)
-        self.assertIsNone(self.push("third-branch"))        # removing the rule puts it back as it was
+        self.assertIsNone(self.push("third-branch"))
 
     def test_a_rule_for_another_zip_does_not_apply_but_every_zip_does(self):
         plugin.set_ask_rule("school", "push")
@@ -71,12 +71,12 @@ class AskFirstInTheGate(GateCase):
 
     def test_a_send_rule_overrides_an_allow_rule_and_offers_no_new_one(self):
         plugin.set_rule("builder", "send", "ken@brightpath.test", source="card 1")
-        self.assertIsNone(self.call("terminal", {"command": HIMALAYA}))        # the Allow rule covers it
+        self.assertIsNone(self.call("terminal", {"command": HIMALAYA}))
         plugin.set_ask_rule("builder", "send", "ken@brightpath.test")
         blocked = self.call("terminal", {"command": HIMALAYA.replace("still waiting", "checking in")})
         self.assertIsNotNone(blocked)
         card = self.action_cards()[0]
-        self.assertEqual(card["scope"], "")                                     # no Always Allow on this card
+        self.assertEqual(card["scope"], "")
         self.assertIsNotNone(card["ask_rule"])
 
     def test_an_ask_rule_never_unlocks_never(self):
@@ -158,7 +158,6 @@ class CustomRulesInTheApp(AppCase):
                                "Every Zip asks before sending anything to anyone at x.com."})
         school = self.rules(bot_id="school")
         self.assertEqual({r["bot_id"] for r in school}, {"school", "*"})
-        # Permissions in older app builds lists only the Allow rules.
         self.assertEqual([r["kind"] for r in self.client.get("/api/permissions").json()["rules"]], ["send"])
         choices = self.client.get("/api/rules").json()["choices"]
         self.assertIn({"id": "push", "title": "Pushing code to any repo"}, choices["what"])
@@ -237,7 +236,7 @@ class NoAnswerInTime(AppCase):
         row = store.db().execute("SELECT * FROM feed WHERE kind='signin_decision'").fetchone()
         self.assertEqual((row["bot_id"], row["title"], row["body"]),
                          ("money", "Email andrea@x.com about lunch", "No answer in time, so Money didn't do this."))
-        self.scan()   # told once
+        self.scan()
         self.assertEqual(store.db().execute("SELECT COUNT(*) FROM feed WHERE kind='signin_decision'").fetchone()[0], 1)
         ctx = team.context_for("money", "chat-2", first=False)
         self.assertIn("did not answer your card in time", ctx)

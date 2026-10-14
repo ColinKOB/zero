@@ -1,11 +1,6 @@
 import SwiftUI
 
 // MARK: Short replies (Oct 10)
-//
-// Colin: "Long answers like this make this feel less like a teammate and more like an llm." When a Zip's reply is
-// long and the person did not ask for detail, the hub shows two or three sentences with the key point first and
-// keeps the original (hub shortreply.py). The message shows the short version; Show Full Reply opens the original
-// in place. Settings, Keep Replies Short, turns it off for the home.
 
 /// The home's Keep Replies Short switch and the replies opened in full.
 @MainActor @Observable
@@ -116,12 +111,11 @@ struct ReplyBubbles: View {
 
     /// The paragraphs to show as separate bubbles, or nil when the reply is one bubble.
     static func parts(_ text: String) -> [String]? {
-        guard !text.contains("```") else { return nil }   // code stays whole
+        guard !text.contains("```") else { return nil }
         var parts: [String] = []
         for raw in text.components(separatedBy: "\n\n") {
             let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !p.isEmpty else { continue }
-            // A lead-in line ("Here's what's due:") stays with the list it introduces.
             if let last = parts.last, last.hasSuffix(":") { parts[parts.count - 1] = last + "\n\n" + p } else { parts.append(p) }
         }
         return parts.count > 1 && parts.count <= 8 ? parts : nil

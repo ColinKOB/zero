@@ -1,8 +1,5 @@
 import SwiftUI
 
-// The onboarding screens for a home of the person's own: their email and calendar (screen 6) and how their Zips
-// should ask (screen 7), from docs/plans/2026-10-09-zero-for-anyone-plan.md, section 6.
-
 // MARK: 6. Your email and calendar
 
 /// Which email the Zips read: Sign In with Google first, then any other provider with an app password. Shown after the
@@ -114,7 +111,6 @@ struct AskScreen: View {
             quiet = q
         }
         locale = model.draft.locale ?? HomeWording.phoneLocale
-        // On by default (Colin, Oct 9). Without AI data sharing, Continue asks for it before turning questions on.
         questionsOn = model.draft.questionsOn ?? true
         ready = true
     }
@@ -130,14 +126,12 @@ struct AskScreen: View {
         }
         saving = true
         Task {
-            // Zero's questions read mail and send it to the AI company to think, so they need sharing to be on.
             var agreed = consented
             if questionsOn && !agreed && !state.fixtureMode { agreed = await state.ensureAIConsent() }
             let on = questionsOn && agreed
             _ = await home.save(HomeSettingsUpdate(
                 person: .init(timezone: TimeZone.current.identifier, quiet_hours: quiet),
                 locale: locale, proactivity: .init(enabled: on)), state)
-            // An older hub keeps Zero's questions in its own setting.
             if home.unsupported { await state.setProactivity(enabled: on) }
             saving = false
             model.go(.voice)

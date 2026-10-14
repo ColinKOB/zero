@@ -41,7 +41,7 @@ async def one(question: str, warm: bool) -> dict:
     if warm:
         await run.open()
         opened = time.time() - t_open
-        await asyncio.sleep(1.0)            # a call starts it while the person is still talking
+        await asyncio.sleep(1.0)
     t0 = time.time()
     if not warm:
         await run.open()

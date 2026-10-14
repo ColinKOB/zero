@@ -1,11 +1,4 @@
 // swift-tools-version: 6.0
-// The Mac bench and tests for Zero's On-Device Voice. It compiles the app's own files (symlinks into
-// ../Taffy/Voice/OnDevice), so what it measures is what the app runs.
-//
-//   swift test                                   the text rules (sentences, questions, interruptions, turn ends)
-//   swift run -c release OnDeviceBench voice     load the voice, greeting takes, replies through the app's speaker
-//
-// FLUIDAUDIO_PATH=/path/to/checkout uses a local copy of FluidAudio instead of cloning the pinned commit.
 import Foundation
 import PackageDescription
 

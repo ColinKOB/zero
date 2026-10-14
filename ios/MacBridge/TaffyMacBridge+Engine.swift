@@ -34,7 +34,6 @@ extension TaffyMacBridge {
             events(["type": "exit", "code": 127, "output": "This copy of Zero is missing its setup files."])
             return
         }
-        // Only short plain arguments: a pairing code's minutes, or the uninstall choice.
         let extra = (command["args"] as? [String] ?? []).filter {
             $0.range(of: #"^[A-Za-z0-9.-]{1,20}$"#, options: .regularExpression) != nil
         }

@@ -1,5 +1,3 @@
-// Writes a grayscale subject mask for each image, using Apple's Vision subject lifting (the same as
-// "Copy Subject" in Photos). Used by make-agent-assets.py; run with: swift subject-mask.swift in.png out.png ...
 import CoreImage
 import Foundation
 import Vision

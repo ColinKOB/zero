@@ -1,10 +1,3 @@
-// The Mac bench for On-Device Voice. It loads Pocket TTS the way the app does (PocketVoice.swift), makes the
-// greeting takes, and speaks replies through the app's own ReplySpeaker into a stand-in output that keeps a
-// timeline of what a listener would hear. Replies are the real Haiku token streams recorded by
-// hub/scripts/ondevice_latency.py (timestamps included), so first-sound times include the reply's own pace.
-//
-//   swift run -c release OnDeviceBench voice [george|alba|both]
-//   OD_MODELS (default /tmp/fv-models) holds the 455 MB download; OD_OUT (default /tmp/fv-bench) gets the WAVs.
 import FluidAudio
 import Foundation
 
@@ -171,7 +164,6 @@ func voiceBench(_ voices: [OnDeviceVoiceName]) async throws {
                   + "first sentence. Real time \(f2(median(rtfs)))x. Silences inside replies \(f2(joins.min() ?? 0)) to "
                   + "\(f2(joins.max() ?? 0)) s (median \(f2(median(joins)))). Stalls: \(stalls.filter { $0 > 0 }.count) of \(stalls.count) replies.")
         }
-        // A speculative reply held, then released when the turn is confirmed 0.5 s later.
         if let s = streams.first {
             let (_, sp, t0) = await speak(engine, voice: voice, pieces: s.timed, releaseAt: 0.5)
             if let fa = sp.firstAudioHost {

@@ -78,7 +78,7 @@ def run_one(task: str, model: str, n: int) -> dict:
             new = []
         checks["jobs_created"] = [{"name": j.get("name"), "schedule": j.get("schedule"), "tz": j.get("timezone")}
                                   for j in new]
-        if before_jobs is not None:   # leave the test home as it was
+        if before_jobs is not None:
             JOBS.write_text(before_jobs)
         elif JOBS.exists():
             JOBS.unlink()
@@ -91,7 +91,7 @@ def main() -> None:
     plan = [(t, m, n) for t in TASKS for m in MODELS for n in range(1, RUNS + 1)]
     random.seed(11)
     random.shuffle(plan)
-    serial = [x for x in plan if x[0] == "t08-routine"]   # the routine task edits the schedule file: one at a time
+    serial = [x for x in plan if x[0] == "t08-routine"]
     rest = [x for x in plan if x[0] != "t08-routine"]
     with OUT.open("a") as f:
         def save(r):

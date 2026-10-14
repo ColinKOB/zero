@@ -83,7 +83,7 @@ struct GoogleScreen: View {
         }
         .sensoryFeedback(.success, trigger: done)
         #if DEBUG
-        .task {   // for screenshots: -onboarding google starts here with Inbox and Calendar picked
+        .task {
             if state.fixtureMode && model.templates.isEmpty {
                 model.templates = FoundScreen.sampleTemplates
                 model.picked = ["inbox", "calendar"]

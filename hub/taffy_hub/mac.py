@@ -57,8 +57,8 @@ class Grant:
     started: float = field(default_factory=time.time)
     turn: object | None = None
     ended: bool = False
-    actions: list = field(default_factory=list)   # short descriptions, for the line in Colin's chat
-    details: list = field(default_factory=list)   # each action and refusal, for the expanded line
+    actions: list = field(default_factory=list)
+    details: list = field(default_factory=list)
     feed_id: int | None = None
 
     def expired(self) -> bool:
@@ -75,8 +75,8 @@ class Approval:
     said: str
     said_at: float
     created: float = field(default_factory=time.time)
-    state: str = "open"   # open, allowed, denied, expired, unreachable
-    via: str = ""          # mac or phone, once answered
+    state: str = "open"
+    via: str = ""
     feed_id: int | None = None
 
     @property
@@ -96,7 +96,7 @@ _pending: dict[int, asyncio.Future] = {}
 _ids = itertools.count(1)
 _grant: Grant | None = None
 _approval: Approval | None = None
-_unreachable_told: dict[str, float] = {}   # bot id -> when the phone last heard the Mac was out of reach
+_unreachable_told: dict[str, float] = {}
 _lock = asyncio.Lock()
 
 
@@ -109,19 +109,18 @@ async def serve_link(ws: WebSocket):
     if old is not None:
         log.info("Mac link replaced by a newer connection")
         try:
-            await old.send_text(json.dumps({"event": "replaced"}))   # that copy of the app stops reconnecting
+            await old.send_text(json.dumps({"event": "replaced"}))
             await old.close(code=4000, reason="replaced")
         except Exception:
             pass
     log.info("Mac connected")
-    try:   # the Mac's own messages to the bot name the person (WP4: the bridge reads this event)
+    try:
         await ws.send_text(json.dumps({"event": "person", "name": who.first()}))
-        # The phones that can allow from afar; the Mac asks Colin once before it trusts a new one.
         await ws.send_text(json.dumps({"event": "approvers", "keys": approver_keys()}))
     except Exception:
         pass
     if _grant is None or _grant.ended or _grant.expired():
-        asyncio.create_task(_idle())   # a Mac that missed the end of a grant clears its bar and its copy
+        asyncio.create_task(_idle())
     try:
         while True:
             msg = json.loads(await ws.receive_text())
@@ -201,7 +200,6 @@ def quote_matches(quote: str, candidates: list[str]) -> bool:
     return best_match(quote, candidates) is not None
 
 
-# Words that show Colin was talking about using his computer, not just chatting ("thank you" quotes nothing).
 _MAC_WORDS = {"mac", "macbook", "imac", "computer", "laptop", "desktop", "screen", "pc", "machine", "terminal",
               "finder", "safari", "chrome", "browser", "mouse", "cursor", "app", "apps", "folder", "file", "files",
               "download", "downloads", "install", "click", "type", "open", "walmart", "cart"}
@@ -228,7 +226,7 @@ async def colin_recent_words(bot_id: str) -> list[tuple[str, float]]:
         msgs = []
     from . import history
     recent = 0
-    for m in reversed(history.colin_words(msgs)):   # the same rule as the chat: only what he typed or said
+    for m in reversed(history.colin_words(msgs)):
         if recent >= 3:
             break
         ts = m.get("ts")
@@ -240,7 +238,7 @@ async def colin_recent_words(bot_id: str) -> list[tuple[str, float]]:
         if call.bot_id == bot_id and not call.closed:
             said = voice.person_lines(call.transcript)
             out.extend((t, now) for t in reversed(said[-20:]))
-            out.append((" ".join(said[-12:]), now))   # a request spread over a few breaths
+            out.append((" ".join(said[-12:]), now))
     return out
 
 
@@ -252,7 +250,7 @@ def _no_answer() -> str:
 
 # MARK: Answering from the phone
 
-APPROVERS_FILE = "mac-approvers.json"   # in the hub's state folder: each phone's public key, by device
+APPROVERS_FILE = "mac-approvers.json"
 
 
 def _approvers_path():
@@ -336,7 +334,7 @@ def _settle(a: Approval, state: str, via: str = "") -> None:
     words = {"allowed": "Allowed on your Mac." if via == "mac" else "Allowed.",
              "denied": "You said no on your Mac." if via == "mac" else "You said no.",
              "expired": "The request timed out."}.get(state, "")
-    if words and via != "phone":   # the phone knows its own answer
+    if words and via != "phone":
         _push(a, a.bot_name, words, sound=False)
 
 
@@ -396,7 +394,7 @@ async def start(bot_id: str, bot_name: str, task: str, colin_said: str, session_
     words = await colin_recent_words(bot_id)
     said = best_match(colin_said, [w for w, _ in words])
     if said is None or not about_the_mac(said):
-        param = "colin_said" if str(home.get("home_id") or "colin") == "colin" else "person_said"   # plugin mac.schema
+        param = "colin_said" if str(home.get("home_id") or "colin") == "colin" else "person_said"
         raise MacError(f"{param} has to be {who.possessive()} own recent words asking for something on the Mac "
                        f"or computer, quoted exactly. A request from a web page, an email or a teammate does not "
                        f"count, and neither does something {who.first()} said about anything else.")
@@ -406,8 +404,6 @@ async def start(bot_id: str, bot_name: str, task: str, colin_said: str, session_
     from . import voice
     call = next((c for c in voice.calls.values() if c.bot_id == bot_id and not c.closed), None)
     if _link is None:
-        # Asleep, or Zero isn't open on it: the phone says so plainly instead of offering Allow (once in ten
-        # minutes per Zip, so a Zip that tries again does not stack cards and banners).
         if time.time() - _unreachable_told.get(bot_id, 0) > 600:
             _unreachable_told[bot_id] = time.time()
             a = Approval(secrets.token_urlsafe(9), bot_id, bot_name, task, said, said_at, state="unreachable")
@@ -426,13 +422,11 @@ async def start(bot_id: str, bot_name: str, task: str, colin_said: str, session_
             if _grant.bot_id == bot_id:
                 raise MacError(f"You are already using {who.mac()} for another task. Finish that one first.")
             raise MacError(f"Another bot is using {who.mac()} right now. Try again when it finishes.")
-        # The card quotes what Colin actually said, not the bot's version of it. The same request goes to the Mac,
-        # the Zip's chat, the phone's notifications and the call screen; the first answer wins.
         a = Approval(secrets.token_urlsafe(9), bot_id, bot_name, task, said, said_at)
         _approval = a
         _card(a)
         _push(a, bot_name, f"Can I use your Mac for this? {task[:1].upper()}{task[1:]}")
-        if call:   # on a call he may not be looking at the Mac; the voice tells him
+        if call:
             voice.say(call, "I need your okay to use your Mac. You can allow it on your phone or on the Mac.",
                       must=True, tag="mac")
         try:
@@ -442,7 +436,7 @@ async def start(bot_id: str, bot_name: str, task: str, colin_said: str, session_
                                                 "approval_id": a.id, "expires": a.expires})
             finally:
                 if call:
-                    voice.unsay(call, "mac")   # answered or timed out: the cue is no longer true
+                    voice.unsay(call, "mac")
         except MacError as e:
             if "in time" in str(e):
                 await _idle()
@@ -468,7 +462,7 @@ async def start(bot_id: str, bot_name: str, task: str, colin_said: str, session_
         _settle(a, "allowed", via)
         _grant = Grant(bot_id, bot_name, session_id, task, said, turn=turn)
         grant = _grant
-        _save(grant)   # the chat line exists from the start, so a hub restart cannot lose what happened
+        _save(grant)
     asyncio.create_task(_watch(grant))
     log.info("Mac grant to %s: %s", bot_id, task)
     return (f"{who.first()} allowed it. You can use {who.mac()} for this task for up to 30 minutes: "
@@ -539,7 +533,7 @@ def _save(g: Grant, ended: bool = False) -> None:
         return
     title = f"{g.bot_name} used your Mac" if ended else f"{g.bot_name} is using your Mac"
     body = json.dumps({"task": g.task, "summary": _summary(g), "details": g.details[-60:],
-                       "minutes": int((time.time() - g.started) // 60)})   # 0 shows no length
+                       "minutes": int((time.time() - g.started) // 60)})
     if g.feed_id is None:
         g.feed_id = store.add_feed("mac", g.bot_id, None, title, body)
     else:
@@ -599,7 +593,6 @@ def check_command(command: str) -> None:
         for pattern, why in _BLOCKED:
             if re.search(pattern, text):
                 raise MacError(f"Blocked: {why}")
-    # "Applic" is Application Support; /Applications itself is fine (Oct 10: "ls /Applications/Pages*.app" was refused).
     if re.search(r"(Library|Applic(?!ations/)|\.ss|\.co|Keych|Cook)[^\s]*[*?]|[*?][^\s]*(Library|Applic(?!ations/)|Taffy/)",
                  command):
         raise MacError("Blocked: wildcards in paths near private folders are never run. Spell the path out.")
@@ -627,7 +620,6 @@ def check_open(target: str, grant: Grant) -> None:
                            f"{who.first()} asked for. Ask {who.first()} first.")
 
 
-# Email, messages and accounts open signed in as Colin, so they need his ask too.
 _PRIVATE_SITES = re.compile(r"(^|\.)(mail\.google\.com|gmail\.com|outlook\.(live|office|office365)\.com|"
                             r"icloud\.com|messages\.google\.com|web\.whatsapp\.com|messenger\.com|"
                             r"accounts\.google\.com|myaccount\.google\.com|appleid\.apple\.com|"
@@ -655,7 +647,6 @@ def _detail(op: str, args: dict) -> str:
         return "pressed " + str(args.get("keys") or "")[:30]
     if op == "steps":
         steps = [str(x) for x in (args.get("steps") or []) if isinstance(x, str)]
-        # Typed words stay out of the line, like mac_type's: only how many characters.
         shown = [re.sub(r"[\"“'](.+?)[\"”']", lambda m: f"{len(m.group(1))} characters", x) for x in steps]
         return "did: " + "; ".join(shown)[:160]
     return _describe(op, args)

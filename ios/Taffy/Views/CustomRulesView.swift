@@ -194,7 +194,7 @@ struct CustomRulesView: View {
 
     private func load() async {
         #if DEBUG
-        if state.fixtureMode {   // sample rules, so the screen can be checked without a hub
+        if state.fixtureMode {
             let page = Self.fixture
             rules = page.rules.filter { botID == nil || $0.bot_id == botID || $0.bot_id == "*" }
             choices = page.choices

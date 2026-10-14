@@ -99,7 +99,7 @@ class TeamQuiet(unittest.TestCase):
                 team.tell("school", "money", text, "s1")
             self.assertIn("Not sent", str(e.exception))
         self.assertEqual(self.team_feed(), [])
-        self.assertEqual(team.context_for("money", "m1", first=False), "")   # nothing rides along, nothing wakes
+        self.assertEqual(team.context_for("money", "m1", first=False), "")
 
     def test_a_real_heads_up_still_goes(self):
         out = team.tell("school", "money", "A $120 tuition charge from Lakeview posted today.", "s1")
@@ -112,7 +112,7 @@ class TeamQuiet(unittest.TestCase):
         with self.assertRaises(team.TeamError) as e:
             team.tell("school", "money", "One more fact about the tuition bill.", "s9")
         self.assertIn("in the last hour", str(e.exception))
-        team.tell("school", "default", "Form A is due tonight at 11:55 p.m.", "s9")   # another pair is fine
+        team.tell("school", "default", "Form A is due tonight at 11:55 p.m.", "s9")
 
     def test_one_conversation_is_limited_across_teammates(self):
         n = 0
@@ -204,7 +204,7 @@ class BoardUpdates(AppCase):
         for self.reply in (".", "Noted.", None):
             with self.subTest(reply=self.reply):
                 ok = run(watcher._team_update([("school", '- School finished: "Form A" (t_3). Submitted.')]))
-                self.assertFalse(ok)   # retried, then told plainly by the watcher loop
+                self.assertFalse(ok)
         self.assertEqual(feed("message"), [])
         self.assertEqual(self.pushed, [])
 
@@ -283,9 +283,9 @@ class SilentTurns(AppCase):
         from datetime import datetime
         from taffy_hub import home
 
-        def clock(ts):   # in the home's own time zone, as the line says it
+        def clock(ts):
             return datetime.fromtimestamp(ts, home.TZ).strftime("%-I:%M %p").replace("AM", "a.m.").replace("PM", "p.m.")
-        now = 1791600000.0   # Oct 9, 2026, 10:40 p.m. Eastern
+        now = 1791600000.0
         self.assertIn(f"Try again after {clock(now + 37 * 60)}",
                       hermes.limit_line("429 rate limit, try again in 37 minutes", now))
         self.assertIn("Try again after 3:40 p.m.", hermes.limit_line("usage limit; resets at 3:40 PM", now))
@@ -379,14 +379,14 @@ class HandoffApproval(GateCase):
         self.approve_for("default", self.DEPLOY)
         self.assertIsNone(self.as_school_in("t_1", self.DEPLOY))
         again = self.as_school_in("t_1", self.DEPLOY)
-        self.assertIn("Call kanban_block on t_1", again["message"])   # once, like Allow Once
+        self.assertIn("Call kanban_block on t_1", again["message"])
 
     def test_another_call_or_another_task_still_asks(self):
         self.board([("t_1", "Deploy", "school", "running", "default"), ("t_2", "Deploy", "school", "running", "money")])
         self.approve_for("default", self.DEPLOY)
         other = {"command": "netlify deploy --prod --site lumenly"}
         self.assertIsNotNone(self.as_school_in("t_1", other))
-        self.assertIsNotNone(self.as_school_in("t_2", self.DEPLOY))   # Money did not get Colin's okay
+        self.assertIsNotNone(self.as_school_in("t_2", self.DEPLOY))
 
 
 class OneOwnerPerStep(GateCase):
@@ -478,7 +478,7 @@ class SignInRoundTrip(AppCase):
         [(_bot, note, _session, _urgent)] = self.followed
         self.assertIn("Open the page again now and check", note)
         self.assertIn("exactly what the page shows", note)
-        self.assertEqual(store.take_card_notes("default"), [])   # the button path resumes on its own
+        self.assertEqual(store.take_card_notes("default"), [])
 
     def test_saying_it_in_the_chat_answers_the_card_and_the_zip_checks(self):
         fid = self.open_card()
@@ -493,12 +493,12 @@ class SignInRoundTrip(AppCase):
 
     def test_other_messages_leave_the_card_alone(self):
         self.open_card()
-        for text in ("Ask me for the login again. Sorry it errored for me",      # Colin, Oct 9 12:59
+        for text in ("Ask me for the login again. Sorry it errored for me",
                      "Log out of the practice site, then log back in with the saved login and tell me the banner text.",
                      "What does the page say once you are logged in?", "I'm in the car", "what's for dinner"):
             with self.subTest(text=text):
                 self.assertIsNone(signin.done_in_chat("default", text))
-        self.assertIsNone(signin.done_in_chat("school", "I signed in"))   # no card of School's is open
+        self.assertIsNone(signin.done_in_chat("school", "I signed in"))
 
     def test_the_first_ask_keeps_the_rest_of_the_work_going(self):
         _fid, said = signin.ask("school", "https://elearning.lakeview.test/login", "check grades", "chat-2")
@@ -548,7 +548,7 @@ class CalmProactivity(ProCase):
         notices.answer(notices.by_id(nid)["feed_id"], None)
         p = quietlook.prompt()
         self.assertIn("turned down in the last two weeks", p)
-        self.assertIn("- Haiku question?", p)   # the card's question as it was shown
+        self.assertIn("- Haiku question?", p)
         self.assertIn("no research, no new tasks", p)
         self.assertIn("unless the source itself says something is wrong", p)
 
@@ -560,7 +560,6 @@ class NotificationKinds(unittest.TestCase):
     Zip's kinds (needs, done, progress) decide which pushes go out; a push with no kind counts as needs."""
 
     def setUp(self):
-        # Never the live calendar: a real shift on it held these test notifications (Oct 10, 9 a.m.).
         from taffy_hub import notices as _notices
         real_busy = _notices.busy_block
         _notices.busy_block = lambda t=None: None
@@ -590,8 +589,8 @@ class NotificationKinds(unittest.TestCase):
         self.assertFalse(self.push("Check-ins", "x", "school", kind="progress"))
         self.assertFalse(self.push("School finished", "x", "school", kind="done"))
         self.assertTrue(self.push("School needs your okay", "x", "school", kind="needs"))
-        self.assertTrue(self.push("School wants to sign in", "x", "school"))            # no kind: needs
-        self.assertTrue(self.push("Money finished", "x", "money", kind="done"))         # another Zip is untouched
+        self.assertTrue(self.push("School wants to sign in", "x", "school"))
+        self.assertTrue(self.push("Money finished", "x", "money", kind="done"))
         self.assertEqual(self.sent, ["School needs your okay", "School wants to sign in", "Money finished"])
 
     def test_the_master_switch_still_wins(self):
@@ -638,7 +637,7 @@ class SoulLines(unittest.TestCase):
             lead = soul.parent.name == "taffy"
             for line in self.s.LEAD_LINES:
                 self.assertEqual(line in soul.read_text(), lead, f"{soul.parent.name}: {line[:40]}")
-            self.assertEqual(self.s.update_text(soul.read_text()), soul.read_text())   # the script is what made them
+            self.assertEqual(self.s.update_text(soul.read_text()), soul.read_text())
 
     def test_the_lines_cover_the_evidence(self):
         text = "\n".join(self.s.LINES + self.s.LEAD_LINES)
@@ -670,7 +669,7 @@ class SoulLines(unittest.TestCase):
         lines = new.split("\n")
         self.assertEqual(lines[lines.index("- Starting on your own: tell him.") + 1], s.LINES[0])
         self.assertIn("<!-- team:start -->\n- Team line\n<!-- team:end -->", new)
-        self.assertEqual(s.update_text(new), new)                                   # idempotent
+        self.assertEqual(s.update_text(new), new)
         lead = "# Zero\n\n## Your team\n\n- Starting on your own: x\n"
         self.assertEqual(s.update_text(lead).count(s.LEAD_MARKER), 1)
         self.assertEqual(s.update_text("# Nothing to anchor on\n"), "# Nothing to anchor on\n")
@@ -685,7 +684,7 @@ class SoulLines(unittest.TestCase):
         self.s.main([str(p)])
         self.assertIn(self.s.MARKER, p.read_text())
         self.assertEqual(len(list(tmp.glob("SOUL.md.bak-fluid-*"))), 1)
-        self.s.main([str(p)])                                                      # second run: nothing
+        self.s.main([str(p)])
         self.assertEqual(len(list(tmp.glob("SOUL.md.bak-fluid-*"))), 1)
 
     def test_any_home_gets_the_lines_said_for_its_person(self):
@@ -715,7 +714,7 @@ class RecentConversations(unittest.TestCase):
     """Real lines from Colin's hub (team_msgs 1 to 5, feed items, Zero's sessions), run through the new rules: what
     was real still goes through, and what was empty no longer reaches him."""
 
-    TEAM = [   # team_msgs 1, 2, 4, 5: real questions and answers between Zips must never be taken for chatter
+    TEAM = [
         "What is the weekly dining cap in Colin and Riley's household budget?",
         "The weekly dining cap is $60 for Colin and Riley combined. It covers restaurants, coffee, fast food and treats.",
         "Do you have the source or Netlify access for the Blue Heron site?",
@@ -723,7 +722,7 @@ class RecentConversations(unittest.TestCase):
         "Has Colin made Dana's requested change since Oct 7, or is it still open? One line please.",
         "It's still open. I just checked the live site, theblueheron.test, and it has no Halloween design.",
     ]
-    BOARD_REPLIES = [   # Zero's replies to board updates (feed 26, 30, 39, 49)
+    BOARD_REPLIES = [
         "That's the same sign-in test I just reported. It passed: Builder logged out, logged back in with the saved "
         "login without ever seeing the password. Nothing needs you.",
         "I already passed this along. It's the same e-learning check, and the only thing that needs you is your Unit "
@@ -738,7 +737,7 @@ class RecentConversations(unittest.TestCase):
 
     def test_real_board_replies_stay_and_the_silent_one_goes(self):
         msgs = []
-        for reply in self.BOARD_REPLIES + ["[SILENT]"]:   # Zero's [SILENT] (Oct 9 cron session)
+        for reply in self.BOARD_REPLIES + ["[SILENT]"]:
             msgs += [{"role": "user", "text": "[Board update from the hub, not a message from Colin]\n- x"},
                      {"role": "assistant", "text": reply}]
         self.assertEqual([m["display"] for m in history.visible(msgs)], self.BOARD_REPLIES)

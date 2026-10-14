@@ -43,7 +43,6 @@ class Looks(unittest.TestCase):
     def test_every_plush_body_has_outfits(self):
         self.assertEqual(looks.save("school", {"body": "drop", "outfit": "cozy"}), {"body": "drop", "outfit": "cozy"})
         self.assertEqual(looks.save("school", {"body": "mushroom", "outfit": "plain"})["outfit"], "plain")
-        # Looks saved before every body had outfits come back plain.
         self.assertEqual(looks.save("school", {"body": "drop"}), {"body": "drop", "outfit": "plain"})
         with self.assertRaises(looks.LookError):
             looks.save("school", {"body": "drop", "outfit": "tuxedo"})

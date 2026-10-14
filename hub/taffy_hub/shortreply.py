@@ -36,18 +36,16 @@ from . import store
 log = logging.getLogger("taffy.shortreply")
 
 SETTING = "keep_replies_short"
-TIMEOUT_SEC = 10          # the reply is held at most this long; Haiku answers a rewrite in about 2 to 3 s
-ATTEMPTS = 2              # a rewrite that fails the checks is asked for once more, with the reason
+TIMEOUT_SEC = 10
+ATTEMPTS = 2
 KEEP_DAYS = 120
 
-# A reply counts as long at more than this many sentences (list items count one each) with this much prose, or at
-# this much prose with at least a few sentences. Tuned on Zero's real replies (docs/qa/2026-10-10-short-replies.md).
 LONG_UNITS = 4
 LONG_UNITS_CHARS = 350
 LONG_CHARS = 450
-SHORT_MAX_SENTENCES = 4    # asked for two or three; a fourth short one is tolerated, more is a failed rewrite
+SHORT_MAX_SENTENCES = 4
 SHORT_MAX_CHARS = 480
-SHORT_MAX_WORDS = 75       # asked for 50 at most
+SHORT_MAX_WORDS = 75
 
 
 def enabled() -> bool:
@@ -61,7 +59,6 @@ def set_enabled(on: bool) -> None:
 # MARK: Measuring
 
 _URL = re.compile(r"https?://[^\s<>()\[\]\"']+[^\s<>()\[\]\"'.,;:!?]")
-# A file the Zip saved, named by its path (the "thing itself" in a reply about saved work).
 _PATH = re.compile(r"(?<![\w/.])(?:~|/home|/Users|/srv|/tmp|/var)/[^\s\"'<>()]*[^\s\"'<>().,;:!?]")
 # Hermes's attachment line (voice._MEDIA_LINE): never shown to Haiku, always kept, word for word, under the reply.
 _MEDIA = re.compile(r"^[ \t]*MEDIA:\S*[ \t]*$", re.M)
@@ -73,7 +70,6 @@ _ATTACHMENT = re.compile(r"^[ \t]*MEDIA:\S*[ \t]*$|!\[[^\]\n]*\]\(data:[^)\s]*\)
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)])\s+\S")
 _FENCE = re.compile(r"```.*?(?:```|$)", re.S)
-# A sentence ends at . ! or ? followed by a space and a capital, a digit or a quote, or at the end of a line.
 _BOUNDARY = re.compile(r"[.!?]+[\"'”)]?(?=\s+[A-Z0-9\"'“(]|\s*$)", re.M)
 
 
@@ -106,7 +102,6 @@ def is_long(text: str) -> bool:
 
 # MARK: When not to shorten
 
-# The person's own words asking for the long form: detail, steps, a list, a draft, the full or exact text.
 _DETAIL = re.compile(r"""\b(
     details? | detailed | in\ depth | deep\ dive | elaborate | explain | walk\ me\ through | step[\s-]by[\s-]step |
     (the\ |all\ the\ |what\ are\ the\ )steps | instructions | how\ (do|can|should|would)\ (i|we|you)\b | how\ to |
@@ -129,8 +124,6 @@ _HEADER = re.compile(r"^\s*(subject|to|cc|bcc|from)\s*:\s*\S", re.I | re.M)
 _SALUTATION = re.compile(r"^\s*(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^\n.!?]{0,40},\s*$", re.I | re.M)
 _SIGNOFF = re.compile(r"^\s*(best|thanks|thank you|cheers|sincerely|regards|best regards|kind regards|warmly|"
                       r"love|talk soon)\s*,?\s*$", re.I | re.M)
-# A quoted passage: an opening quote after a space or a colon, 120 characters or more, then its closing quote. (A
-# closing quote and the next opening one never pair up: an opening quote is followed by a letter, not a space.)
 _LONG_QUOTE = re.compile(r"(?:^|(?<=[\s:(]))(?:“(?=\S)[^“”]{120,}”|\"(?=\S)[^\"]{120,}\"(?=[\s.,;:!?)]|$))",
                          re.M)
 
@@ -151,7 +144,6 @@ def should_shorten(words: str, reply: str) -> bool:
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _CAP_WORD = re.compile(r"\b[A-Z][\w'’&-]*")
-# Words that may start a sentence of the short version without coming from the original.
 _STARTERS = {"want", "should", "shall", "do", "does", "can", "could", "would", "will", "tell", "let", "if", "once",
              "then", "when", "here", "that", "this", "these", "those", "it", "its", "the", "a", "an", "you", "your",
              "we", "i", "i'm", "i'll", "i've", "i'd", "also", "and", "but", "so", "yes", "no", "nothing", "both",
@@ -162,10 +154,6 @@ _STARTERS = {"want", "should", "shall", "do", "does", "can", "could", "would", "
              "you've", "we're", "we'll", "let's", "don't", "nothing's"}
 
 
-# What the Zip says it did, does or will do. With effort low, Haiku sometimes moved an action to the Zip: "When you
-# call Lens Shop" came back as "I can call Lens Shop", and "Builder will make the changes" as "I'll make the
-# changes" (the replay on Colin's chat, Oct 10). Each verb the short version puts after "I" must follow "I" in the
-# same sentence of the reply.
 _AUX = (r"(?:['\u2019](?:ll|ve|d|m)|\s+(?:will|can|could|would|have|had|am|did|do|won['\u2019]t|can['\u2019]t|"
         r"couldn['\u2019]t|didn['\u2019]t|don['\u2019]t|haven['\u2019]t))?")
 _SKIP = r"(?:\s+(?:not|also|still|just|already|then|now|going to|be|been|last|first|never|even|only|\w+ly))*"
@@ -320,7 +308,7 @@ async def ask_haiku(prompt: str, timeout: float = TIMEOUT_SEC, system: str = SYS
             raise RuntimeError("no answer from Haiku: " + str((result or {}).get("subtype") or "no result"))
         return text.strip()
     finally:
-        if proc is not None and proc.returncode is None:   # timed out or cancelled: never leave a stray claude
+        if proc is not None and proc.returncode is None:
             proc.kill()
             await proc.wait()
         shutil.rmtree(tmp, ignore_errors=True)
@@ -349,7 +337,6 @@ def repair(original: str, short: str, words: str = "") -> str | None:
     paras = _paragraphs(short)
     if sum(len(p) for p in paras) < 2:
         return None
-    # The first paragraph is the key point; a rewrite whose key point fails gives way to the reply's own opening.
     candidates = [[p for n, p in enumerate(paras) if n != i] for i in reversed(range(1, len(paras)))]
     candidates += [[p[:-1] if n == i else p for n, p in enumerate(paras)]
                    for i in reversed(range(len(paras))) if len(paras[i]) > 1]
@@ -382,7 +369,7 @@ def lead(original: str, words: str = "") -> str | None:
 def _tidy(text: str) -> str:
     text = text.strip().strip("\"“”").strip()
     text = re.sub(r"^</?reply>|</?reply>$", "", text).strip()
-    return re.sub(r"\s*—\s*", ", ", text)   # no em dashes in anything the person reads
+    return re.sub(r"\s*—\s*", ", ", text)
 
 
 async def shorten(bot_id: str, words: str, reply: str, ask=None, timeout: float = TIMEOUT_SEC) -> str | None:
@@ -419,9 +406,6 @@ async def shorten(bot_id: str, words: str, reply: str, ask=None, timeout: float 
             break
     took = time.monotonic() - started
     if why and short:
-        # Oct 11: Haiku kept ending with a question the reply never asked ("Do you want me to add tonight's study block
-        # to your calendar?"), or moved School's check to the Zip, and the person got the whole 13-sentence reply.
-        # A rewrite with one bad sentence loses that sentence; failing that, the reply's own opening shows.
         fixed = repair(body, short, words)
         if fixed:
             log.info("shortened %s's reply by dropping a sentence the checks refused (%s) in %.1f s", bot_id, why,
@@ -440,7 +424,7 @@ async def shorten(bot_id: str, words: str, reply: str, ask=None, timeout: float 
 
 # MARK: Remembering and showing
 
-_last_words: dict[str, str] = {}   # the person's latest message per Zip, for a reply that picks up after a card
+_last_words: dict[str, str] = {}
 
 
 def _attachments(text: str) -> list[str]:
@@ -512,7 +496,7 @@ async def for_reply(bot_id: str, words: str | None, reply: str) -> str | None:
     try:
         if not enabled():
             return None
-        own = lookup(bot_id, reply)   # the Zip's own short version (offer), or one already written
+        own = lookup(bot_id, reply)
         asked = _last_words.get(bot_id, "") if words is None else words
         if own and not asked_for_detail(asked):
             return "\n\n".join([own, *_attachments(reply)])

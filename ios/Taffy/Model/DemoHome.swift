@@ -24,8 +24,8 @@ extension AppState {
     func enterDemo() {
         demoReturnsToOnboarding = onboarding
         demoMode = true
-        fixtureMode = true          // keeps polling, push and refresh quiet
-        client.demo = true          // and makes any request that slips through fail at once
+        fixtureMode = true
+        client.demo = true
         loadDemoData()
         paired = true
         showWelcome = false
@@ -50,7 +50,6 @@ extension AppState {
                                                    replyTo: replyTo))
         working[bot] = "Thinking"
         try? await Task.sleep(for: .milliseconds(900))
-        // Simulator fixtures (-fixture) answer like a Zip taking a card's answer; the sample home says what it is.
         let answer = demoMode ? DemoHome.reply(to: text, bot: self.bot(bot)) : "Will do."
         working[bot] = nil
         chats[bot, default: []].append(ChatMessage(id: "demo-\(UUID().uuidString)", kind: .bot, text: answer, date: Date()))
@@ -65,7 +64,6 @@ extension AppState {
             chats[bot]?[i].question?.follow = picked == nil ? nil : "Noted. In your own Zero I would take care of that now."
             return
         }
-        // The card stays as his answer (AppState.markAnswered); the same words go as his message, shown only there.
         if let picked { _ = await demoSend(picked, to: bot) } else { chats[bot]?.removeAll { $0.id == message.id } }
     }
 

@@ -1,6 +1,3 @@
-// Checks the app's certificate pinning (Taffy/Model/HubTrust.swift) against a real Mac home's TLS port.
-//   hubtrust-tests <https://127.0.0.1:PORT> <fingerprint> [pairing code]
-// The fingerprint is the one zero-engine put in the pairing link. Without arguments only the offline checks run.
 import Foundation
 
 var failures = 0
@@ -13,8 +10,6 @@ check(HubTrust.isLocal(URL(string: "https://10.0.0.5:8650")!), "10.x is local")
 check(!HubTrust.isLocal(URL(string: "https://alien.tail0000.ts.net:6443")!), "a Tailscale name is not local")
 check(!HubTrust.isLocal(URL(string: "http://127.0.0.1:8650")!), "loopback is not local")
 
-// Pairing rules (Fable's release QA, Oct 12): reading a link pins nothing; a pin is stored only after a pairing
-// works; a different fingerprint for a pinned address is refused; unpairing forgets the pin.
 UserDefaults.standard.removeObject(forKey: "hubPins")
 let fpA = String(repeating: "a", count: 64), fpB = String(repeating: "b", count: 64)
 let home = URL(string: "https://Sams-Mac.local:8653")!

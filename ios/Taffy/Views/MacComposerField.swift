@@ -104,8 +104,6 @@ struct MacComposerField: UIViewRepresentable {
         v.onSubmit = onSubmit
         v.onEscape = onEscape
         v.placeholderLabel.text = placeholder
-        // While Colin is typing, the field is the source of truth; a render with an older draft must not
-        // overwrite what he just typed. Drafts restored from elsewhere arrive while it is not focused.
         if v.text != text, !v.isFirstResponder {
             v.text = text
             v.updatePlaceholder()

@@ -30,7 +30,7 @@ enum NotificationZips {
                 drawn[bot.id] = key
             }
         }
-        if changed || !registered {   // each Zip's Reply, with "From <name>" when previews are hidden
+        if changed || !registered {
             registered = true
             Push.registerCategories()
         }
@@ -89,7 +89,7 @@ struct LockScreenPrivacySection: View {
 
     static func previewsSetting() async -> UNShowPreviewsSetting {
         #if DEBUG
-        if CommandLine.arguments.contains("-previewsAlways") { return .always }   // the simulator's screenshot
+        if CommandLine.arguments.contains("-previewsAlways") { return .always }
         #endif
         return await UNUserNotificationCenter.current().notificationSettings().showPreviewsSetting
     }

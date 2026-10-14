@@ -12,7 +12,6 @@ final class Ringback {
         var samples = [Int16](repeating: 0, count: frames)
         for i in 0..<Int(rate * onSec) {
             let t = Double(i) / rate
-            // A short fade at each end keeps the tone from clicking.
             let fade = min(1, min(t, onSec - t) / 0.02)
             let v = (sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) * 0.18 * fade
             samples[i] = Int16(v * Double(Int16.max))

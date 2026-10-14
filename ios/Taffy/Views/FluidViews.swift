@@ -1,9 +1,5 @@
 import SwiftUI
 
-// The fluid app's views (Model/Fluid.swift has the why, with the research rows): the bottom of a chat while a Zip
-// works or waits, the queued caption, the Stop button, a row's honest line, While You Were Away, Zero's first
-// tasks and the notification kinds.
-
 // MARK: The bottom of a chat
 
 /// What sits under the conversation: a failed or stuck reply with a way forward, "Paused for your okay" while a card
@@ -34,7 +30,7 @@ struct ActivityRow: View {
 
     private static var startOpen: Bool {
         #if DEBUG
-        return CommandLine.arguments.contains("-expandActivity")   // for screenshots
+        return CommandLine.arguments.contains("-expandActivity")
         #else
         return false
         #endif
@@ -215,7 +211,6 @@ struct RowStatusLine: View {
             } else if state.isPaused(bot.id) {
                 icon("hand.raised.fill", "Paused for your okay.", tint: Theme.taffyDeep)
             } else if let p = state.problem(for: bot.id) {
-                // The row already names the Zip, so its line is short.
                 icon(p.kind == .failed ? "exclamationmark.circle.fill" : "hourglass",
                      p.kind == .failed ? "Its last reply didn't finish." : "Taking longer than usual.",
                      tint: p.kind == .failed ? Theme.danger : Theme.inkSoft)

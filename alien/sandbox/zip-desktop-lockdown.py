@@ -34,7 +34,7 @@ HIDE = ["xfce4-terminal", "xfce4-terminal-settings", "xfce4-terminal-emulator", 
         "xfce4-taskmanager", "mousepad", "org.xfce.mousepad", "org.xfce.mousepad-settings", "vim", "nvim", "htop",
         "python3", "python3.12", "python3.13", "python3.14", "lxterminal", "xdg-open"]
 APP_DIRS = ["/usr/share/applications", "/usr/local/share/applications"]
-KEEP = ("chrom", "browser")   # the bot's browser stays
+KEEP = ("chrom", "browser")
 STAMP = time.strftime("%Y%m%d-%H%M%S")
 
 
@@ -146,7 +146,7 @@ def hide_apps(apps: Path, app_dirs: list[str]) -> int:
     return len(names)
 
 
-PROC = Path("/proc")   # tests point this at a made-up /proc
+PROC = Path("/proc")
 
 
 def _proc_stat(pid: int) -> tuple[str, int] | None:
@@ -196,7 +196,7 @@ def _launcher_alive(desk: Path) -> bool:
     if st is None:
         if PROC.is_dir():
             return False
-        try:   # no /proc to look in: a live pid is taken as the screen, the safe side for this script
+        try:
             os.kill(pid, 0)
             return True
         except PermissionError:

@@ -36,9 +36,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# Every Zip, in the specialists' bullet form (Zero's SOUL uses the same bullets in "Voice and style").
 LINES = [
-    # Oct 10: Colin chose Grok Bot's step lines over working quietly (update-soul-teammate-lines.py).
     "- Show your steps: when a request takes a step, start with \"Will do\" or \"On it\", then put one short line "
     "in the same message as each step he would notice, such as \"Opening eLearning now.\" Each shows as its own "
     "message. End with \"Done.\" and what you set, never what you left alone. Never send \"still working\", "
@@ -60,7 +58,6 @@ LINES = [
     "- Do, then ask: once the goal is clear, start. Ask only the question whose answer changes what you do, with the "
     "work already prepared.",
 ]
-# The lead (Zero) only: the front door, and what it raises on its own.
 LEAD_LINES = [
     "- One front door: relay a teammate's result as the outcome in your own words with the thing itself, never their "
     "summary again. Show a handoff in one line that says who has it. If he talks to a specialist directly, it answers "
@@ -71,12 +68,9 @@ LEAD_LINES = [
     "reads.",
 ]
 MARKER = "- Show your steps:"
-# The Oct 9 line it replaced (update-soul-teammate-lines.py swaps it); a SOUL with it is not given both.
 QUIET_MARKER = "- Quiet while working:"
 LEAD_MARKER = "- One front door:"
 
-# Live convo QA (Oct 9, docs/qa/2026-10-09-live-convo-qa.md): two lines grew a sentence. A SOUL that has the old line
-# gets the new one in its place [#13, #29, #53, #80].
 OLD_FINISHING = (
     "- Finishing: lead with the result and the thing itself (the answer, the draft, the link). If something is "
     "blocked, say the cause, what would clear it and when to try again if you know. Never call something running "
@@ -87,8 +81,6 @@ OLD_FRONT_DOOR = (
     "him itself.")
 LINE_EDITS = [(OLD_FINISHING, LINES[1]), (OLD_FRONT_DOOR, LEAD_LINES[0])]
 
-# A lead made from the zero-home template had a one-line length rule and no reminder rule; Colin's Zero has both
-# (live convo QA: Nova's replies ran to three paragraphs and repeated its open questions) [#7, #13, #29, #75].
 LEAD_STYLE_LINES = [
     ("- Length:", "- Length: write like a teammate texting, not a report. Most replies are two or three short "
                   "sentences: what you did or found, then the next step or the one thing you need from him. Do not "
@@ -97,12 +89,9 @@ LEAD_STYLE_LINES = [
     ("- Say a reminder once", "- Say a reminder once. Do not tack a deadline or a reminder onto later replies unless "
                               "he asks or it changed."),
 ]
-# The template's short length line, which the full one replaces.
 SHORT_LENGTH = "- Write like a teammate texting: most replies are two or three short sentences."
-# The house rules' example of a failed connection names Gmail; in a home that is not Colin's it is "your email".
 GMAIL_EXAMPLE = ("\"I couldn't reach your Gmail just now\"", "\"I couldn't reach your email just now\"")
 
-# The approval rule's card sentence: Colin's SOULs and the house rules, then the lead template other homes start from.
 CARD_EDITS = [
     ("Then reply with only one short plain line, such as \"Waiting for your okay on the card.\", and when he approves, "
      "make exactly the same call again.",
@@ -116,8 +105,6 @@ CARD_EDITS = [
      "again without asking again."),
 ]
 TEAM_START, TEAM_END = "<!-- team:start -->", "<!-- team:end -->"
-# The To-Do template's aside, dropped in a home with no Trello board (live convo QA 2: To-Do told Sam to "connect the
-# Trello board" in a home that cannot connect one).
 TRELLO_ASIDE = " (a Trello board when one is connected)"
 
 

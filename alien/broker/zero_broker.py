@@ -94,10 +94,7 @@ class Config:
     run_timeout: float = 900.0
 
 
-# ---------------------------------------------------------------------------------------------------------
 # Framing between client.py and the broker: one type byte, a 4-byte big-endian length, the payload.
-# ---------------------------------------------------------------------------------------------------------
-
 HEADER, STDIN, STDIN_EOF, STDOUT, STDERR, EXIT, REFUSED, SIGNAL = (b"H", b"I", b"E", b"O", b"R", b"X", b"F", b"S")
 MAX_FRAME = 64 * 1024 * 1024
 
@@ -134,10 +131,6 @@ def recv_frame(f) -> tuple[bytes, bytes] | None:
     return kind, payload
 
 
-# ---------------------------------------------------------------------------------------------------------
-# What a home may ask for
-# ---------------------------------------------------------------------------------------------------------
-
 class Refused(Exception):
     """A request the broker will not run. The message is a plain sentence the home's logs may show."""
 
@@ -154,9 +147,7 @@ DIRECTSDK = ["-p", "--model", None, "--input-format", "stream-json", "--output-f
              "--include-partial-messages", "--tools", "", "--system-prompt-file", None, "--settings", None,
              "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--max-turns", "1",
              "--permission-mode", "dontAsk", "--no-session-persistence", "--mcp-config", None]
-# The hub's side calls (briefing.ask_haiku): a prompt on stdin, no tools, one JSON answer.
 ONESHOT = ["-p", "--model", None, "--tools", "", "--output-format", "json"]
-# Environment a client may pass through. Everything else the broker sets itself.
 PASS_ENV = {
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": re.compile(r"^[0-9]{1,7}$"),
     "DISABLE_TELEMETRY": re.compile(r"^(0|1|true|false)$"),
@@ -170,7 +161,7 @@ MAX_TEXT = 8 * 1024 * 1024
 
 @dataclass
 class ClaudeRequest:
-    shape: str                       # version | auth-status | auth-status-json | directsdk | oneshot
+    shape: str
     model: str | None = None
     effort: str | None = None
     system: str | None = None
@@ -373,8 +364,6 @@ def sanitize_auth_status(raw: str, as_json: bool) -> str:
     return ("Signed in through a shared plan.\n" if keep["loggedIn"] else "The shared plan is not signed in.\n")
 
 
-# --- the owner's account context ------------------------------------------------------------------------------
-#
 # Claude Code prepends a <system-reminder> to the first user turn of every request that names the signed-in
 # account ("# userEmail\nThe user's email address is ..."). It reads the address from oauthAccount in
 # CLAUDE_CONFIG_DIR/.claude.json, which it fills from the owner's sign-in at every start (a per-home config
@@ -465,7 +454,7 @@ class ContextFilter:
 
     def __init__(self, upstream: str, identity, timeout: float = 900.0):
         self.upstream = urlsplit(upstream)
-        self.identity = identity             # () -> list[str], read at request time
+        self.identity = identity
         self.timeout = timeout
         self.scrubbed = 0
         self.refused = 0
@@ -494,7 +483,6 @@ class ContextFilter:
                     return self._fail(404, "Not found.")
                 payload = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 if (self.headers.get("Content-Encoding") or "identity").strip().lower() != "identity":
-                    # An encoded body cannot be read or searched for the owner's details: never forwarded unread.
                     flt.refused += 1
                     return self._fail(400, "The request could not be checked for the owner's details.")
                 identity = flt.identity()
@@ -555,8 +543,6 @@ class ContextFilter:
         self.server.server_close()
 
 
-# --- codex ---------------------------------------------------------------------------------------------------
-
 def parse_codex(argv: list) -> str:
     if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
         raise Refused(NOT_SHARED.format(tool="Codex"))
@@ -584,8 +570,6 @@ def sanitize_login_status(raw: str) -> str:
     return "Not logged in\n"
 
 
-# The settings every shared home's Codex runs with (CODEX_HOME/config.toml): no shell, no browser or computer
-# use, no web search, and none of the owner's ChatGPT apps.
 CODEX_CONFIG = """# Written by zero-broker for a home on a shared plan. Do not edit: the broker rewrites it.
 [features]
 shell_tool = false
@@ -607,7 +591,6 @@ destructive_enabled = false
 APP_SERVER_REQUESTS = {"initialize", "thread/start"}
 APP_SERVER_PREFIXES = ("thread/realtime/",)
 APP_SERVER_NOTIFICATIONS = {"initialized"}
-# The only requests from the app server a home may answer: its own dynamic tools (ask_bot, update_job).
 ANSWERABLE = {"item/tool/call"}
 THREAD_START_KEYS = {"ephemeral", "model", "baseInstructions", "developerInstructions", "dynamicTools", "config"}
 
@@ -667,10 +650,6 @@ def pin_thread(params: dict) -> dict:
     out.update(environments=[], sandbox="read-only", approvalPolicy="never")
     return out
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Sign-ins: each home's config folder links to the owner's live credential file
-# ---------------------------------------------------------------------------------------------------------
 
 def ensure_link(link: Path, target: Path) -> str:
     """Keeps `link` a symlink to `target`. When a program replaced the link with a newer regular file (a token
@@ -774,10 +753,6 @@ class Homes:
         return sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Counts only
-# ---------------------------------------------------------------------------------------------------------
-
 class Stats:
     def __init__(self, path: Path):
         self.path = path
@@ -799,10 +774,6 @@ class Stats:
             except OSError:
                 pass
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Who is calling
-# ---------------------------------------------------------------------------------------------------------
 
 def read_registry(path: Path) -> dict:
     try:
@@ -848,10 +819,6 @@ def peer_uid_tcp(client: tuple[str, int], server: tuple[str, int], proc_text: st
             return int(parts[7])
     return None
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Running a program for a home and relaying it
-# ---------------------------------------------------------------------------------------------------------
 
 def load_admission(path: Path):
     """The DirectSDK plugin's own admission relay, run on the owner's side so the owner's token never passes
@@ -915,7 +882,7 @@ class Relay:
                 while True:
                     frame = recv_frame(self.rfile)
                     if frame is None:
-                        self.kill()          # the home's side went away: never leave a run behind
+                        self.kill()
                         return
                     kind, payload = frame
                     if kind == STDIN:
@@ -979,8 +946,6 @@ class Broker:
         files = [oh / ".claude.json", oh / ".claude" / ".claude.json", self.homes.dir(home) / "claude" / ".claude.json"]
         return owner_identity(files, [oh.name, str(oh)])
 
-    # --- the socket ---
-
     def handle(self, sock: socket.socket) -> None:
         with sock.makefile("rb") as rfile:
             self._handle(sock, rfile)
@@ -1043,7 +1008,6 @@ class Broker:
                 return
 
             def watch_stdin(line: bytes):
-                # The relay pins the cache breakpoint on the turn being asked; the newest user frame is it.
                 if admission is not None:
                     try:
                         frame = json.loads(line)
@@ -1125,10 +1089,6 @@ class Broker:
         return server
 
 
-# ---------------------------------------------------------------------------------------------------------
-# The Codex proxy for Hermes's own ChatGPT fallback
-# ---------------------------------------------------------------------------------------------------------
-
 class CodexTokens:
     """The owner's current ChatGPT access token through Hermes's own auth store (HERMES_HOME is the owner's
     ~/.taffy in the unit), which refreshes under its lock. Cached for a minute."""
@@ -1206,7 +1166,7 @@ def make_http_server(broker: Broker) -> ThreadingHTTPServer:
         sys_version = ""
 
         def log_message(self, *args):
-            pass      # never log paths: they carry a home's secret
+            pass
 
         def _fail(self, code: int, message: str) -> None:
             body = json.dumps({"error": {"message": message}}).encode()
@@ -1302,10 +1262,6 @@ def make_http_server(broker: Broker) -> ThreadingHTTPServer:
     server.daemon_threads = True
     return server
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Command line
-# ---------------------------------------------------------------------------------------------------------
 
 def cmd_serve(c: Config) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")

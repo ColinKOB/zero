@@ -43,7 +43,6 @@ USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 MIN_PASSWORD = 8
 MAX_PASSWORD = 256
 
-# scrypt settings: about 64 MB and 0.1 s a check on alien.
 _N, _R, _P, _DKLEN = 2 ** 15, 8, 1, 32
 _MAXMEM = 128 * 1024 * 1024
 
@@ -76,10 +75,6 @@ def reset_for_tests(path: Path) -> None:
         DB_PATH = path
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Passwords
-# ---------------------------------------------------------------------------------------------------------
-
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode()
 
@@ -102,7 +97,6 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-# A wrong username costs the same as a wrong password, so timing does not say which usernames exist.
 _DUMMY = None
 
 
@@ -134,10 +128,6 @@ def username_problem(username: str) -> str | None:
                 "and start with a letter or number.")
     return None
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Accounts
-# ---------------------------------------------------------------------------------------------------------
 
 def get(username: str) -> dict | None:
     row = db().execute("SELECT * FROM accounts WHERE username = ?", (normalize_username(username),)).fetchone()
@@ -212,10 +202,6 @@ def _set_plan_row(username: str, plan: str) -> None:
         if cur.rowcount == 0:
             raise KeyError(username)
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Invites: sign-up is closed by default; the owner lets one username in with `zero-account invite USERNAME`.
-# ---------------------------------------------------------------------------------------------------------
 
 def add_invite(username: str, hours: float = 72) -> dict:
     name = normalize_username(username)

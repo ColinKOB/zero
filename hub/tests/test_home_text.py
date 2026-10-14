@@ -25,7 +25,6 @@ import home_fixture  # noqa: E402
 from test_onboarding import _real_reload  # noqa: E402   (test_team swaps config.reload_bots out)
 
 HUB = Path(__file__).resolve().parents[1] / "taffy_hub"
-# Colin's facts and the words that would mean the text was written for him.
 COLIN = re.compile(r"Colin|O'Brien|\bhis\b|\bhim\b|\bhimself\b|\balien\b|America/New_York|/home/jdoe|"
                    r"tail0000|Lakeview|lakeview\.edu|goodworks|D\.R\. Acme Homes|AbCd1234|jdoe1")
 
@@ -46,7 +45,7 @@ class StrangerHome(unittest.TestCase):
                                  setattr(config, "HERMES_HOME", saved[2]),
                                  setattr(store._local, "conn", None), setattr(store, "_schema_ready", False)))
         _fresh_store(Path(tempfile.mkdtemp()))
-        config.HERMES_HOME = config.HUB_DIR / "hermes"   # the Zips' own descriptions are the home's data
+        config.HERMES_HOME = config.HUB_DIR / "hermes"
         bots, by_id = list(config.BOTS), dict(config.BOTS_BY_ID)
 
         def restore_team():
@@ -54,7 +53,7 @@ class StrangerHome(unittest.TestCase):
             config.BOTS_BY_ID.clear()
             config.BOTS_BY_ID.update(by_id)
         self.addCleanup(restore_team)
-        config.BOTS[:] = [config.LEAD]   # a new home's team: the lead alone
+        config.BOTS[:] = [config.LEAD]
         config.BOTS_BY_ID.clear()
         config.BOTS_BY_ID["default"] = config.LEAD
         home_fixture.use_in(self, "stranger")
@@ -119,8 +118,8 @@ class StrangerHome(unittest.TestCase):
         self.assertIn("Pacific", texts["voice_prompt"])
         self.assertIn("British spelling", texts["voice_prompt"])
         self.assertIn("Sam's email", texts["voice_prompt"])
-        self.assertNotIn("Trello", texts["voice_prompt"])        # no board in this home
-        self.assertNotIn("money tools", texts["voice_prompt"])   # no Tally
+        self.assertNotIn("Trello", texts["voice_prompt"])
+        self.assertNotIn("money tools", texts["voice_prompt"])
         self.assertEqual(texts["greeting"], "Hey Sam, what's up?")
         self.assertIn("Request from the call: ", texts["job_guide"])
         self.assertEqual(texts["hub_note"], "[Hub note, not a message from Sam]")
@@ -129,7 +128,7 @@ class StrangerHome(unittest.TestCase):
     def test_time_zone_and_quiet_hours_follow_the_home(self):
         self.assertEqual(notices.settings()["quiet_start"], 22)
         self.assertEqual(notices.settings()["quiet_end"], 6)
-        self.assertEqual(notices._et(0).utcoffset().total_seconds(), -8 * 3600)   # Jan 1 1970 in Los Angeles
+        self.assertEqual(notices._et(0).utcoffset().total_seconds(), -8 * 3600)
         self.assertIn("Pacific", __import__("taffy_hub.briefing", fromlist=["_now"])._now())
 
     def test_a_shared_plan_is_spent_frugally(self):
@@ -166,7 +165,6 @@ class ColinHome(unittest.TestCase):
                 onboarding.person_name = saved
 
 
-# The places in the hub's code that hold Colin's data on purpose, and the protocol strings kept for one release.
 ALLOWED = {
     "home.py": "the defaults are Colin's home",
     "config.py": "OWNER_ZIPS, Colin's five original Zips for migrate-registry",
@@ -177,7 +175,6 @@ ALLOWED = {
     "noticers.py": "the repo's alien/ folder",
     "store.py": "the reactions table's who column says 'colin' for the person, an identifier",
 }
-# Internal identifiers that look like a name: message classes, table values, tool argument and log event names.
 IDENTIFIERS = {'"colin"', "'colin'", '"colin_said"', '"colin_started"', '"colin_stopped"',
                '"who=\'colin\' AND told=0 ORDER BY created_at"', '"UPDATE reactions SET told=1 WHERE bot_id=? AND '
                                                                  'who=\'colin\'"'}
@@ -275,7 +272,7 @@ class Registry(unittest.TestCase):
             new = config.migrate_registry()
             self.assertEqual([e["id"] for e in new], ["school", "builder", "clients", "money", "career", "family"])
             self.assertEqual(self.team(), before)
-            self.assertEqual(config.migrate_registry(), json.loads(config.REGISTRY.read_text()))   # idempotent
+            self.assertEqual(config.migrate_registry(), json.loads(config.REGISTRY.read_text()))
             self.assertEqual(len(json.loads(config.REGISTRY.read_text())), 6)
             self.assertFalse(config.is_custom("school"))
             self.assertTrue(config.is_custom("family"))
@@ -284,7 +281,7 @@ class Registry(unittest.TestCase):
         with home_fixture.use("riley"):
             self.assertEqual([b[0] for b in self.team()], ["default", "family"])
             self.assertTrue(config.is_custom("school"))
-            config.migrate_registry()   # what a home created from the owner's would carry
+            config.migrate_registry()
             self.assertEqual([b[0] for b in self.team()], ["default", "school", "builder", "clients", "money",
                                                            "career", "family"])
 

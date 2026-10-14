@@ -21,14 +21,14 @@ import re
 import time
 from urllib.parse import urlparse
 
-STALL_SEC = 300          # no event from the turn for this long: "This is taking longer than usual"
-STALE_SEC = 6 * 3600     # a failed reply stops being news after this
+STALL_SEC = 300
+STALE_SEC = 6 * 3600
 MAX_STEPS = 8
 
-_live: dict[str, dict] = {}       # bot id -> the running chat turn
-_expect: dict[str, str] = {}      # bot id -> the person's words for the turn about to start (turns._run)
-_outcome: dict[str, dict] = {}    # bot id -> how the person's last turn ended, when it failed
-_began: dict[str, float] = {}     # bot id -> when the person's last chat turn began (a closed card is old news after it)
+_live: dict[str, dict] = {}
+_expect: dict[str, str] = {}
+_outcome: dict[str, dict] = {}
+_began: dict[str, float] = {}
 
 
 # MARK: Plain words for a step
@@ -59,7 +59,6 @@ def _teammate(name_or_id) -> str:
     return bot.name if bot else "a teammate"
 
 
-# Tools whose call says nothing the person needs to watch for: the card or the reaction itself shows.
 QUIET = {"offer_choices", "react", "react_to_message", "todo_list", "show_tip", "clarify", "team_note", "save_fact", "recall",
          "close_sign_in_card", "close_card"}
 
@@ -159,7 +158,7 @@ def begin(bot_id: str) -> None:
     words = _expect.pop(bot_id, None)
     _live[bot_id] = {"since": now, "last_at": now, "steps": [], "run_id": None,
                      "source": "app" if words is not None else "hub", "words": words or "", "waiting": False}
-    if words is not None:   # the person's own message moves on from a failed reply or a closed card
+    if words is not None:
         _began[bot_id] = now
         _outcome.pop(bot_id, None)
 

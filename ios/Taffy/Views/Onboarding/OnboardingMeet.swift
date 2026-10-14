@@ -1,7 +1,5 @@
 import SwiftUI
 
-// Screens 1 to 3: meet the agent, name it, and its first words.
-
 // MARK: 1. Meet your agent
 
 struct MeetScreen: View {
@@ -58,8 +56,6 @@ struct NameScreen: View {
 
     var body: some View {
         OnboardingPage {
-            // The headline and the badge keep their size; the agent gets whatever room is left, so with the
-            // keyboard up the whole badge and the typed name stay visible above Done.
             VStack(spacing: 0) {
                 OnboardingHeadline("What Do You Want to Name It?")
                     .padding(.horizontal, 24)
@@ -82,7 +78,7 @@ struct NameScreen: View {
         }
         .onAppear { name = model.draft.agentName }
         #if DEBUG
-        .task {   // -typing: the keyboard up, for screenshots
+        .task {
             if CommandLine.arguments.contains("-typing") { try? await Task.sleep(for: .seconds(0.6)); typing = true }
         }
         #endif
@@ -177,12 +173,8 @@ struct TalkScreen: View {
                 }
             }
         } footer: {
-            // The answer row stays on screen while the agent speaks (Send and Skip wait for it), so the keyboard
-            // stays up between questions instead of dropping and rising again.
             if finished {
                 if !speaking { OnboardingButton("Continue") {
-                    // A Mac connected to its own engine checks the plan next. Anywhere else the person sets Zero up on their
-                    // Mac (or pairs with a code); a new account on the front door only where sign-up is open.
                     model.go(model.rehearsal ? .code
                              : state.paired && Theme.onMac ? .plan
                              : FrontDoor.signUpOpen ? .account : .mac)
@@ -253,7 +245,6 @@ struct TalkScreen: View {
         let person = model.personName
         let answered = i > 0 && i <= questions.count && !value(questions[i - 1]).isEmpty
         switch i {
-        // Colin's tone: about a 4 out of 10 for warmth, like a friend catching up rather than an introduction.
         case 0: return "Hey, I'm \(model.agentName). What should I call you?"
         case 1: return (person.isEmpty ? "That's fine." : "Nice, \(person).") + " So what's keeping you busy these days?"
         case 2: return (answered ? "Got it." : "No problem.") + " Where are you living right now?"
@@ -315,8 +306,6 @@ private struct SpeechBubble: View {
     let full: String
 
     var body: some View {
-        // One Text holding the whole line, the untyped part drawn clear, so every word sits on its final line from
-        // the start and nothing reflows as it types.
         (Text(shown) + Text(full.hasPrefix(shown) ? String(full.dropFirst(shown.count)) : "").foregroundColor(.clear))
         .font(Theme.text(21, .medium))
         .foregroundStyle(Theme.ink)
@@ -333,7 +322,6 @@ private struct SpeechBubble: View {
                 .overlay(BubbleTail().stroke(Theme.ink, style: StrokeStyle(lineWidth: 2.5, lineJoin: .round)))
                 .frame(width: 26, height: 14)
                 .offset(y: -12)
-                // Covers the box's border where the tail meets it.
                 .overlay(alignment: .bottom) { Rectangle().fill(Color.white).frame(width: 21, height: 4).offset(y: -10.5) }
         }
         .overlay(alignment: .topLeading) {

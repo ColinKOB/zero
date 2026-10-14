@@ -37,7 +37,7 @@ class Consent(unittest.TestCase):
         asked = plugin.request("money", "chase.com", "check my balance", "s1", None, why="background")
         plugin.decide(sched, False)
         plugin.decide(asked, False)
-        with plugin.db() as c:   # an hour later
+        with plugin.db() as c:
             c.execute("UPDATE requests SET decided = decided - 3600")
         self.assertTrue(plugin.denied_recently("money", "tally.example.com"))
         self.assertFalse(plugin.denied_recently("money", "chase.com"))

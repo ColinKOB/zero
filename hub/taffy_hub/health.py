@@ -38,8 +38,6 @@ MESSAGES = {
                          "next time your Mac is awake in the morning.",
     ("mac_copy", True): "The copy of Zero's backup on your Mac is up to date again.",
 }
-# In a home that thinks on a plan someone shares with it (home.json plan modes "broker"), the plan is not the
-# person's own, and only the plan's owner can sign it in again.
 SHARED_MESSAGES = {
     ("voice", False): "Calls won't connect until the shared ChatGPT plan is signed in again. The person who shares "
                       "it needs to sign in again.",
@@ -49,7 +47,6 @@ SHARED_MESSAGES = {
 }
 
 
-# A home whose Zips think with ChatGPT (plan.brain, set by Zero for Mac and install.sh) has no Claude to fall back from.
 CHATGPT_MESSAGES = {
     ("claude", False): "Your Zips have used up the ChatGPT plan's limit for now. They will answer again when it resets.",
     ("claude", True): "Your Zips are answering again; the ChatGPT plan's limit has reset.",
@@ -68,7 +65,6 @@ def _host() -> str:
     return str(home.get("host.name") or "the server")
 
 
-# The technical fix for each, for the log (never in what the person reads).
 FIXES = {"bots": "check taffy-gateway.service", "voice": "run `codex login` on " + _host(),
          "claude": "usage limit on the Claude subscription; turns fall back to openai-codex gpt-6.1-sol "
                    "(fallback_providers, set by alien/bin/set-toolsets.py)",
@@ -98,7 +94,7 @@ async def _voice_ok() -> bool:
                                                     "PATH": f"{config.HOME}/.local/bin:/usr/bin:/bin"})
         out, _ = await asyncio.wait_for(proc.communicate(), 30)
     except Exception:
-        return True   # cannot tell; never alarm on our own failure
+        return True
     return "logged in" in out.decode(errors="replace").lower()
 
 
@@ -131,7 +127,7 @@ def _mac_copy_ok() -> bool:
         return False
 
 
-NOT_URGENT = {"backup", "mac_copy"}   # these can wait for the morning
+NOT_URGENT = {"backup", "mac_copy"}
 NIGHT_DOWN_GRACE_SEC = 10 * 60
 down_since: dict[str, float] = {}
 
@@ -148,21 +144,17 @@ async def _set(name: str, ok: bool) -> None:
         status[name] = ok
         return
     if watcher._night():
-        # At night a short outage (a restart) wakes nobody: "down" only after 10 minutes, and "back" waits
-        # for the morning digest.
         if not ok and time.time() - down_since[name] < NIGHT_DOWN_GRACE_SEC:
             status[name] = ok
             return
         if ok:
             status[name] = ok
-            if await watcher.push("Zero", message(name, ok)):   # not urgent: held until 7 a.m.
+            if await watcher.push("Zero", message(name, ok)):
                 saved[name] = ok
                 store.set_setting("health", saved)
             return
     status[name] = ok
     log.warning("health: %s is %s%s", name, "back" if ok else "down", "" if ok else f" ({FIXES[name]})")
-    # Health news ignores mute, snooze and quiet hours (except NOT_URGENT). The new state is saved only once the person has been told,
-    # so a push that fails is tried again on the next check.
     if await watcher.push("Zero", message(name, ok), urgent=name not in NOT_URGENT):
         saved[name] = ok
         store.set_setting("health", saved)
@@ -177,7 +169,7 @@ def turn_finished(error: str | None, backup: bool = False) -> None:
     the person once; the next reply from Claude clears it."""
     limited = (bool(error) and any(w in error.lower() for w in LIMIT_WORDS)) or (not error and backup)
     if limited != status["claude"]:
-        return   # nothing changed: limited and already known, or fine and already fine
+        return
     try:
         asyncio.get_running_loop().create_task(_set("claude", not limited))
     except RuntimeError:

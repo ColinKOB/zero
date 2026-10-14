@@ -48,12 +48,10 @@ final class OnboardingE2ETests: XCTestCase {
         app.launch()
         run.walk()
         if config.mode == .hub {
-            // The hub renamed the lead to the name typed on Name It; the home lists it.
             XCTAssertTrue(app.staticTexts[run.persona.agent_name].waitForExistence(timeout: 30),
                           "the home does not show the lead as \(run.persona.agent_name)")
             for id in run.picked {
                 let name = Persona.templateName(id)
-                // The lead makes the picked Zips in its own turn; they show up when that turn finishes.
                 if !app.staticTexts[name].waitForExistence(timeout: 120) {
                     run.note("the home does not list \(name) yet; assert_state.py checks the hub")
                 }
@@ -149,11 +147,11 @@ final class OnboardingRun {
                 } else {
                     repeats = 0
                     seen.append(screen.name)
-                    pause(0.6)   // let the screen's entrance animation settle for the screenshot
+                    pause(0.6)
                     shots.take(screen.name)
                 }
                 screen.complete(app, self)
-                let gone = Date().addingTimeInterval(20)   // some screens save to the hub before moving on
+                let gone = Date().addingTimeInterval(20)
                 while Date() < gone && screen.isShown(app, self) { pause(0.3) }
                 continue
             }
@@ -178,7 +176,7 @@ final class OnboardingRun {
     func isHome() -> Bool {
         app.collectionViews.firstMatch.exists || app.staticTexts["Loading your team"].exists
             || app.anyLabel(containing: "Sample Home").exists
-            || app.staticTexts["First Things I Can Do"].exists   // the onboarding ends in the lead's chat
+            || app.staticTexts["First Things I Can Do"].exists
     }
 
     func writeResult(test: String, passed: Bool) {

@@ -75,7 +75,7 @@ async def main(out: Path, repeat: int) -> None:
     for _ in range(10):
         for u, _want in UTTERANCES:
             words = u.split()
-            for n in range(4, len(words) + 1):   # as the words arrive
+            for n in range(4, len(words) + 1):
                 t = time.perf_counter()
                 facts.call_context(" ".join(words[:n]), "default", set())
                 fts_ms.append((time.perf_counter() - t) * 1000)

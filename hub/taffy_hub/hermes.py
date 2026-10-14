@@ -23,9 +23,6 @@ def _headers(bot_id: str) -> dict:
 _session_locks: dict[str, "asyncio.Lock"] = {}
 
 
-# Sessions apart from Colin's chat, by lane: the bot answering teammates (team.py), preparing an action before Zero
-# asks Colin about it (prepared.py), and Zero's quiet look when the chat has been idle (quietlook.py). The gate reads
-# the lane from bot_sessions ("<bot>#<lane>") and limits what each may do.
 LANES = {"team": "answering teammates", "prep": "preparing drafts", "quiet": "looking things over"}
 
 
@@ -107,9 +104,6 @@ async def messages(bot_id: str, limit: int = 200) -> list[dict]:
         return shown
 
 
-# A tool result that put a card in front of the person: the gate's block ("... is now in the app (request 12)"; older
-# gates wrote "in his app" or "in Colin's app") or Hermes giving up on its own prompt while the hub's command card
-# waited. The protocol core is `app (request N)` (plan 2026-10-09, section 9), whatever names the app.
 _CARD_REQUEST = re.compile(r"\bapp \(request (\d+)\)")
 _HERMES_TIMEOUT = "BLOCKED: Command timed out without user response"
 
@@ -148,7 +142,6 @@ def _raised_card(content, bot_id: str | None, session_id: str | None) -> bool:
         return False
     if not card.get("session_id") or not session_id or card.get("session_id") == session_id:
         return True
-    # A card raised before Hermes moved the chat to a compaction's continuation names the older session (lineage.py).
     from . import lineage
     return lineage.same(bot_id, card.get("session_id"), session_id)
 
@@ -207,9 +200,6 @@ def primary_provider(bot_id: str) -> str:
         return "claude-subscription-directsdk-experimental"
 
 
-# Replies the backup model gave (served provider != primary_provider): the chat marks them quietly ("backup": true on
-# the reply event and in the history, app.py), with no notification. Kept by a hash of the reply's words, like
-# shortreply.py's table, for as long as the chat could show them.
 BACKUP_KEEP_DAYS = 30
 
 
@@ -258,7 +248,7 @@ async def stream_turn(bot_id: str, text: str, team: bool = False, lane: str | No
     final answer, {"type": "error", "text"} on failure, then {"type": "done"}.
     """
     lane = "team" if team else lane
-    chat = lane is None   # the Zip's own chat session: the app shows what it is doing (activity.py)
+    chat = lane is None
     if chat:
         activity.begin(bot_id)
     try:
@@ -270,7 +260,7 @@ async def stream_turn(bot_id: str, text: str, team: bool = False, lane: str | No
         if chat:
             activity.end(bot_id)
             from . import usage
-            usage.turn_ended(bot_id)   # the chat's cache was just used: keep-warm counts from here (usage.py)
+            usage.turn_ended(bot_id)
 
 
 async def _stream_turn(bot_id: str, text: str, lane: str | None) -> AsyncIterator[dict]:
@@ -278,7 +268,7 @@ async def _stream_turn(bot_id: str, text: str, lane: str | None) -> AsyncIterato
     final_text = None
     backup = False
     run_id = None
-    memory_open = told_memory = False   # a memory write is running / the chat already got its line this turn
+    memory_open = told_memory = False
     last_error.pop(bot_id, None)
     last_yield.pop(bot_id, None)
     try:
@@ -308,20 +298,19 @@ async def _stream_turn(bot_id: str, text: str, lane: str | None) -> AsyncIterato
                         continue
                     if not run_id and isinstance(data, dict) and data.get("run_id"):
                         run_id = data["run_id"]
-                        yield {"type": "run", "id": run_id}   # lets a live job be steered mid-run
+                        yield {"type": "run", "id": run_id}
                     if event == "approval.request" and isinstance(data, dict):
-                        # Hermes's own check on a command the gate let through (approvals.py, Oct 8 QA round 3, M6).
                         from . import approvals
                         waiting = await approvals.handle(bot_id, run_id or "", data, session_id=sid,
                                                          team=lane is not None)
-                        if waiting:   # the run is held on the person's card: paused, not working
+                        if waiting:
                             yield {"type": "status", "text": waiting, "waiting": True}
                     elif event == "tool.started":
                         tool = data.get("tool_name") or data.get("tool")
                         step = activity.label(tool, data.get("args"), data.get("preview"))
-                        if step:   # plain words, never a tool name; quiet calls (a tapback, a card) have none
+                        if step:
                             yield {"type": "status", "text": step}
-                        if lane is None:   # Colin's own chat: the app shows the Zip's screen and what it saved
+                        if lane is None:
                             if screen.uses_computer(tool):
                                 screen.note_agent_use(bot_id)
                             memory_open = tool == "memory" and events.writes_memory(data.get("args"))
@@ -339,14 +328,9 @@ async def _stream_turn(bot_id: str, text: str, lane: str | None) -> AsyncIterato
                             yield {"type": "delta", "text": data["delta"]}
                     elif event == "assistant.completed":
                         final_text = data.get("content") or final_text
-                        # The provider that actually answered: the ChatGPT backup means Claude hit its limit.
-                        # A Zip whose own model is on ChatGPT (the blind model trial, alien/bin/model-trial.py) is
-                        # answered there every turn; only a reply from a provider other than its own is the backup.
                         served = (data.get("runtime") or {}).get("provider")
                         backup = bool(served) and served != primary_provider(bot_id)
                     elif event == "run.cancelled" and run_id and run_id in yielded_runs:
-                        # The run was held on a card and the person wrote again (turns.send): it made way for
-                        # their message. Not a failure; the card stays for them to answer later.
                         yielded_runs.discard(run_id)
                         last_yield[bot_id] = True
                         yield {"type": "yielded"}
@@ -363,8 +347,6 @@ async def _stream_turn(bot_id: str, text: str, lane: str | None) -> AsyncIterato
                                                     "That reply ran into a problem. Try again in a moment."))
                         yield {"type": "error", "text": last_error[bot_id]}
     except Exception:
-        # Named for the Zip whose chat this is (live convo QA, Oct 9: To-Do's chat said "Nova lost touch with the
-        # team" when To-Do's run was cut off), with what happened and what to do (#52).
         name = config.BOTS_BY_ID[bot_id].name if bot_id in config.BOTS_BY_ID else "Zero"
         last_error[bot_id] = f"{name} lost its connection partway through, so that reply didn't finish. Try again."
         yield {"type": "error", "text": last_error[bot_id]}
@@ -396,11 +378,7 @@ async def steer(bot_id: str, run_id: str, text: str) -> bool:
         return False
 
 
-# The plain error line of each bot's latest turn that ended in one, for a caller that only gets the reply back
-# (turns.follow_up says why a picked-up conversation stopped). Cleared when the bot's next turn starts.
 last_error: dict[str, str] = {}
-# Runs held on a card that were stopped to make way for the person's new message (turns.send), and the Zips whose last
-# hub-started turn ended that way, so follow_up does not report it as a turn that didn't pick back up.
 yielded_runs: set[str] = set()
 last_yield: dict[str, bool] = {}
 

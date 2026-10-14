@@ -81,7 +81,7 @@ class FakeTrello:
                     return self._send(401, {"message": "invalid token"})
                 if fake.busy:
                     return self._send(429, {"message": "API_TOKEN_LIMIT_EXCEEDED"})
-                p = u.path.removeprefix("/1").replace("/cards/AbCd1234", f"/cards/{CARD}")   # a short link
+                p = u.path.removeprefix("/1").replace("/cards/AbCd1234", f"/cards/{CARD}")
                 if p == "/members/me":
                     return self._send(200, {"id": "m1", "username": "samrivera", "fullName": "Sam Rivera"})
                 if p == "/members/me/boards":
@@ -174,7 +174,6 @@ class Connecting(TrelloCase):
         self.assertEqual(json.loads(f.read_text())["token"], TOKEN)
         self.assertNotIn(TOKEN, json.dumps(out))
         self.assertNotIn(TOKEN, json.dumps(apps.payload()))
-        # The token travels in the Authorization header, never in an address
         for method, path, q, body, auth in self.fake.calls:
             self.assertNotIn(TOKEN, path + json.dumps(q))
             self.assertIn(TOKEN, auth)
@@ -196,7 +195,7 @@ class Connecting(TrelloCase):
     def test_start_through_the_relay_comes_back_to_the_app(self):
         home_fixture.use_in(self, {**self.settings, "apps": {"trello": {"key": KEY},
                                                              "relay": {"url": "https://relay.example"}}})
-        self.assertEqual(apps.start("trello")["mode"], "paste")   # an older app build that can't take the relay
+        self.assertEqual(apps.start("trello")["mode"], "paste")
         out = apps.start("trello", relay_ok=True)
         self.assertEqual(out["mode"], "relay")
         q = parse_qs(urlparse(out["url"]).query)
@@ -236,7 +235,6 @@ class Connecting(TrelloCase):
         self.assertFalse(apps.finish(state, TOKEN)["ok"])
 
     def test_no_key_means_not_ready_and_no_flow(self):
-        # Zero ships its own Trello key in the defaults (home.py); a home that sets it to nothing has none.
         home_fixture.use_in(self, {"home_id": "pat", "person": {"name": "Pat"}, "apps": {"trello": {"key": ""}}})
         with self.assertRaises(apps.AppError) as e:
             apps.start("trello")
@@ -358,7 +356,7 @@ class HourlyCopy(TrelloCase):
                 mock.patch.object(calcache, "_note", lambda *a, **k: None):
             self.assertTrue(asyncio.run(calcache.refresh("trello")))
         cards = json.loads(calcache.TRELLO_FILE.read_text())["cards"]
-        self.assertEqual(sorted(c["name"] for c in cards), ["Form A", "Peer replies"])   # Doing, and due this week
+        self.assertEqual(sorted(c["name"] for c in cards), ["Form A", "Peer replies"])
         self.assertEqual(woke, ["trello"])
         self.assertTrue(all(isinstance(c["due"], (int, float, type(None))) for c in cards))
 
@@ -420,7 +418,7 @@ class DonePage(unittest.TestCase):
         digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
         self.assertIn(f"script-src 'sha256-{digest}'", appsapi.DONE_HEADERS["Content-Security-Policy"])
         self.assertNotIn("http", script.replace("zero://", ""))
-        self.assertIn("history.replaceState", script)   # the token leaves the address bar at once
+        self.assertIn("history.replaceState", script)
 
 
 class Endpoints(unittest.TestCase):
@@ -593,7 +591,7 @@ class Drive(DriveCase):
         out = apps.disconnect("google_drive")
         self.assertTrue(out["ok"])
         self.assertIsNone(apps.drive_address())
-        self.assertEqual(google.accounts(), [])   # nothing else used it, so it was revoked and forgotten
+        self.assertEqual(google.accounts(), [])
 
     def test_connect_drive_without_drive_allowed_is_refused_plainly(self):
         acct = {"address": ADDRESS, "drive": False}
@@ -629,7 +627,7 @@ class Tiers(unittest.TestCase):
         self.assertEqual(a.summary, "Archive a Trello card")
         self.assertIn("Archives the card.", a.inputs)
         a = tiers.classify("trello", {"action": "comment", "card": CARD, "text": "Done"})
-        self.assertEqual((a.kind, a.scope), ("send", ""))   # others see it: no standing rule
+        self.assertEqual((a.kind, a.scope), ("send", ""))
 
 
 class TrelloToolCards(GateCase):
@@ -674,7 +672,7 @@ class TrelloToolCards(GateCase):
         self.assertEqual(self.sent, [])
         plugin.decide(card["id"], True)
         self.assertEqual(self.tool(**args)["created"]["name"], "Read chapter 4")
-        self.assertIn("blocked", self.tool(**args))   # Allow Once covered one call
+        self.assertIn("blocked", self.tool(**args))
 
     def test_always_allow_lets_later_changes_through(self):
         self.ask("tidy my board")

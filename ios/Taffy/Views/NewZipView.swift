@@ -127,7 +127,6 @@ struct NewZipView: View {
             templates = ZipTemplate.samples
             return
         }
-        // Only what this home can run (a mailbox for Inbox, a calendar for Calendar and so on).
         do { templates = try await state.client.templates().filter { $0.available != false } } catch { self.error = HubClient.describe(error) }
     }
 }

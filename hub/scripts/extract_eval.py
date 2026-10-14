@@ -23,8 +23,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from taffy_hub import config, extract, facts, store, team  # noqa: E402
 
-# (bot, words, expectation): "save:<subject words>" when a useful fact should come out, "none" when nothing should,
-# "replace:<subject words>" when it corrects an earlier one.
 CHATS = [
     ("default", "Grabbed coffee on the way home: the Cafe Bustelo espresso brick, the 10 ounce one, from the Stop & "
                 "Shop on Hope Street. That's my usual.", "save:coffee"),
@@ -110,7 +108,6 @@ async def main(out: Path) -> dict:
                                 "confidence": f["confidence"], "visibility": f["visibility"]} for f in new],
                      "replaced": replaced, "haiku_secs": timings[-1] if fired and timings else None})
         print(json.dumps(rows[-1]), flush=True)
-    # Order emails, through the same path the hub uses (mail.read replaced by the seeded text).
     from taffy_hub import mail
     seeded = {}
     for n, (subject, sender, body) in enumerate(ORDERS):
@@ -129,7 +126,6 @@ async def main(out: Path) -> dict:
             print(json.dumps({"order": subject, "facts": [facts.get(i)["text"] for i in ids]}), flush=True)
     finally:
         mail.read = real_read
-    # Checks.
     saved_all = [s for r in rows for s in r["saved"]]
     secretish = re.compile(r"password|pepper2026|4111|551204|verification", re.I)
     secrets = [s for s in saved_all if secretish.search(s["text"])]

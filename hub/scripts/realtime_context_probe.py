@@ -97,7 +97,7 @@ class Codex:
                 f = self.waiters.pop(m["id"], None)
                 if f and not f.done():
                     f.set_result(m)
-            elif "id" in m:   # a request from Codex (a hand-off tool call): answered plainly
+            elif "id" in m:
                 self.log({"event": "request", "method": m.get("method"), "params": str(m.get("params"))[:300]})
                 reply = {"id": m["id"], "result": {"contentItems": [{"type": "inputText", "text":
                          "No answer available in this test."}], "success": True}}
@@ -137,7 +137,7 @@ class Speech:
             async def recv(inner):
                 import av
                 import fractions
-                rate, n = 48000, 960   # 20 ms
+                rate, n = 48000, 960
                 if inner.ts == 0:
                     inner.start = time.time()
                 wait = inner.start + inner.ts / rate - time.time()
@@ -186,7 +186,7 @@ async def session(cx: Codex, cond: str, utter: str, audio: Path | None, log) -> 
         await cx.call("thread/realtime/appendText", {"threadId": tid, "text": note, "role": "developer"}, 5)
         st["ctx"].append({"t": t(), "final": final, "search_ms": ms, "items": len(keys), "note": note})
 
-    async def now():   # as voice.context_soon: on every new word, coalesced while a search runs
+    async def now():
         while True:
             st["again"] = False
             await push(st["heard"], False)

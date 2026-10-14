@@ -8,7 +8,7 @@ import UserNotifications
 final class Push: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Push()
     weak var state: AppState? {
-        didSet {   // a tap that arrived before the state existed
+        didSet {
             if let state, let bot = waitingBot { state.openBotRequest = bot; waitingBot = nil }
         }
     }
@@ -77,7 +77,7 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
             try await state.client.lockAnswer(bot: "default", feedID: feedID, action: action, text: text,
                                               unlocked: unlocked)
         } catch let e as HubClient.HubError where e.code >= 400 && e.code < 500 {
-            return   // already answered elsewhere, expired, or no longer paired: nothing to retry
+            return
         } catch {
             var pending = Self.pending()
             pending.append(PendingAnswer(feedID: feedID, action: action, text: text, unlocked: unlocked))
@@ -111,7 +111,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         center.delegate = self
         Self.registerCategories()
         await retryPending()
-        // This phone's key for allowing Mac use from afar; the Mac asks Colin once whether to trust it.
         await MacApprover.shared.register(client: state.client, name: UIDevice.current.name)
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         if granted { UIApplication.shared.registerForRemoteNotifications() }
@@ -142,7 +141,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
     // notification while Zero was in the background or closed ended in SIGABRT (docs/qa/2026-10-09-notification-crash.md).
     // Each callback hops to the main actor and calls its completion handler there.
 
-    // A notification for the chat Colin is already reading doesn't need a banner.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let bot = notification.request.content.userInfo["bot_id"] as? String
@@ -165,7 +163,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         let itemID = (info["item_id"] as? Int) ?? (info["item_id"] as? NSNumber)?.intValue
         Self.onMain {
             if action == ZipNotify.messageReply, let bot, let text, !text.trimmingCharacters(in: .whitespaces).isEmpty {
-                // Reply on a Zip's message: the words go to that Zip; its answer comes back as a notification.
                 Task {
                     await self.replyFromLockScreen(bot: bot, text: text, line: said, itemID: itemID)
                     completionHandler()
@@ -173,7 +170,7 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
                 return
             }
             if let feedID, action.hasPrefix("option:") {
-                if mode == "open" {   // a send or an approval: the card, never an answer from the lock screen
+                if mode == "open" {
                     self.openChat(bot ?? "default")
                     completionHandler()
                     return
@@ -267,8 +264,6 @@ extension Push {
     func runLaunchHooks() async {
         let args = CommandLine.arguments
         if args.contains("-askNotifications") { _ = await requestPermission() }
-        // The simulator check of Oct 10's notifications: the fixture Zips' avatars and categories, as a real home's
-        // refreshBots would save them, so `xcrun simctl push` shows a payload as a message from a Zip.
         if args.contains("-notificationZips"), let state {
             UNUserNotificationCenter.current().delegate = self
             for _ in 0..<50 where state.bots.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
@@ -276,7 +271,7 @@ extension Push {
         }
         guard let i = args.firstIndex(of: "-testNotification"), i + 1 < args.count else { return }
         if args.contains("-fixture") { UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.coldFixtureKey) }
-        UNUserNotificationCenter.current().removeAllDeliveredNotifications()   // earlier runs' banners would match first
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
         let parts = args[i + 1].split(separator: ":")
         let delay = parts.count > 1 ? Double(parts[1]) ?? 5 : 5
         let note = UNMutableNotificationContent()
@@ -316,7 +311,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Set before launch finishes, so a tap that opened the app is delivered.
         UNUserNotificationCenter.current().delegate = Push.shared
-        Push.registerCategories()   // Yes, Not Now and Reply on Zero's questions (notices.category on the hub)
+        Push.registerCategories()
         return true
     }
 

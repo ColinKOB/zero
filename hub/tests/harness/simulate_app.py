@@ -32,11 +32,6 @@ def onboard(hub: Hub, persona: dict, mailbox: bool = True) -> list[str]:
                "look": {"body": "", "outfit": ""}}
     hub.post("/api/onboarding", answers)
     done.append("saved the onboarding answers")
-    # How Should Your Zips Ask?: the app turns the sleep answer into quiet hours and saves them with Zero's questions
-    # on (the app's own parser is exercised by the simulator run; here the persona says what it should give).
-    # The app sends the phone's own time zone with them (OnboardingHome.swift, TimeZone.current). The persona says
-    # which zone its phone is in, and where it lives agrees (live convo QA 2: Sam "lived in Portland" while the app
-    # sent the simulator's Eastern zone and the home was made in Central).
     if persona.get("quiet_hours"):
         person = {"quiet_hours": persona["quiet_hours"]}
         if persona.get("timezone"):
@@ -49,7 +44,6 @@ def onboard(hub: Hub, persona: dict, mailbox: bool = True) -> list[str]:
             done.append(f"quiet hours not saved: HTTP {e.status} ({e.detail})")
     mb = persona.get("mailbox") or {}
     if mailbox and mb:
-        # The app's provider ids: "iCloud Mail" -> icloud, "Gmail" -> gmail, "Other Email" -> other.
         provider = next((p for p in ("icloud", "gmail", "other") if mb.get("provider", "other").lower().startswith(p)),
                         "other")
         body = {"address": mb["address"], "provider": provider,

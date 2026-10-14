@@ -45,9 +45,9 @@ log = logging.getLogger("taffy.apps")
 CONNECTED = "connected"
 NEEDS_SIGN_IN = "needs_sign_in"
 NOT_CONNECTED = "not_connected"
-NOT_SET_UP = "not_set_up"        # native, but this home lacks the one-time setup (Zero's Trello key, a Google client)
-ELSEWHERE = "elsewhere"          # not native yet; connected through the person's Claude or ChatGPT account
-UNAVAILABLE = "unavailable"      # not native yet, and this home has no Claude or ChatGPT account to reach it
+NOT_SET_UP = "not_set_up"
+ELSEWHERE = "elsewhere"
+UNAVAILABLE = "unavailable"
 
 START_TTL_SEC = 15 * 60
 CALLBACK_SCHEME = "zero"
@@ -58,16 +58,14 @@ class App:
     id: str
     name: str
     category: str
-    symbol: str          # an SF Symbol, for an app build that has no logo for it yet
+    symbol: str
     native: bool
-    can: str             # what the Zips can do with it, said once, for the app's detail
-    connector: str = ""  # the matching service in accounts.py (Claude or ChatGPT), when there is one
-    blurb: str = ""      # a few gray words under the name in the list
+    can: str
+    connector: str = ""
+    blurb: str = ""
     popular: bool = False
 
 
-# The list's short lines, and the apps shown first under Popular (Oct 12, Connect Apps redesign). The app shows each
-# app's real logo, bundled in the app (Assets.xcassets/AppLogos, from Simple Icons and the official app icons).
 BLURBS = {
     "gmail": "Read and sort your mail", "google_calendar": "See and add your events",
     "outlook": "Read your mail and calendar", "google_drive": "Search Docs, Sheets and Slides",
@@ -124,7 +122,7 @@ class AppError(RuntimeError):
 # MARK: The store
 
 _lock = threading.Lock()
-_starts: dict[str, tuple[str, float]] = {}   # state -> (app id, expiry): Connect flows that are under way
+_starts: dict[str, tuple[str, float]] = {}
 
 
 def _dir() -> Path:
@@ -211,7 +209,7 @@ def connect_drive(body: dict) -> dict:
     except google.GoogleError as e:
         return {"ok": False, "checked": False, "detail": str(e)}
     with _lock:
-        _forget("google_drive")   # clears an earlier Disconnect
+        _forget("google_drive")
     if not acct.get("drive"):
         mailboxes._forget_google_if_unused(acct["address"])
         return {"ok": False, "checked": False,
@@ -477,7 +475,6 @@ def _need(app_id: str) -> None:
 TRELLO_READS = {"boards", "board", "card", "search"}
 TRELLO_WRITES = {"create_card", "update_card", "comment"}
 DRIVE_READS = {"search", "recent", "read"}
-# The apps oauth.py connects: reading only, for now. Each action is one function of the app's module.
 READS = {"outlook": ("mail", "message", "events"), "dropbox": ("search", "list", "read"),
          "notion": ("search", "read"), "linear": ("my_issues", "search", "issue"),
          "github": ("repos", "search", "issue")}

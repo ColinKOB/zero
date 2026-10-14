@@ -18,7 +18,6 @@ import re
 SILENT = "[SILENT]"
 MAX_WORDS = 12
 
-# Words that, on their own, only acknowledge, thank, sign off or say work is ongoing.
 _ACK = set("""
 ok okay okey k kk alright all right sure yes yep yeah yup cool nice great good perfect awesome excellent fine
 got it noted understood acknowledged ack received roger copy that will do on it sounds
@@ -28,7 +27,7 @@ still working keep keeping going progress making in hand underway away busy post
 i i'll ill im i'm am we we'll we're were are is it's its this that a an on with to of and now just
 standing by here ready waiting wait hold holding
 hey hi hello again
-""".split())   # never "done", "sent", "found" or the like: those are news
+""".split())
 
 
 def _words(text: str) -> list[str]:
@@ -54,9 +53,6 @@ def interrupted(text: str | None) -> bool:
 _VERIFIER_FOOTER = re.compile(r"^\s*⚠️?\s*File-mutation verifier:.*(?:\n[ \t]+•.*)*", flags=re.MULTILINE)
 
 
-# A Zip leads a long reply with its own short version for the phone (taffy-tools teammates.SHORT_FIRST, Fable's usage
-# review, Oct 11): "<short>two or three sentences</short>" before the full reply. The hub shows that short version
-# when it holds up (shortreply.offer) and never shows the tag.
 _SHORT = re.compile(r"<short>\s*(.*?)\s*</short>", re.S | re.I)
 _SHORT_TAG = re.compile(r"</?short>", re.I)
 

@@ -10,14 +10,13 @@ import sys
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "alien" / "plugins" / "taffy-tools"
-if not PLUGIN_DIR.exists():   # on alien the hub is deployed without the repo; use the installed plugin
+if not PLUGIN_DIR.exists():
     PLUGIN_DIR = Path.home() / "taffy" / "plugins" / "taffy-tools"
 
 
 def load():
     if "taffy_tools" in sys.modules:
         return sys.modules["taffy_tools"]
-    # One consent module for the hub and the plugin, as on alien.
     shared = sys.modules.get("taffy_consent")
     spec = importlib.util.spec_from_file_location("taffy_tools", PLUGIN_DIR / "__init__.py",
                                                   submodule_search_locations=[str(PLUGIN_DIR)])

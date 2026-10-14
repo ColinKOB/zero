@@ -141,7 +141,7 @@ def candidates(reply: str) -> list[Candidate]:
             continue
         if notices.off_voice(question) or notices.off_voice(evidence):
             log.info("quiet look's question dropped: it speaks about the person, not to them")
-            continue   # Oct 10: the card is Zero speaking to the person; a third-person one is not asked
+            continue
         options = []
         for i, t in enumerate(texts):
             if i > 0 and CLOSING.search(t):

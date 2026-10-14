@@ -38,7 +38,6 @@ struct CallView: View {
 
             Spacer()
 
-            // A Zip on this call asking to use the Mac: Allow (Face ID) and Not Now right here (MacAskViews.swift).
             MacCallPrompt(botID: botID)
                 .padding(.bottom, 16)
 
@@ -53,7 +52,6 @@ struct CallView: View {
             HStack(alignment: .top, spacing: 0) {
                 if !Self.onMac {
                     if let device = engine?.externalRoute {
-                        // AirPods, the car or another device: the system's audio menu, named for where it plays.
                         VStack(spacing: 8) {
                             RoutePicker()
                                 .frame(width: 78, height: 78)
@@ -73,7 +71,7 @@ struct CallView: View {
                 control("text.bubble.fill", "Transcript", on: showTranscript) { showTranscript = true }
             }
             .padding(.horizontal, 36)
-            .opacity(callFailed ? 0.35 : 1)       // after a failure only End matters
+            .opacity(callFailed ? 0.35 : 1)
             .disabled(callFailed)
 
             Button(action: hangUp) {
@@ -94,22 +92,19 @@ struct CallView: View {
             if let engine { CallTranscript(engine: engine).presentationDetents([.medium, .large]) }
         }
         .task {
-            // A call sends the person's voice to the voice company. It starts only after they agreed (the sample home
-            // never starts one).
             guard state.demoMode || state.aiConsent == .agreed || state.fixtureMode else { dismiss(); return }
             if let running = CallEngine.current, running.botID == botID, !running.isOver {
-                // This screen was built again for the same tap: it shows the call already starting.
                 running.screens += 1
                 running.note("screen", ["joined": running.screens])
                 engine = running
                 connectedAt = running.connectedAt
                 return
             }
-            if let other = CallEngine.current, !other.isOver { other.end() }   // a new call replaces the old one
+            if let other = CallEngine.current, !other.isOver { other.end() }
             let e = CallEngine(state: state, botID: botID)
             e.screens = 1
             engine = e
-            if state.demoMode {   // the sample home: a pretend call that connects to nothing
+            if state.demoMode {
                 e.transcript = [(who: "You", text: "Did my flight get booked?"),
                                 (who: bot?.name ?? "Zero", text: "Yes. You're on the 7:40 a.m. flight on Friday. The confirmation is in your calendar.")]
                 e.phase = .listening
@@ -117,7 +112,7 @@ struct CallView: View {
                 return
             }
             #if DEBUG
-            if state.fixtureMode {   // simulator QA: show a state without starting a call
+            if state.fixtureMode {
                 let a = CommandLine.arguments
                 let phase = a.firstIndex(of: "-callphase").flatMap { $0 + 1 < a.count ? a[$0 + 1] : nil } ?? "connected"
                 e.transcript = [(who: "You", text: "Can you build my Walmart cart?"),
@@ -132,21 +127,17 @@ struct CallView: View {
             #endif
             UIApplication.shared.isIdleTimerDisabled = true
             CallEngine.current = e
-            // Not tied to this screen's task, so a screen rebuilt while the call starts does not cancel it.
             Task { await e.start() }
         }
         .onChange(of: engine?.phase) { _, p in
-            // The timer starts only when the call really connects.
             if connectedAt == nil, p == .listening { connectedAt = Date(); engine?.connectedAt = connectedAt }
             if p == .listening { UIAccessibility.post(notification: .announcement, argument: "Connected") }
             if case .failed = p { UIAccessibility.post(notification: .announcement, argument: "Call failed") }
-            // Ended from the lock screen, CarPlay or AirPods: the screen closes itself, like the Phone app.
             if p == .ended { Task { try? await Task.sleep(for: .seconds(1)); dismiss() } }
         }
         .onDisappear {
             guard let e = engine else { UIApplication.shared.isIdleTimerDisabled = false; return }
             e.screens -= 1
-            // A screen built again for the same call joins it a moment later; the call ends only when none does.
             Task { @MainActor in
                 if !e.isOver { try? await Task.sleep(for: .milliseconds(700)) }
                 guard e.screens <= 0 else { return }
@@ -176,7 +167,6 @@ struct CallView: View {
             } else if engine?.phase == .ended {
                 Text("Call Ended")
             } else if let p = engine?.preparing {
-                // The On-Device Voice is loading for this call (downloading the first time).
                 VStack(spacing: 10) {
                     Text(p.detail).multilineTextAlignment(.center)
                     ProgressView(value: p.progress)
@@ -187,7 +177,6 @@ struct CallView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(p.detail) \(Int(p.progress * 100)) percent.")
             } else {
-                // Not "calling...": nothing rings. The call connects in a moment, or says why it can't (#16 to #18).
                 Text("Connecting...")
             }
         }

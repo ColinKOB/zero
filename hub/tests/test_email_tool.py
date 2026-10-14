@@ -38,9 +38,9 @@ class FakeHimalaya:
     """Answers like himalaya v1.2 would, and records every call."""
 
     def __init__(self):
-        self.calls = []   # (argv, stdin)
+        self.calls = []
         self.reply = REPLY_TEMPLATE
-        self.attached = []   # {path: contents} of the files each send or save attached, read as himalaya would
+        self.attached = []
 
     def __call__(self, argv, stdin=None):
         self.calls.append((list(argv), stdin))
@@ -182,7 +182,7 @@ class Sending(EmailCase):
         self.assertIn("Cc: registrar@lakeview.test", card["inputs"])
         self.assertIn("Subject: Re: Enrollment Questions", card["inputs"])
         self.assertIn("Hi Andrea,\n\nI can start Monday.\n\nBest,\nColin", card["inputs"])
-        self.assertEqual(card["scope"], "")   # two recipients: no Always Allow
+        self.assertEqual(card["scope"], "")
 
     def test_classified_like_a_himalaya_send_from_the_terminal(self):
         cmd = ("cat <<'EOF' | himalaya template send -a lakeview\nFrom: jd910@lakeview.test\nTo: astone@lakeview.test\n"
@@ -208,7 +208,6 @@ class Sending(EmailCase):
         self.assertTrue(sent.startswith("From: Colin O'Brien <jdoe1@example.com>\nTo: Andrea Stone "
                                         "<astone@lakeview.test>\nSubject: Re: Enrollment Questions\n\nHi Andrea,"), sent)
         self.assertEqual(self.fake.calls[-1][0], ["template", "send", "-a", "lakeview"])
-        # Once: the same send again needs a new yes, and a changed message is a different card.
         self.assertIn("blocked", self.tool(**args))
         self.assertIn("blocked", self.tool(**self.send_args(body="Hi Andrea, I can start Tuesday.")))
         self.assertEqual(len(self.fake.sent()), 1)
@@ -233,7 +232,7 @@ class Sending(EmailCase):
         self.assertIn("From: Colin O'Brien <jd910@lakeview.test>\n", sent)
         self.assertIn("In-Reply-To: <abc123@lakeview.test>\n", sent)
         self.assertIn("References: <first@lakeview.test> <abc123@lakeview.test>\n", sent)
-        self.assertNotIn("> When can you start?", sent)   # the card did not show the quoted original
+        self.assertNotIn("> When can you start?", sent)
         self.assertEqual([l for l in sent.splitlines() if l.startswith("To:")], ["To: Andrea Stone <astone@lakeview.test>"])
 
     @unittest.skipUnless("new message with the same subject" in Path(email_tool.__file__).read_text(),
@@ -269,7 +268,7 @@ class Sending(EmailCase):
                 n = len(self.cards())
                 out = self.tool(**self.send_args(**bad))
                 self.assertIn("error", out)
-                self.assertEqual(len(self.cards()), n)   # no card for a call the tool refuses
+                self.assertEqual(len(self.cards()), n)
 
     def test_a_send_needs_its_parts(self):
         for missing, words in (("to", "address in to"), ("subject", "subject"), ("body", "body")):
@@ -278,7 +277,7 @@ class Sending(EmailCase):
                 self.assertIn(words, self.tool(**args)["error"])
 
     def test_long_messages_fit_the_card_or_are_refused(self):
-        long_body = "Paragraph. " * 800   # 8800 characters
+        long_body = "Paragraph. " * 800
         self.tool(**self.send_args(body=long_body))
         self.assertIn(long_body.strip(), self.cards()[-1]["inputs"])
         self.assertIn("too long for Colin's card", self.tool(**self.send_args(body="x" * 10001))["error"])
@@ -292,12 +291,10 @@ class Sending(EmailCase):
         card = self.cards()[-1]
         self.assertIn(f"Attached: aid-chart.png ({os.path.realpath(chart)})", card["inputs"])
         plugin.decide(card["id"], True)
-        # The file changed after Colin saw the card: it is a different send.
         chart.write_bytes(b"two")
         self.assertIn("blocked", self.tool(**args))
         chart.write_bytes(b"one")
         self.assertEqual(self.tool(**args)["attached"], ["aid-chart.png"])
-        # himalaya reads a private copy of the checked file, with the same name, made just for this send.
         [(copy, data)] = self.fake.attached[-1].items()
         self.assertEqual((os.path.basename(copy), data), ("aid-chart.png", b"one"))
         self.assertFalse(copy.startswith(os.path.realpath(work)))
@@ -337,7 +334,7 @@ class Attachments(EmailCase):
         self.assertEqual(out["folder"], str(dest))
         self.assertEqual(sorted(Path(p).name for p in out["saved"]), ["aid chart.png", "aid chart.png.1", "evil_name.sh"])
         self.assertTrue(all(Path(p).parent == dest for p in out["saved"]))
-        self.assertEqual([p.name for p in dest.parent.iterdir()], ["lakeview-2329"])   # the download folder is gone
+        self.assertEqual([p.name for p in dest.parent.iterdir()], ["lakeview-2329"])
         argv = self.fake.calls[-1][0]
         self.assertEqual(argv[:6], ["attachment", "download", "-a", "lakeview", "-f", "INBOX"])
         self.assertEqual(argv[-2:], ["--", "2329"])

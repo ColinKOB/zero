@@ -1,7 +1,3 @@
-// On-Device Voice: one reply, streamed text in, audio out. Each sentence is handed to the reply's Pocket TTS
-// session as soon as it is complete, and its 80 ms frames are played as they come, with the leading silence cut
-// and a matched pause between sentences. Nothing plays until `release()`, so a reply asked for before the
-// person was surely done can be prepared and then thrown away. The Mac bench compiles this file too.
 import FluidAudio
 import Foundation
 
@@ -33,9 +29,9 @@ final class ReplySpeaker {
         let spoken: String
         let enqueuedHost: Double
         var gate = LeadGate()
-        var held: [Float] = []          // audio made before release()
-        var buffer: [Float] = []        // audio waiting for the prebuffer
-        var started = false             // its first audio is scheduled
+        var held: [Float] = []
+        var buffer: [Float] = []
+        var started = false
         var done = false
         var rawSamples = 0
         var genStart: Double?
@@ -176,7 +172,7 @@ final class ReplySpeaker {
         } else if segments[idx].started {
             let prevEnd = output.playEndHost
             let (s, e) = output.schedule(out)
-            if prevEnd > 0 && s - prevEnd > 0.02 { stallsMs.append(Int((s - prevEnd) * 1000)) }   // the voice fell behind
+            if prevEnd > 0 && s - prevEnd > 0.02 { stallsMs.append(Int((s - prevEnd) * 1000)) }
             if !played.isEmpty { played[played.count - 1].end = e }
         } else {
             segments[idx].buffer += out

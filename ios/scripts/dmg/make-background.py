@@ -28,7 +28,6 @@ def draw(scale: int, font_path: str, arrow_svg: str, tmp: Path) -> Path:
     text = "Drag Zero to Applications"
     box = d.textbbox((0, 0), text, font=font)
     d.text(((W * scale - (box[2] - box[0])) / 2, 78 * scale), text, font=font, fill=INK)
-    # The arrow between the icons, recolored and drawn at this scale by rsvg-convert.
     size = 72 * scale
     svg = Path(arrow_svg).read_text().replace('stroke="currentColor"', 'stroke="#B0B0B0"')
     src = tmp / "arrow.svg"

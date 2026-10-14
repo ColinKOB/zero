@@ -52,7 +52,7 @@ def notes() -> list[dict]:
     for i, block in enumerate(b.strip() for b in text.split("§")):
         if not block:
             continue
-        if block.startswith(onboarding.ABOUT_START):   # what the person said in onboarding
+        if block.startswith(onboarding.ABOUT_START):
             body = block.replace(onboarding.ABOUT_START, "").replace(onboarding.ABOUT_END, "").strip()
             out.append({"title": "What You Told Me", "text": body})
             continue
@@ -93,7 +93,7 @@ def summary(server: str | None) -> dict:
         "name": onboarding.person_name(full=False),
         "notes": notes(),
         "server": server or "",
-        "connectors": accounts.connected_names(),   # from the last check, not a fixed list (QA H5)
+        "connectors": accounts.connected_names(),
         "alerts": "your iPhone and Mac as notifications" if apns.ready() else "",
         "logins": saved,
         "checkins": checkins(),

@@ -181,7 +181,7 @@ def describe_mailbox(a: dict) -> dict:
     out["auth"] = "google" if home.is_google(a) else "password"
     out["kind"] = "google_oauth" if home.is_google(a) else "imap"
     if out["auth"] == "google":
-        out["provider"] = "google"   # the app lists these with the Google account
+        out["provider"] = "google"
         g = google.describe(a["address"])
         out.update(state=g["state"], detail=g["detail"] if g["state"] != google.CONNECTED else
                    "Connected. Your Zips can read this mailbox.")
@@ -206,7 +206,7 @@ def add_password_mailbox(body: dict) -> dict:
     if not password.strip() or len(password) > 200 or "\n" in password:
         return {"ok": False, "checked": False, "detail": "Enter the app password for this mailbox."}
     p = dict(PRESETS[provider])
-    for side in ("imap", "smtp"):   # the app sends {"imap": {"host", "port"}, "smtp": {...}} for Other
+    for side in ("imap", "smtp"):
         given = body.get(side)
         if isinstance(given, dict):
             body = {**body, f"{side}_host": given.get("host") or body.get(f"{side}_host"),
@@ -223,8 +223,8 @@ def add_password_mailbox(body: dict) -> dict:
     if not p.get("imap_host") or not p.get("smtp_host") or not HOST.fullmatch(p["imap_host"]) \
             or not HOST.fullmatch(p["smtp_host"]):
         return {"ok": False, "checked": False, "detail": "Enter the incoming and outgoing mail server names."}
-    for side in ("imap", "smtp"):   # a server on this machine itself (a local bridge, the test home's mail server)
-        if p[f"{side}_host"].lower() in LOOPBACK:   # speaks plain text there; TLS would never connect
+    for side in ("imap", "smtp"):
+        if p[f"{side}_host"].lower() in LOOPBACK:
             p[f"{side}_tls"] = "none"
     accts = _accounts_raw()
     if any(a.get("address", "").lower() == address.lower() for a in accts):
@@ -279,7 +279,7 @@ def remove_mailbox(acct_id: str) -> dict:
         return {"ok": False, "checked": False, "detail": "That mailbox isn't here."}
     accts = [a for a in accts if a.get("id") != acct_id]
     _save_accounts(accts)
-    if home.is_google(entry):   # kind "google_oauth" (or the older "auth": "google"); never a himalaya block
+    if home.is_google(entry):
         _forget_google_if_unused(entry["address"])
     else:
         _write_block(acct_id, None)

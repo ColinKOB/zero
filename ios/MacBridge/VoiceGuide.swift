@@ -242,7 +242,6 @@ final class VoiceGuide {
             var raw: CFArray?
             guard AXUIElementCopyMultipleAttributeValues(el, names, AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
                   let vals = raw as? [AnyObject], vals.count == 9 else {
-                // Keep going below an element that wouldn't answer, so one odd node can't hide a whole dialog.
                 for k in ((attr(el, kAXChildrenAttribute) as? [AXUIElement]) ?? []).reversed() { stack.append((k, parent)) }
                 continue
             }
@@ -261,7 +260,6 @@ final class VoiceGuide {
                 AXValueGetValue(vals[5] as! AXValue, .cgSize, &s)
                 r = CGRect(origin: p, size: s)
             }
-            // Never read what someone types into a password box.
             if role == "AXSecureTextField" { value = "" }
             let name = [title, desc, value].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
             let me = nodes.count
@@ -288,7 +286,6 @@ final class VoiceGuide {
                 p = nodes[p].parent; hops += 1
             }
         }
-        // A checkbox without a label takes the words right after it, as a reader would.
         for i in nodes.indices where nodes[i].role == "AXCheckBox" && nodes[i].name.isEmpty {
             if let next = nodes[(i + 1)..<min(nodes.count, i + 8)].first(where: { $0.role == "AXStaticText" && !$0.name.isEmpty }) {
                 nodes[i].name = next.name
@@ -354,7 +351,6 @@ final class VoiceGuide {
             for w in t.text {
                 let hits = snap.nodes.filter { (t.roles.isEmpty || t.roles.contains($0.role)) && usable($0)
                     && GuideText.matches($0.name, w, t.match) }
-                // An open dialog covers the page, so the copy in the dialog is the one the person can click.
                 if let n = hits.first(where: \.inDialog) ?? hits.first { return n }
             }
         }
@@ -414,10 +410,8 @@ final class VoiceGuide {
 
     private func status(for step: GuideStep) -> CalloutContent.Status {
         if cardMode { return .pointing }
-        // No address yet means the page is still loading, not that the person went somewhere else.
         guard let snap = snapshot, !snap.url.isEmpty else { return .searching }
         if !step.pages.isEmpty, !step.pages.contains(where: { snap.url.contains($0) }) {
-            // Pages of other steps count as "on the guide", so a step that just finished doesn't flash.
             let allPages = script?.steps.flatMap(\.pages) ?? []
             return allPages.contains(where: { snap.url.contains($0) }) ? .searching : .offPage
         }
@@ -432,8 +426,6 @@ final class VoiceGuide {
         let pb = NSPasteboard.general
         guard pb.changeCount != pasteboardCount else { return }
         pasteboardCount = pb.changeCount
-        // Only right after a copy in the browser on AI Studio's pages (or anywhere in card mode, where Zero can't
-        // see the page). A copy anywhere else is none of Zero's business.
         let browserFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
         let onStudio = script.keyHosts.contains { snapshot?.url.contains($0) ?? false }
         guard browserFront && (onStudio || cardMode) else { return }
@@ -450,7 +442,6 @@ final class VoiceGuide {
         calloutPanel?.orderOut(nil)
         emit?(["type": "key", "key": key])
         stop(silently: true)
-        // Back to Zero's window, which shows the check and the result, as its guide screen promised.
         if debugHook == nil { NSApplication.shared.activate() }
     }
 
@@ -512,12 +503,10 @@ final class VoiceGuide {
         ensurePanels()
         let pad = script?.steps[index].targets.first?.pad ?? 6
         var hole: CGRect?
-        // The highlight stays on Copy while the callout says the clipboard has no key.
         if !cardMode, content.status == .pointing || content.status == .noKey, let t = target {
             hole = t.frame.insetBy(dx: -pad, dy: -pad).intersection(window)
             if hole?.isNull ?? true { hole = nil }
         }
-        // Dim layer: the browser window only, so the rest of the screen stays usable.
         if !cardMode {
             dimPanel?.setFrame(toScreen(window), display: false)
             dimView.frame = NSRect(origin: .zero, size: window.size)
@@ -526,9 +515,7 @@ final class VoiceGuide {
         } else {
             dimPanel?.orderOut(nil)
         }
-        // Callout: under the target if it fits, else above, else in the window's upper middle.
         let margin = CalloutView.shadowMargin
-        // Measure without a pointer first; the pointer side is picked from where the card fits.
         calloutView.update(content: content, arrow: .none)
         let w = calloutView.fitted.width, h = calloutView.fitted.height
         var origin: CGPoint
@@ -541,7 +528,6 @@ final class VoiceGuide {
             let fitsBelow = below + h - margin < window.maxY - 8
             let fitsAbove = hole.minY - h - 6 + margin > window.minY + 8
             if placement == .beside || (placement == .auto && inSidebar) {
-                // To the right of the target, pointer on the card's left edge level with the target.
                 let y = min(max(hole.midY - 60 - margin, window.minY + 8 - margin), window.maxY - h - 8 + margin)
                 origin = CGPoint(x: hole.maxX + 4 - margin, y: y)
                 arrow = .left(min(max(hole.midY - y - margin, 22), h - 2 * margin - 22))
@@ -557,7 +543,6 @@ final class VoiceGuide {
         }
         calloutView.update(content: content, arrow: arrow)
         let final = calloutView.fitted
-        // A pointer under the card makes the view taller downward; lift it so the tip stays clear of the target.
         if case .down = arrow { origin.y -= 11 }
         calloutPanel?.setFrame(toScreen(CGRect(origin: origin, size: final)), display: true)
         calloutPanel?.orderFrontRegardless()
@@ -618,7 +603,6 @@ final class VoiceGuide {
     private func next() {
         guard let script else { return }
         if cardMode || script.steps[index].id == "copy" {
-            // "I Copied It": look at the clipboard now, even if the copy happened before Zero noticed.
             pasteboardCount = -1
             watchPasteboard()
             if !keyDelivered { noKeyAt = Date(); publish() }

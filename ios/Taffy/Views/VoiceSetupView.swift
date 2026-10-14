@@ -273,7 +273,6 @@ struct VoiceSetupView: View {
                 actions { primary("OK") { dismiss() } }
             }
         case .refused:
-            // Google's own message stays out of sight: it is written for developers.
             VStack(alignment: .leading, spacing: 0) {
                 header(symbol: "exclamationmark.triangle", title: "Google Turned This Key Down",
                        lead: "This happens with some work and school accounts. A personal Google account usually works.")

@@ -1,7 +1,3 @@
-# dmgbuild settings for Zero.dmg. release.sh passes -D app=<path to Zero.app> -D background=<this folder>/background.tiff.
-# The window shows Zero on the left, the Applications folder on the right, and background.tiff, which says
-# "Drag Zero to Applications" with an arrow between them. dmgbuild writes Finder's layout file itself, so no
-# Finder window or Automation permission is needed. https://dmgbuild.readthedocs.io
 app = defines["app"]  # noqa: F821  (dmgbuild provides `defines`)
 
 format = "UDZO"

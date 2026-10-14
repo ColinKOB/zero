@@ -38,8 +38,8 @@ class FakeProviders:
         self.calls: list[tuple] = []
         self.valid = {"acc-1"}
         self.refuse_refresh = False
-        self.reject = False                       # every read answers 401, whatever the token
-        self.device = ["authorization_pending"]   # what the device token endpoint answers, in turn
+        self.reject = False
+        self.device = ["authorization_pending"]
         self.issued = 1
         fake = self
 
@@ -94,7 +94,6 @@ class FakeProviders:
                     return self._send(200, {"error": answer, **({"interval": 10} if answer == "slow_down" else {})})
                 if fake.reject or auth.removeprefix("Bearer ") not in fake.valid:
                     return self._send(401, {"error": "invalid token"})
-                # Microsoft Graph
                 if p == "/graph/me":
                     return self._send(200, {"displayName": "Sam Rivera", "mail": "sam@outlook.com"})
                 if p == "/graph/me/mailFolders/inbox/messages" or p == "/graph/me/messages":
@@ -112,7 +111,6 @@ class FakeProviders:
                         {"id": "e1", "subject": "Dentist", "start": {"dateTime": "2026-10-14T09:00:00"},
                          "end": {"dateTime": "2026-10-14T10:00:00"}, "location": {"displayName": "Main St"}},
                         {"id": "e2", "subject": "Cancelled thing", "isCancelled": True}]})
-                # Dropbox
                 if p == "/dropbox/2/files/list_folder":
                     return self._send(200, {"entries": [{".tag": "folder", "name": "School", "path_display": "/School",
                                                          "id": "id:f1"},
@@ -129,7 +127,6 @@ class FakeProviders:
                                             "size": 12})
                 if p == "/dropbox-content/2/files/download":
                     return self._send(200, b"Buy milk\nCall Robin\n", "application/octet-stream")
-                # Linear
                 if p == "/linear/graphql":
                     qtext = body.get("query", "")
                     if "viewer { name email }" in qtext:
@@ -144,7 +141,6 @@ class FakeProviders:
                         return self._send(200, {"data": {"issue": {**node, "description": "Steps here",
                                                                    "comments": {"nodes": [{"body": "On it",
                                                                                            "user": {"name": "Robin"}}]}}}})
-                # Notion
                 if p == "/notion/users/me":
                     return self._send(200, {"object": "user", "type": "bot"})
                 if p == "/notion/search":
@@ -161,7 +157,6 @@ class FakeProviders:
                         {"type": "heading_2", "heading_2": {"rich_text": [{"plain_text": "Packing"}]}},
                         {"type": "to_do", "to_do": {"checked": True, "rich_text": [{"plain_text": "Tent"}]}}],
                         "has_more": False})
-                # GitHub
                 if p == "/gh-api/user":
                     return self._send(200, {"login": "samr"})
                 if p == "/gh-api/user/repos":
@@ -277,7 +272,7 @@ class SigningIn(OAuthCase):
         start = apps.start("linear")
         state = parse_qs(urlparse(start["url"]).query)["state"][0]
         self.assertFalse(oauth.finish("dropbox", "good-code", state)["ok"])
-        self.assertFalse(oauth.finish("linear", "good-code", state)["ok"])   # popped by the wrong try
+        self.assertFalse(oauth.finish("linear", "good-code", state)["ok"])
         start = apps.start("linear")
         state = parse_qs(urlparse(start["url"]).query)["state"][0]
         self.assertTrue(oauth.finish("linear", "good-code", state)["ok"])
@@ -335,12 +330,12 @@ class Refreshing(OAuthCase):
         self.connect("outlook")
         self.fake.valid.discard("acc-1")
         out = apps.call("outlook", "mail", {})
-        self.assertEqual(out["messages"][0]["subject"], "Field trip")   # refreshed, then read
+        self.assertEqual(out["messages"][0]["subject"], "Field trip")
         self.fake.reject = True
         with self.assertRaises(apps.AppError) as e:
             apps.call("outlook", "mail", {})
         self.assertFalse(e.exception.connected)
-        self.assertEqual(self.stored("outlook")["token"], "acc-3")   # refreshed once more before giving up
+        self.assertEqual(self.stored("outlook")["token"], "acc-3")
         self.assertEqual(apps.describe("outlook")["detail"], "Outlook asked you to connect it again.")
         with self.assertRaises(apps.AppError) as e:
             apps.call("outlook", "mail", {})
@@ -369,7 +364,7 @@ class GitHubDevice(OAuthCase):
         self.assertEqual((asked["client_id"], asked["scope"]), ("YOUR_GITHUB_CLIENT_ID", "repo read:user"))
         self.assertEqual(oauth.device_poll(start["state"]), {"ok": False, "pending": True, "interval": 5})
         before = len(self.fake.calls)
-        self.assertTrue(oauth.device_poll(start["state"])["pending"])   # too soon: GitHub is not asked again
+        self.assertTrue(oauth.device_poll(start["state"])["pending"])
         self.assertEqual(len(self.fake.calls), before)
         oauth._pending[start["state"]]["next"] = 0
         self.fake.device = ["slow_down"]
@@ -380,7 +375,7 @@ class GitHubDevice(OAuthCase):
         token_call = [c for c in self.fake.calls if c[1] == "/gh/token"][-1][3]
         self.assertEqual(token_call["grant_type"], "urn:ietf:params:oauth:grant-type:device_code")
         self.assertEqual(apps.describe("github")["account"], "samr")
-        self.assertFalse(oauth.device_poll(start["state"])["ok"])   # single use
+        self.assertFalse(oauth.device_poll(start["state"])["ok"])
 
     def test_a_refusal_ends_the_wait_plainly(self):
         start = apps.start("github")

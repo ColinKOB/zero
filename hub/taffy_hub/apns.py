@@ -92,8 +92,6 @@ def send(title: str, body: str, bot_id: str | None = None, collapse_id: str | No
     `sound`: False for a quiet update that replaces an earlier banner (the request was answered somewhere else).
     `relevance`: how it ranks inside its Zip's group (notify.relevance)."""
     if _under_tests() and _token is _REAL_TOKEN:
-        # Never a real push from a test run, whatever database it can see (Oct 10: the Mac tests sent "Allow Taffy to
-        # use your Mac" and "Make a purchase on walmart" to Colin's iPhone). Tests of this file swap in their own token.
         log.info("push not sent: running under tests (%s)", title[:60])
         return False
     with _lock:
@@ -135,7 +133,7 @@ def payload_for(title: str, body: str, bot_id: str | None = None, *, extra: dict
     """The JSON Apple delivers. Separate from `send` so tests can check it without a device."""
     from . import notify
     sid, sname = notify.sender(bot_id)
-    if bot_id and bot_id != sid:   # a Zip this hub doesn't know by that id: its own id, the title as its name
+    if bot_id and bot_id != sid:
         sid, sname = bot_id, title
     thread = sid
     payload = {"aps": {"alert": {"title": title, "body": notify.fit(body)}, "sound": "default", "thread-id": thread,
@@ -143,7 +141,7 @@ def payload_for(title: str, body: str, bot_id: str | None = None, *, extra: dict
     if not sound:
         payload["aps"].pop("sound")
         payload["aps"]["interruption-level"] = "passive"
-    else:   # the Zip's own message tone (tones.py); "none" shows the notification without a sound
+    else:
         from . import tones
         tone = tones.sound_for(sid)
         if tone:
@@ -155,7 +153,7 @@ def payload_for(title: str, body: str, bot_id: str | None = None, *, extra: dict
     if category in CATEGORIES or (category or "").startswith(("zero.msg.", "zero.card.")):
         payload["aps"]["category"] = category
     elif category is None:
-        payload["aps"]["category"] = f"zero.msg.{sid}"   # Reply to this Zip from the notification (Push.swift)
+        payload["aps"]["category"] = f"zero.msg.{sid}"
     payload["sender"] = {"id": sid, "name": sname}
     if bot_id:
         payload["bot_id"] = bot_id

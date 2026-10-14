@@ -8,8 +8,8 @@ import time
 
 from . import config
 
-_lock = threading.RLock()         # serializes writes (re-entrant: db() may run inside it)
-_local = threading.local()        # one connection per thread: requests run concurrently
+_lock = threading.RLock()
+_local = threading.local()
 _schema_ready = False
 
 SCHEMA = """
@@ -105,12 +105,12 @@ def db() -> sqlite3.Connection:
         if not _schema_ready:
             with _lock:
                 conn.executescript(SCHEMA)
-                for stmt in ("ALTER TABLE feed ADD COLUMN changed_at REAL",          # items edited in place
-                             "ALTER TABLE feed ADD COLUMN step_of INTEGER",         # a step of a teammate's answer
-                             "ALTER TABLE feed ADD COLUMN plain_title TEXT",        # a step's short label (teamvoice.py)
-                             "ALTER TABLE devices ADD COLUMN mac_link INTEGER",      # the one Mac bots may use
+                for stmt in ("ALTER TABLE feed ADD COLUMN changed_at REAL",
+                             "ALTER TABLE feed ADD COLUMN step_of INTEGER",
+                             "ALTER TABLE feed ADD COLUMN plain_title TEXT",
+                             "ALTER TABLE devices ADD COLUMN mac_link INTEGER",
                              "ALTER TABLE devices ADD COLUMN last_used_at INTEGER",
-                             "ALTER TABLE notices ADD COLUMN prep TEXT"):            # a prepared action (prepared.py)
+                             "ALTER TABLE notices ADD COLUMN prep TEXT"):
                     try:
                         conn.execute(stmt)
                     except sqlite3.OperationalError as e:
@@ -161,7 +161,7 @@ def device_for_token(token: str) -> str | None:
     if not row:
         return None
     now = int(time.time())
-    if (row["last_used_at"] or 0) < now - 3600:   # at most hourly, for "last used" in Paired Devices
+    if (row["last_used_at"] or 0) < now - 3600:
         with _lock:
             db().execute("UPDATE devices SET last_used_at = ? WHERE token_hash = ?", (now, h))
             db().commit()
@@ -315,7 +315,7 @@ def said_at(bot_id: str) -> float:
         return 0.0
 
 
-CARD_NOTES_MAX = 5   # a Zip hears at most this many card outcomes at the start of a turn
+CARD_NOTES_MAX = 5
 
 
 def add_card_note(bot_id: str, text: str) -> None:
@@ -365,7 +365,6 @@ def activity_for(bot_id: str, limit: int = 40) -> list[dict]:
               "image", "call", "team", "mac", "choices", "account", "event", "login", "mac_ask"))
     q = f"SELECT * FROM feed WHERE bot_id = ? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id DESC LIMIT ?"
     rows = [dict(r) for r in reversed(db().execute(q, (bot_id, *kinds, limit)).fetchall())]
-    # A card still waiting on Colin stays in the chat however much came after it (Oct 9, chat freshness).
     oldest = rows[0]["id"] if rows else None
     if oldest is not None and len(rows) >= limit:
         waiting = db().execute(

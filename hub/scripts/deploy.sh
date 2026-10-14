@@ -22,9 +22,6 @@
 set -e
 cd "$(dirname "$0")/.."
 
-# Riley's home is paused (Oct 12 2026): Riley decided she does not want her own Zero set up, so her home gets no more
-# deploys or test runs. Her home and its data are left as they are on alien; nothing was deleted. Remove her from this
-# list if she changes her mind.
 PAUSED="riley"
 
 retest=0
@@ -33,7 +30,6 @@ args=""
 for a in "$@"; do [ "$a" = --retest ] || args="$args $a"; done
 set -- $args
 
-# Runs the suite in $1 on alien unless this exact code already passed for settings shape $2 (see above).
 run_tests() {
   dir=$1; shape=$2; log=$3; env=$4
   ssh alien "cd $dir && sum=\$(find . -type f ! -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)-$shape;
@@ -73,7 +69,6 @@ if [ "$home" = colin ]; then
   deploy_colin "$@"
 elif [ "$home" = all ]; then
   deploy_colin "$@"
-  # /srv/zero/homes.json is {"homes": {"<id>": {"user", "owner", "ports", ...}}} (alien/bin/zero-home-lib.py)
   homes=$(ssh alien "python3 -c 'import json; hs = json.load(open(\"/srv/zero/homes.json\")).get(\"homes\", {}); print(\" \".join(i for i, e in hs.items() if not e.get(\"owner\") and i != \"colin\"))'") || {
     echo "Could not read /srv/zero/homes.json on alien; deployed Colin's home only."; exit 1; }
   for h in $homes; do

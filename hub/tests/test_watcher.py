@@ -51,11 +51,11 @@ class CronOnce(unittest.TestCase):
 
     def test_each_report_once(self):
         store.set_cursor("cron_mtime_ms", 1_000_000)
-        self.write("a.md", 1791414062.123456)        # sub-millisecond time, like a real file
+        self.write("a.md", 1791414062.123456)
         for _ in range(5):
             asyncio.run(watcher.scan_cron())
         self.assertEqual(self.reports(), ["Daily spending update"])
-        self.write("b.md", 1791414062.123456)        # same instant, different file: still reported once
+        self.write("b.md", 1791414062.123456)
         for _ in range(3):
             asyncio.run(watcher.scan_cron())
         self.assertEqual(len(self.reports()), 2)
@@ -63,7 +63,7 @@ class CronOnce(unittest.TestCase):
         for _ in range(3):
             asyncio.run(watcher.scan_cron())
         self.assertEqual(len(self.reports()), 3)
-        self.assertEqual(self.pushed, [])            # routine reports are quiet (Oct 10)
+        self.assertEqual(self.pushed, [])
 
     def test_error_part_way_never_resends(self):
         store.set_cursor("cron_mtime_ms", 1_000_000)
@@ -118,7 +118,7 @@ class Pushes(unittest.TestCase):
         self.assertEqual(self.sent, ["Taffy"])
         watcher._night = lambda: False
         asyncio.run(watcher.send_morning_digest())
-        self.assertEqual(self.sent, ["Taffy", "Career finished"])   # one held item goes out as itself (Oct 10)
+        self.assertEqual(self.sent, ["Taffy", "Career finished"])
         self.assertEqual(store.get_setting("held_pushes"), [])
 
     def test_several_held_items_are_one_sentence_from_the_lead(self):
@@ -141,7 +141,6 @@ if __name__ == "__main__":
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        # Never the live calendar: a real shift on it held these test notifications (Oct 10, 9 a.m.).
         from taffy_hub import notices as _notices
         real_busy = _notices.busy_block
         _notices.busy_block = lambda t=None: None
@@ -169,11 +168,11 @@ class Jobs(unittest.TestCase):
         a = {"id": "a1", "name": "Daily spending update", "schedule": {"display": "0 19 * * *"}, "enabled": True}
         self.jobs(a)
         watcher.scan_jobs()
-        self.assertEqual(self.lines(), [])               # the first look only remembers
+        self.assertEqual(self.lines(), [])
         b = {"id": "b2", "name": "Bill reminder", "schedule": {"display": "0 9 1 * *"}, "enabled": True}
         self.jobs(a, b)
         watcher.scan_jobs()
-        watcher.scan_jobs()                               # unchanged: nothing new
+        watcher.scan_jobs()
         self.assertEqual(self.lines(), ["Added a scheduled job"])
         self.jobs({**a, "enabled": False}, b)
         watcher.scan_jobs()
@@ -199,11 +198,11 @@ class Jobs(unittest.TestCase):
         self.jobs(a)
         self.assertEqual(watcher.scan_jobs(), [])
         self.jobs({**a, "failure_streak": 1})
-        self.assertEqual(watcher.scan_jobs(), [])                 # one failure can be a blip
+        self.assertEqual(watcher.scan_jobs(), [])
         self.jobs({**a, "failure_streak": 2})
         self.assertEqual([t for _, t, _ in watcher.scan_jobs()], ["A scheduled job keeps failing"])
         self.jobs({**a, "failure_streak": 3})
-        self.assertEqual(watcher.scan_jobs(), [])                 # already told
+        self.assertEqual(watcher.scan_jobs(), [])
         self.jobs({**a, "failure_streak": 0})
         self.assertEqual([t for _, t, _ in watcher.scan_jobs()], ["A scheduled job works again"])
         self.assertEqual(self.lines(), ["A scheduled job keeps failing", "A scheduled job works again"])
@@ -216,20 +215,20 @@ class Jobs(unittest.TestCase):
             return True
         real_push, real_long = watcher.push, board.long_running
         watcher.push = fake_push
-        if "school" not in config.BOTS_BY_ID:   # off alien the built-in profiles are missing
+        if "school" not in config.BOTS_BY_ID:
             school = next(b for b in (config.BUILTIN + config.OWNER_ZIPS) if b.id == "school")
             config.BOTS_BY_ID["school"] = school
             self.addCleanup(config.BOTS_BY_ID.pop, "school", None)
         board.long_running = lambda sec: [{"id": "t_1", "title": "Check Lakeview grades", "assignee": "school"}]
         try:
             asyncio.run(watcher.scan_long_tasks())
-            asyncio.run(watcher.scan_long_tasks())                # still running: not told again
+            asyncio.run(watcher.scan_long_tasks())
             board.long_running = lambda sec: []
-            asyncio.run(watcher.scan_long_tasks())                # finished: forgotten
+            asyncio.run(watcher.scan_long_tasks())
         finally:
             watcher.push, board.long_running = real_push, real_long
         self.assertEqual(len(pushed), 1)
-        self.assertIn("I've been working on \"Check Lakeview grades\"", pushed[0])   # from School itself (Oct 10)
+        self.assertIn("I've been working on \"Check Lakeview grades\"", pushed[0])
         self.assertEqual(store.get_setting("long_tasks_told", None), [])
 
 
@@ -248,17 +247,17 @@ class ClaudeLimit(unittest.TestCase):
         async def go():
             health.turn_finished("Error: usage limit reached, resets at 10 PM")
             await asyncio.sleep(0)
-            health.turn_finished("429 rate limit")       # already known
+            health.turn_finished("429 rate limit")
             await asyncio.sleep(0)
-            health.turn_finished(None)                   # a good turn: back
+            health.turn_finished(None)
             await asyncio.sleep(0)
-            health.turn_finished("some other error")     # not a limit
+            health.turn_finished("some other error")
             await asyncio.sleep(0)
-            health.turn_finished(None, backup=True)      # the ChatGPT backup answered: Claude is limited
+            health.turn_finished(None, backup=True)
             await asyncio.sleep(0)
-            health.turn_finished(None, backup=True)      # already known
+            health.turn_finished(None, backup=True)
             await asyncio.sleep(0)
-            health.turn_finished(None)                   # Claude answered again: back
+            health.turn_finished(None)
             await asyncio.sleep(0)
         try:
             asyncio.run(go())
@@ -291,7 +290,6 @@ class QuietRestart(unittest.TestCase):
         with mock.patch("subprocess.run") as run:
             self.assertEqual(cli.restart(0, force=False), 0)
             run.assert_called_once()
-        # A stale file (hub stopped) doesn't block a restart.
         (self.tmp / "busy.json").write_text(json.dumps({"calls": 1, "queued": 0, "mac": False, "at": 0}))
         with mock.patch("subprocess.run") as run:
             self.assertEqual(cli.restart(0, force=False), 0)
@@ -327,7 +325,7 @@ class IdleDesktops(unittest.TestCase):
             (d / "activity").touch()
             os.utime(d / "activity", (old, old))
         fresh = (home / "profiles" / "money" / "bot-desktop" / "activity")
-        os.utime(fresh, None)                                           # Money used its browser just now
+        os.utime(fresh, None)
         real_home = config.HERMES_HOME
         config.HERMES_HOME = home
         stopped = []
@@ -335,13 +333,12 @@ class IdleDesktops(unittest.TestCase):
             with mock.patch.object(screen, "_socket_alive", return_value=True), \
                  mock.patch.object(screen, "_available_mb", return_value=8000), \
                  mock.patch.object(screen, "_cli", side_effect=lambda b, *a: (stopped.append(b), (True, ""))[1]):
-                screen._viewers["career"] = 1                          # Colin is watching Career's screen
+                screen._viewers["career"] = 1
                 screen.sweep_idle_desktops(busy={"builder"}, waiting={"school"},
                                            still_busy=lambda b: b == "clients")
         finally:
             config.HERMES_HOME = real_home
             screen._viewers.pop("career", None)
-        # Builder works, School waits on Colin, Clients started a turn, Money is fresh, Career is watched.
         self.assertEqual(sorted(stopped), ["default"])
 
 
@@ -352,17 +349,17 @@ class BackupHealth(unittest.TestCase):
         real = health.BACKUP_FILE
         health.BACKUP_FILE = tmp / "backup.json"
         try:
-            self.assertTrue(health._backup_ok())                                      # never ran yet
+            self.assertTrue(health._backup_ok())
             health.BACKUP_FILE.write_text(json.dumps({"ok": True, "at": time.time()}))
             self.assertTrue(health._backup_ok())
             health.BACKUP_FILE.write_text(json.dumps({"ok": False, "at": time.time(), "error": "x"}))
             self.assertFalse(health._backup_ok())
             health.BACKUP_FILE.write_text(json.dumps({"ok": True, "at": time.time() - 40 * 3600}))
-            self.assertFalse(health._backup_ok())                                     # stopped running
+            self.assertFalse(health._backup_ok())
             real_mac = health.MAC_COPY_FILE
             health.MAC_COPY_FILE = tmp / "backup-mac.json"
             try:
-                self.assertTrue(health._mac_copy_ok())                               # not set up yet
+                self.assertTrue(health._mac_copy_ok())
                 health.MAC_COPY_FILE.write_text(json.dumps({"at": time.time() - 3600}))
                 self.assertTrue(health._mac_copy_ok())
                 health.MAC_COPY_FILE.write_text(json.dumps({"at": time.time() - 4 * 86400}))

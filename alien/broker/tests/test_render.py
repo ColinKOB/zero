@@ -147,7 +147,7 @@ class Golden(unittest.TestCase):
         key = (self.home / ".taffy/.env").read_text()
         ops = self.run_render()
         self.assertEqual(ops.changes, [])
-        self.assertEqual((self.home / ".taffy/.env").read_text(), key)    # the API key is kept
+        self.assertEqual((self.home / ".taffy/.env").read_text(), key)
 
     @unittest.skipUnless(have_yaml(), "needs a YAML reader (run with the Hermes venv)")
     def test_render_keeps_other_keys(self):
@@ -183,7 +183,7 @@ class Golden(unittest.TestCase):
             data = lib.load_yaml((self.home / rel).read_text())
             self.assertIsInstance(data, dict)
         cfg = lib.load_yaml((self.home / ".taffy/config.yaml").read_text())
-        self.assertEqual(cfg["tools"]["tool_search"]["enabled"], "off")     # a quoted word stays a string
+        self.assertEqual(cfg["tools"]["tool_search"]["enabled"], "off")
         self.assertEqual(cfg["terminal"]["docker_env"]["TZ"], "America/Chicago")
 
     def test_dry_run_changes_nothing(self):
@@ -293,7 +293,7 @@ class Settings(unittest.TestCase):
         self.assertEqual(s["backup"]["drop"], "/srv/zero/backups/riley")
         self.assertEqual(s["google"], {"client_id": lib.ZERO_GOOGLE_CLIENT_ID,
                                        "expected_account": "riley@example.com"})
-        self.assertTrue(s["plan"]["owner_name"])   # "that Colin shares with you" (hub: plan.owner_name)
+        self.assertTrue(s["plan"]["owner_name"])
 
     def test_stranger_file_never_inherits_colin(self):
         with tempfile.TemporaryDirectory() as d:
@@ -306,9 +306,9 @@ class Settings(unittest.TestCase):
         self.assertFalse(s["judge"]["enabled"])
         self.assertEqual(s["host"]["lead_backend"], "docker")
         self.assertFalse(s["backup"]["mac_copy_expected"])
-        self.assertEqual(lib.load_home(None)["person"]["first_name"], "Colin")   # no file: Colin's home, as today
+        self.assertEqual(lib.load_home(None)["person"]["first_name"], "Colin")
         self.assertEqual(s["mail"]["accounts"], [])
-        self.assertEqual(set(s) - set(lib.DEFAULTS), set())   # nothing outside the schema's top-level keys
+        self.assertEqual(set(s) - set(lib.DEFAULTS), set())
 
     def test_set_value(self):
         s = {"home_id": "test"}

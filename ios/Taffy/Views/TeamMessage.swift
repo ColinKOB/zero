@@ -32,8 +32,6 @@ struct TeamMessage: View {
 
     var body: some View {
         if item?.kind == "note" {
-            // One short line, like "Updated memory": the note itself opens on a tap (Colin, Oct 10: the whole note
-            // filled the top of the chat).
             Button { withAnimation(.snappy(duration: 0.25)) { expanded.toggle() } } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -53,8 +51,6 @@ struct TeamMessage: View {
             .buttonStyle(.plain)
             .accessibilityHint(expanded ? "Hides the note" : "Shows the note")
         } else {
-            // The asking bot's message sits on the right, where Colin's own messages go, since it is a message
-            // to the bot whose chat this is. Answers and replies stay on the left like the bot's own bubbles.
             HStack {
                 if fromSide { Spacer(minLength: gap + 10) }
                 CapWidth(max: Theme.onMac ? Theme.bubbleMax : .infinity) {
@@ -73,7 +69,6 @@ struct TeamMessage: View {
     }
 
     private var caption: some View {
-        // An answer in the answering bot's chat shows who it went to; everything else shows who sent it.
         let who = state.bot(item?.kind == "answer" ? (item?.to ?? "") : (item?.from ?? ""))
         return HStack(spacing: 6) {
             if let who { BotAvatar(bot: who, size: 16) }
@@ -101,7 +96,6 @@ struct TeamMessage: View {
                 .lineLimit(long && !expanded ? 7 : nil)
                 .bubbleSelection()
                 .contentShape(Rectangle())
-                // A tap shows the exact words the Zips sent each other, and another tap goes back.
                 .onTapGesture { if plain != nil { withAnimation(.easeOut(duration: 0.2)) { original.toggle() } } }
             if long {
                 Button(expanded ? "Show less" : "Show more") {
@@ -330,7 +324,6 @@ struct ChoiceCardView: View {
                     }
                     .background(Theme.composer, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.rule, lineWidth: 0.5))
-                    // Like Grok Bot: an answer of his own instead of one of the options, typed in the message box.
                     if answer == nil {
                         OwnAnswerSlot(message: message, botID: botID, own: $own, busy: busy) { text in
                             busy = true
@@ -377,7 +370,6 @@ struct MatchedIf: ViewModifier {
 
     func body(content: Content) -> some View {
         if let match, match.on {
-            // The words keep their size and only move; the color behind them takes the bubble's shape.
             content.matchedGeometryEffect(id: match.id(part), in: match.space,
                                           properties: part == .words ? .position : .frame,
                                           anchor: part == .words ? .leading : .center)
@@ -402,7 +394,7 @@ struct CardOptionRow: View {
 
     var body: some View {
         Button(action: tap) {
-            HStack(spacing: 8) {   // Grok: badge 9 pt in, 8 pt to the text
+            HStack(spacing: 8) {
                 Text(String(UnicodeScalar(65 + index)!))
                     .font(Theme.text(11, .medium)).foregroundStyle(lit ? Theme.mineText : Theme.inkSoft)
                     .frame(width: 18, height: 18)
@@ -526,7 +518,6 @@ struct CardAnswerView: View {
                 state.markAnswered(card, bot: bot, text: option)
             }
             await state.answerChoice(card, bot: bot, picked: option)
-            // Refused (answered on the other device): the card is as it was, nothing lit.
             if state.chats[bot]?.first(where: { $0.id == card.id })?.answer == nil { light(nil) }
             done()
         }
@@ -569,7 +560,7 @@ struct OwnAnswerSlot: View {
     var body: some View {
         if let space {
             ZStack(alignment: .leading) {
-                label("Type your own answer").hidden()   // holds the height either way
+                label("Type your own answer").hidden()
                 if here {
                     HStack(spacing: 6) {
                         Image(systemName: state.sentAnswers.contains(message.id) ? "checkmark" : "arrow.down")
@@ -622,7 +613,7 @@ struct OwnAnswerSlot: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         withAnimation(OwnAnswerSlot.motion(reduceMotion)) {
             state.answering[botID] = message
-            state.replying[botID] = nil   // one header over the message box at a time
+            state.replying[botID] = nil
         }
     }
 
@@ -912,7 +903,7 @@ struct QuestionCardView: View {
                               match: lit ? CardMatch(card: message.id, space: space, on: !reduceMotion) : nil) {
                     pick(option)
                 }
-                .disabled(!open)   // pick() ignores taps while an answer is on its way
+                .disabled(!open)
             }
         }
         .background(Theme.composer, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -927,7 +918,6 @@ struct QuestionCardView: View {
             Task { await state.answerChoice(message, bot: botID, picked: nil); busy = false }
             return
         }
-        // The answer lights up, then the card turns into it (Oct 10; this replaced folding into a one-line row).
         CardAnswerView.answer(option, card: message, bot: botID, state: state, reduceMotion: reduceMotion,
                               light: { chosen = $0 }, willAnswer: { expanded = false }) { busy = false }
     }

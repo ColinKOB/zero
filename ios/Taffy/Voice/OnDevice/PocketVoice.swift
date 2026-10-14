@@ -1,8 +1,3 @@
-// On-Device Voice: Kyutai Pocket TTS through FluidAudio. The model download, loading, one session per reply, the
-// trim of George's leading silence, and the greeting takes. No UIKit, so the Mac bench compiles this same file.
-//
-// Settings from the call test (docs/research/2026-10-08-kokoro-call-test.md, 2026-10-09-george-questions.md):
-// int8 weights, GPU placement, temperature 0.3, one session per reply (the voice carries across sentences).
 import AVFoundation
 import CryptoKit
 import FluidAudio
@@ -75,7 +70,7 @@ final class PocketVoiceEngine: @unchecked Sendable {
         let t0 = voiceClock()
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var values = URLResourceValues()
-        values.isExcludedFromBackup = true      // it can always be downloaded again
+        values.isExcludedFromBackup = true
         var dir = root
         try? dir.setResourceValues(values)
         let expected = Self.expectedBytes
@@ -104,13 +99,12 @@ final class PocketVoiceEngine: @unchecked Sendable {
         do {
             try await m.initialize()
         } catch {
-            // One retry covers a dropped connection during the first download.
             try await Task.sleep(nanoseconds: 2_000_000_000)
             try await m.initialize()
         }
         manager = m
         progress(0.93, "Getting the voice ready.")
-        for v in OnDeviceVoiceName.allCases.reversed() {   // both voices, so a switch in Settings is quick
+        for v in OnDeviceVoiceName.allCases.reversed() {
             let s = try await m.makeSession(voice: v.rawValue, temperature: Self.temperature, seed: 7)
             _ = try await Self.render(s, text: "Hello there.")
         }
@@ -272,11 +266,11 @@ enum GreetingTakes {
     static let count = 8
 
     struct Take {
-        var samples: [Float]   // 24 kHz, 20 ms before the first sound and 80 ms after the last
+        var samples: [Float]
         var seed: Int
-        var maxGapMs: Int      // longest silence between the first and the last sound
+        var maxGapMs: Int
         var seconds: Double
-        var rise: Double       // pitch at the end over the median pitch (above 1 is a rising end)
+        var rise: Double
         var score = 0.0
     }
 
@@ -343,7 +337,6 @@ enum GreetingTakes {
         guard let a = r.firstIndex(where: { $0 > thr }), let b = r.lastIndex(where: { $0 > thr }) else { return (0, 0, 1) }
         var best = 0, run = 0
         for i in a...b { if r[i] <= thr { run += 1; best = max(best, run) } else { run = 0 } }
-        // Pitch by autocorrelation, 40 ms windows every 10 ms, 70 to 350 Hz.
         var f0: [Double] = []
         let win = 960, minLag = 24000 / 350, maxLag = 24000 / 70
         var i = a * 240

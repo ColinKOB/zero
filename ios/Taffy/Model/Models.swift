@@ -108,7 +108,7 @@ struct CardAnswer: Codable, Hashable {
 struct QuestionCard: Codable, Hashable {
     let notice: Int
     var evidence: String
-    var state: String              // open | picked | dismissed | expired (shown as Closed; still answerable)
+    var state: String
     var picked: String? = nil
     var follow: String? = nil
     var detail: QuestionDetail? = nil
@@ -143,13 +143,13 @@ struct ProactivityStatus: Decodable {
         let id: String
         let name: String
         let detail: String
-        var mode: String           // on | digest | off
+        var mode: String
         let why: String
         let asked: Int
         let answered: Int
         let last: String?
-        var state: String? = nil       // Asking, Morning brief only, Off
-        var rate: Int? = nil           // percent of asked that he answered, two weeks
+        var state: String? = nil
+        var rate: Int? = nil
         var last_at: Double? = nil
     }
 
@@ -157,7 +157,7 @@ struct ProactivityStatus: Decodable {
     struct Source: Decodable, Identifiable, Hashable {
         let id: String
         let name: String
-        let state: String              // ok, waiting, failed, not_connected, chatgpt
+        let state: String
         let at: Double?
         let count: Int?
     }
@@ -246,7 +246,7 @@ struct PingInfo: Decodable, Hashable {
 struct TeamItem: Codable, Hashable {
     let from: String
     let to: String
-    let kind: String        // ask | reply | answer | tell | note
+    let kind: String
     let text: String
     var question: String? = nil
     /// The same message as two coworkers would say it (hub teamvoice.py); `text` stays the exact original.
@@ -285,8 +285,8 @@ struct WorkStep: Codable, Hashable {
 
 /// A tapback, like in Apple Messages.
 struct Reaction: Codable, Hashable {
-    let who: String     // "colin" or "bot"
-    let kind: String    // heart, like, dislike, laugh, emphasize, question
+    let who: String
+    let kind: String
 
     static let kinds = ["heart", "like", "dislike", "laugh", "emphasize", "question"]
 
@@ -297,7 +297,7 @@ struct Reaction: Codable, Hashable {
         case "dislike": return "hand.thumbsdown.fill"
         case "emphasize": return "exclamationmark.2"
         case "question": return "questionmark"
-        default: return ""    // laugh is drawn as "HA HA", like Messages
+        default: return ""
         }
     }
 

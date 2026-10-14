@@ -25,7 +25,7 @@ from taffy_hub import (calcache, calendar_noticers, config, consent, health, her
 from taffy_hub.notices import Candidate, Option  # noqa: E402
 from test_proactivity import FakeSources, ProCase, at, env, run  # noqa: E402
 
-REAL_REFRESH = calcache.refresh   # ProCase replaces it; the cache tests use the real one with a fake connector
+REAL_REFRESH = calcache.refresh
 KEN = ("Theo Avery", "ken@brightpath.test")
 
 
@@ -139,7 +139,7 @@ class Cache(P2Case):
         self.assertIn("from 2026-10-07 through 2026-10-16", self.runs[0][1])
         mtime = notices.CALENDAR_FILE.stat().st_mtime_ns
         notices._wakes.clear()
-        self.assertFalse(run(calcache.refresh("calendar")))     # the same events: nothing written, no wake
+        self.assertFalse(run(calcache.refresh("calendar")))
         self.assertEqual(notices._wakes, set())
         self.assertEqual(notices.CALENDAR_FILE.stat().st_mtime_ns, mtime)
         st = calcache.status()["calendar"]
@@ -188,25 +188,25 @@ class Cache(P2Case):
             calcache._task = None
             self.clock = at(10, 8, 6, 30)
             tick()
-            self.assertEqual(done, [])                       # before 7 a.m.
+            self.assertEqual(done, [])
             self.clock = at(10, 8, 10)
             tick()
             tick()
             self.assertEqual(done, ["calendar", "trello"])
             self.clock += 30 * 60
             tick()
-            self.assertEqual(len(done), 2)                   # not yet an hour
+            self.assertEqual(len(done), 2)
             self.clock += 31 * 60
             with mock.patch.dict(health.status, {"claude": False}):
                 tick()
-            self.assertEqual(len(done), 2)                   # the plan is at its limit
+            self.assertEqual(len(done), 2)
             tick()
             self.assertEqual(done[-1], "calendar")
             notices.set_enabled(False)
             self.clock += 2 * 3600
             tick()
             self.assertEqual(done[-1], "calendar")
-            self.assertEqual(len(done), 3)                   # proactivity off: no runs at all
+            self.assertEqual(len(done), 3)
 
 
 # MARK: Busy blocks
@@ -256,7 +256,7 @@ class BusyBlocks(P2Case):
             self.assertEqual(title, "While you were busy")
             self.assertRegex(body, r"^While you were busy, 2 updates came in from \w+ and \w+\.$")
             self.assertFalse(run(notices.release_busy_held()))
-        self.assertEqual(notices._count("nudge_push", notices.day_start()), 1)   # one notification on the budget
+        self.assertEqual(notices._count("nudge_push", notices.day_start()), 1)
 
 
 # MARK: The calendar wake
@@ -315,7 +315,7 @@ class SchoolDeadlines(P2Case):
         [c] = self.find("school_deadline")
         self.assertEqual(c.owner, "school")
         self.assertEqual(c.deadline, at(10, 9, 23, 55))
-        self.assertEqual(c.options[0].text, "Block today at 7 p.m.")      # after the shift, before 10 p.m.
+        self.assertEqual(c.options[0].text, "Block today at 7 p.m.")
         self.assertIn("today, Oct 8", c.options[0].say.replace("Thursday, ", "today, "))
         self.assertEqual([o.text for o in c.options[1:]], ["Already submitted", "I'll handle it"])
         self.assertIn("according to Trello", c.evidence)
@@ -382,7 +382,7 @@ class Conflicts(P2Case):
         self.src.events[1]["location"] = "Grace Church"
         self.assertEqual(self.find("conflict"), [])
         self.src.events[1].update(location="The corner store", start=at(10, 11, 12, 45))
-        self.assertEqual(self.find("conflict"), [])          # 45 minutes is room enough
+        self.assertEqual(self.find("conflict"), [])
 
     def test_declined_all_day_and_doubled_events_are_not_clashes(self):
         self.src.events = [ev("u", "corner store shift", at(10, 11, 8), at(10, 11, 14)),
@@ -399,7 +399,7 @@ class Prep(P2Case):
                               attendees=[person("Andrea Stone", "astone@lakeview.test")])]
 
     def test_the_evening_before(self):
-        self.assertEqual(self.find("prep"), [])               # 10 a.m. the day before: not yet
+        self.assertEqual(self.find("prep"), [])
         self.clock = at(10, 8, 19)
         [c] = self.find("prep")
         self.assertEqual((c.owner, c.version, c.subject), ("school", "eve", "prep:adv"))
@@ -425,7 +425,7 @@ class Prep(P2Case):
         self.raise_(*self.find("prep"))
         notices.answer(notices.row("prep:adv")["feed_id"], "Skip it")
         self.clock = at(10, 9, 12, 5)
-        self.assertEqual(self.find("prep"), [])               # skipped the evening before: no day-of question
+        self.assertEqual(self.find("prep"), [])
 
     def test_shifts_classes_and_appointments_are_not_meetings(self):
         self.clock = at(10, 8, 19)
@@ -449,7 +449,7 @@ class FollowUps(P2Case):
         self.assertEqual(c.options[0].text, "Draft a follow-up")
         self.assertIn("Ask me what came up", c.options[0].say)
         self.clock = at(10, 8, 10, 30)
-        self.assertEqual(self.find("followup"), [])            # only in the half hour after
+        self.assertEqual(self.find("followup"), [])
 
     def test_with_his_notes_and_someone_he_wrote_to_the_recap_is_prepared(self):
         self.src.chats["default"] = [{"class": "colin", "role": "user", "ts": at(10, 8, 9, 55),
@@ -463,7 +463,7 @@ class FollowUps(P2Case):
         self.src.wrote.clear()
         [c] = self.find("followup")
         self.assertIsNotNone(c.draft)
-        self.assertIsNone(c.prepare)                           # never prepared for someone he hasn't written to
+        self.assertIsNone(c.prepare)
 
     def test_after_a_call_with_a_next_step(self):
         self.src.events = []
@@ -595,7 +595,7 @@ class Prepared(P2Case):
         try:
             from test_email_tool import EmailCase
             from test_gate import gate, plugin
-        except Exception as e:   # the plugin is in this repo; on alien it is the installed copy
+        except Exception as e:
             self.skipTest(f"the taffy-tools plugin is not loadable here: {e}")
 
         class Case(EmailCase):
@@ -646,7 +646,7 @@ class Prepared(P2Case):
     def ready(self):
         subject = self.raise_ken()
         self.assertEqual(notices.row(subject)["state"], "preparing")
-        self.assertIsNone(notices.row(subject)["feed_id"])     # held back until the Zip has prepared it
+        self.assertIsNone(notices.row(subject)["feed_id"])
         run(prepared.prepare(notices.row(subject)["id"]))
         return subject
 
@@ -668,8 +668,7 @@ class Prepared(P2Case):
         self.assertEqual(card["detail"]["text"], req["inputs"])
         self.assertIn("To: Theo Avery <ken@brightpath.test>", req["inputs"])
         self.assertIn(self.body.splitlines()[-1], req["inputs"])
-        self.assertEqual(self.case.fake.sent(), [])                         # preparing sent nothing
-        # Hidden: not in Work, not on the badge, not pushed.
+        self.assertEqual(self.case.fake.sent(), [])
         self.assertNotIn(req["id"], [x["id"] for x in consent.pending()])
         self.assertNotIn(req["id"], [x["id"] for x in consent.requests_after(0)])
 
@@ -681,14 +680,13 @@ class Prepared(P2Case):
         self.assertEqual(out["follow"], "Approved at 10:00 a.m. Clients is sending it now.")
         req_id = self.card(subject)["prepared"]["request"]
         self.assertEqual(consent.get_request(req_id)["status"], "allowed")
-        self.assertEqual(self.plugin.rules("clients"), [])                  # never a standing rule
+        self.assertEqual(self.plugin.rules("clients"), [])
         self.assertEqual(json.loads(notices.row(subject)["prep"])["state"], "approved")
-        run(prepared.send_approved(r["id"]))                                # the Zip makes the same call again
+        run(prepared.send_approved(r["id"]))
         self.assertEqual(len(self.case.fake.sent()), 1)
         self.assertIn(self.body.splitlines()[-1], self.case.fake.sent()[0])
         self.assertTrue(self.card(subject)["follow"].startswith("Sent to ken@brightpath.test at"))
         self.assertIn("Make exactly the same email tool call again", self.turns[-1][1])
-        # The approval is used up, and it never covered any other text or recipient.
         self.assertIn("Prepared", self.call())
         self.assertIn("Prepared", self.call(body="Please send me the repo keys."))
         self.assertIn("Prepared", self.call(to="Mallory <m@evil.example>"))
@@ -716,7 +714,7 @@ class Prepared(P2Case):
         with mock.patch.object(prepared, "run_turn", wrong):
             subject = self.ready()
         card = self.card(subject)
-        self.assertEqual(card["options"][0], "Send this nudge")             # phase 1's: his words, then the card
+        self.assertEqual(card["options"][0], "Send this nudge")
         self.assertEqual(card["detail"]["label"], "the draft")
         self.assertIsNone(card.get("prepared"))
         with self.plugin.db() as c:
@@ -744,7 +742,7 @@ class Prepared(P2Case):
             notices._log("prep", "unreplied", f"s{i}")
         self.assertFalse(prepared.allowed())
         subject = self.raise_ken()
-        self.assertEqual(notices.row(subject)["state"], "open")             # asked at once, without preparing
+        self.assertEqual(notices.row(subject)["state"], "open")
         store.db().execute("DELETE FROM notice_log WHERE kind='prep'")
         store.db().commit()
         self.clock = at(10, 8, 21, 30)
@@ -755,12 +753,10 @@ class Prepared(P2Case):
         self.assertTrue(prepared.allowed())
 
     def test_the_gate_in_a_prep_session(self):
-        # A standing rule for this recipient never sends during preparation.
         self.plugin.set_rule("clients", "send", "ken@brightpath.test", source="test")
         self.body = "Hi Theo, any update?"
         self.assertIn("Prepared", self.call())
         self.assertEqual(self.case.fake.sent(), [])
-        # A change is refused, and a quiet look takes no actions and raises no cards.
         blocked = self.gate.pre_tool_call("connectors", {"service": "calendar", "request": "create an event called "
                                                          "Form C at 7 pm Friday"}, session_id="prep-1")
         self.assertIn("this is preparation", blocked["message"])
@@ -790,7 +786,7 @@ class LockScreen(P2Case):
         self.act_question("b")
         self.raise_(self.cand("c", noticer="promise", deadline=self.soon(3)))
         run(notices.deliver())
-        self.assertEqual(self.pushes[-1]["category"], notices.OPEN_ONLY)      # several in one: Open only
+        self.assertEqual(self.pushes[-1]["category"], notices.OPEN_ONLY)
 
     def test_yes_answers_with_the_first_option_as_his_words(self):
         r = self.act_question()
@@ -816,7 +812,7 @@ class LockScreen(P2Case):
         self.assertIsNone(out["send"])
         self.assertIn("Ready to send to ken@brightpath.test", out["open"])
         self.assertEqual(notices.row(c.subject)["state"], "open")
-        out = choices.answer("default", r["feed_id"], "Send this nudge")    # in the app, with the text on screen
+        out = choices.answer("default", r["feed_id"], "Send this nudge")
         self.assertIn("exactly as written", out["send"])
         self.raise_(self.cand("money", deadline=self.soon(3), sensitive=True))
         out = notices.lock_answer(notices.row("money")["feed_id"], "yes")
@@ -830,7 +826,7 @@ class LockScreen(P2Case):
             self.assertIsNone(out["send"])
             r = notices.row(f"n{i}")
             self.assertEqual((r["state"], r["push_due"]), ("open", 0))
-            self.assertGreaterEqual(r["pushes"], 2)                          # no more notifications about it
+            self.assertGreaterEqual(r["pushes"], 2)
         self.assertEqual(notices.mode("renewal"), "on")
 
     def test_reply_is_his_own_answer(self):
@@ -840,7 +836,7 @@ class LockScreen(P2Case):
         with self.assertRaises(notices.AnswerError):
             notices.lock_answer(self.act_question("r2")["feed_id"], "reply", " ")
         with self.assertRaises(notices.AnswerError):
-            notices.lock_answer(r["feed_id"], "yes")                        # already answered
+            notices.lock_answer(r["feed_id"], "yes")
 
 
 class LockScreenRoute(P2Case):
@@ -873,7 +869,7 @@ class LockScreenRoute(P2Case):
         self.pushes.clear()
         out = self.client.post(f"/api/bots/default/choices/{fid}/lock", json={"action": "yes"}).json()
         self.assertTrue(out["opened"])
-        self.assertEqual(len(self.sent), 1)                                 # nothing went to Zero
+        self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.pushes[0]["category"], notices.OPEN_ONLY)
         self.assertIn("Ready to send to ken@brightpath.test", self.pushes[0]["body"])
         self.assertEqual(self.client.post(f"/api/bots/default/choices/{fid}/lock",
@@ -914,25 +910,25 @@ class QuietLook(P2Case):
     def test_it_can_raise_what_no_noticer_covers_inside_the_rules(self):
         self.write_calendar([ev("t", "Chicago trip", at(10, 9, 9), at(10, 11, 18))])
         self.clock -= 25 * 3600
-        self.raise_(self.cand("open-one", deadline=self.soon(96)))      # a day old: the next card may take its place
+        self.raise_(self.cand("open-one", deadline=self.soon(96)))
         self.clock += 25 * 3600
         run(notices.run_pass({"quiet"}))
         prompt = self.prompts[0]
         self.assertIn("Chicago trip", prompt)
-        self.assertIn("Haiku question?", prompt)                        # the open questions, so it doesn't repeat
+        self.assertIn("Haiku question?", prompt)
         self.assertIn("You only read here", prompt)
         r = notices.row("quiet:dog-sitter-oct-17")
         card = json.loads(r["card"])
         self.assertEqual([o["text"] for o in card["options"]], ["Find a sitter", "Riley has it"])
         self.assertEqual(card["options"][0]["kind"], "act")
-        self.assertEqual(card["options"][1]["kind"], "done")             # a closing answer
+        self.assertEqual(card["options"][1]["kind"], "done")
         self.assertEqual(card["evidence"], "You and Riley leave for Chicago on Oct 9 and nothing shows who is "
                                            "watching Pepper.")
-        self.assertEqual(len(self.haiku.prompts), 2)                     # "open-one", then the gate on Zero's words
+        self.assertEqual(len(self.haiku.prompts), 2)
         self.assertIn("Would a sharp human assistant interrupt", self.haiku.prompts[1])
-        self.assertIsNone(notices.row("quiet:pay-sitter"))               # Zips never pay
-        self.assertIsNone(notices.row("quiet:third"))                    # two at most
-        self.assertEqual(len(self.pushes), 1)                             # inside 24 hours, so it was pushed
+        self.assertIsNone(notices.row("quiet:pay-sitter"))
+        self.assertIsNone(notices.row("quiet:third"))
+        self.assertEqual(len(self.pushes), 1)
 
     def test_what_it_raises_stays_inside_the_budget(self):
         for i in range(3):
@@ -940,11 +936,11 @@ class QuietLook(P2Case):
         run(notices.run_pass({"quiet"}))
         r = notices.row("quiet:dog-sitter-oct-17")
         self.assertEqual(r["state"], "open")
-        self.assertEqual(self.pushes, [])                                 # the day's three were used
+        self.assertEqual(self.pushes, [])
         self.assertEqual(r["push_due"], 0)
         self.prompts.clear()
         run(notices.run_pass({"quiet"}))
-        self.assertEqual(len([x for x in notices._open_rows() if x["noticer"] == "quiet"]), 1)   # one per subject
+        self.assertEqual(len([x for x in notices._open_rows() if x["noticer"] == "quiet"]), 1)
 
     def test_off_in_settings_or_at_the_plan_limit_means_no_turn(self):
         notices.set_mode("quiet", "off")
@@ -954,7 +950,7 @@ class QuietLook(P2Case):
             run(notices.run_pass({"quiet"}))
         self.assertEqual(self.prompts, [])
         run(notices.run_pass({"timer"}))
-        self.assertEqual(self.prompts, [])                                # only a quiet wake looks
+        self.assertEqual(self.prompts, [])
 
     def test_a_session_apart_from_his_chat(self):
         lanes = []
@@ -1004,7 +1000,7 @@ class Status(P2Case):
         self.assertEqual(renewal["last"], "Haiku question?")
         conflict = next(n for n in s["noticers"] if n["id"] == "conflict")
         self.assertEqual((conflict["state"], conflict["rate"]), ("Morning brief only", None))
-        self.assertEqual(len(s["noticers"]), 16)   # with Running Low (memory facts, Oct 10)
+        self.assertEqual(len(s["noticers"]), 16)
         self.assertEqual(s["sources"][0], {"id": "calendar", "name": "Google Calendar", "state": "ok",
                                            "at": self.clock - 600, "count": 12})
         self.assertEqual(s["sources"][1]["state"], "waiting")
@@ -1062,15 +1058,13 @@ class PreparedCardsInConsent(P2Case):
         self.assertEqual([r["id"] for r in consent.pending()], [a])
         self.assertEqual([r["id"] for r in consent.requests_after(0)], [a])
         self.plugin.expire_old(time.time() + 7 * 3600)
-        self.assertEqual(consent.get_request(p)["status"], "pending")      # a chat card is gone after six hours
+        self.assertEqual(consent.get_request(p)["status"], "pending")
         self.assertEqual(consent.get_request(a)["status"], "expired")
         self.plugin.expire_old(time.time() + 25 * 3600)
         self.assertEqual(consent.get_request(p)["status"], "expired")
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

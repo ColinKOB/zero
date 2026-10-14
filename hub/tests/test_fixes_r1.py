@@ -38,18 +38,18 @@ class AppCase(unittest.TestCase):
         _fresh_store(tmp)
         plugin.DB_PATH = tmp / "consent.db"
         config.HERMES_HOME = tmp / "hermes"
-        for b in (config.BUILTIN + config.OWNER_ZIPS):   # a bot whose profile is missing drops out of the team
+        for b in (config.BUILTIN + config.OWNER_ZIPS):
             (config.HERMES_HOME / "profiles" / b.id).mkdir(parents=True, exist_ok=True)
         config.NAMES = tmp / "bot-names.json"
         config.REGISTRY = tmp / "bots.json"
         config.LOOKS = tmp / "bot-looks.json"
-        config.migrate_registry()   # the team from the registry, as in any home (not only the owner's)
+        config.migrate_registry()
         config.reload_bots = _real_reload
         config._registry_mtime = None
         config.reload_bots()
         self.followed = []
 
-        def fake_follow_up(bot_id, note, session_id, urgent):   # recorded when the endpoint schedules it
+        def fake_follow_up(bot_id, note, session_id, urgent):
             self.followed.append((bot_id, note, session_id, urgent))
             return asyncio.sleep(0)
         turns.follow_up = fake_follow_up
@@ -155,7 +155,7 @@ class ApproveIsAGoAhead(AppCase):
         self.assertIsNotNone(p)
         self.assertEqual(p["kind"], "approve")
         self.assertIn("Send the Halloween preview to Miss Dana", p["text"])
-        self.assertIn("heron.studio@example.com", p["text"])   # what the review showed, for the send check
+        self.assertIn("heron.studio@example.com", p["text"])
 
 
 class WaitingSignins(unittest.TestCase):
@@ -281,8 +281,6 @@ class LeadName(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)
@@ -327,7 +325,7 @@ class OnboardingReachesTheZips(AppCase):
             self.assertIn("- Work: I teach middle school science", text)
             self.assertIn("- Name: Sam Rivera", text)
         self.assertTrue(lead.startswith("Style: short answers."))
-        self.post()                                                     # saving again replaces, never stacks
+        self.post()
         self.assertEqual((config.HERMES_HOME / "memories" / "USER.md").read_text().count("onboarding:start"), 1)
         self.assertEqual(json.loads(self.onboarding.PERSON_FILE.read_text())["first_name"], "Sam")
         from taffy_hub import voice
@@ -376,7 +374,7 @@ class UserNotesStayInStep(AppCase):
         self.assertIn("school", team.sync_user_notes())
         self.assertEqual((config.HERMES_HOME / "profiles" / "school" / "memories" / "USER.md").read_text(),
                          "Colin moved to Ohio.")
-        self.assertEqual(team.sync_user_notes(), [])                   # nothing new
+        self.assertEqual(team.sync_user_notes(), [])
 
 
 class SettingsRows(AppCase):

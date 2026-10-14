@@ -33,18 +33,18 @@ from . import config, home, store
 
 log = logging.getLogger("taffy.calllog")
 
-ET = home.TZ   # the home's time zone, followed live
+ET = home.TZ
 SETTING = "save_call_transcripts"
 KEEP_DAYS = 30
-MAX_BYTES = 2 * 1024 * 1024        # one runaway call must not fill the disk; end and summary still go in
-TEXT_LIMIT = 4000                  # a transcript line
-SHORT = 300                        # tool requests and results, news
+MAX_BYTES = 2 * 1024 * 1024
+TEXT_LIMIT = 4000
+SHORT = 300
 APP_EVENTS_PER_POST = 100
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
 _APP_ID = re.compile(r"app-[A-Za-z0-9-]{8,40}")
 _EVENT = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _lock = threading.Lock()
-_open: dict[str, tuple[Path, float]] = {}   # call id: (file, start time), for calls this hub run has seen
+_open: dict[str, tuple[Path, float]] = {}
 
 
 def calls_dir() -> Path:

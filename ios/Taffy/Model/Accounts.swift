@@ -249,7 +249,6 @@ extension AccountsStatus {
                            detail: detail(st, group == "google" ? "Google" : "Trello"),
                            via: gpt && group == "google" ? "chatgpt" : "claude")
         }
-        // Other connectors on the Claude account, for every variant with a Claude plan.
         let more: [Service] = gpt || variant == "signedout" ? [] : [
             Service(id: "linear", name: "Linear", group: "more", state: "connected", connected: true,
                     detail: "Connected. Your Zips can use it.", via: "claude"),
@@ -574,7 +573,7 @@ final class AppsModel {
             if r.pending == true { return .waiting(seconds: max(5, r.interval ?? 5)) }
             return .failed(r.detail ?? "GitHub didn't connect. Tap Connect and try again.")
         } catch {
-            return .waiting(seconds: 10)   // the hub was out of reach for a moment: keep waiting
+            return .waiting(seconds: 10)
         }
     }
 

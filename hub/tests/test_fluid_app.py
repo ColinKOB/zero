@@ -68,12 +68,12 @@ class Live(unittest.TestCase):
                    {"type": "delta", "text": "x"}):
             activity.note("school", ev)
         live = activity.live("school")
-        self.assertEqual(live["steps"], ["Opening elearning.lakeside.edu", "Signing in"])   # repeats fold
+        self.assertEqual(live["steps"], ["Opening elearning.lakeside.edu", "Signing in"])
         self.assertFalse(live["stalled"])
         self.assertEqual((live["source"], live["words"]), ("app", "What is due this week?"))
         self.assertEqual(activity.run_id("school"), "run_1")
         later = time.time() + activity.STALL_SEC + 1
-        self.assertTrue(activity.live("school", later)["stalled"])   # #51: not an endless typing indicator
+        self.assertTrue(activity.live("school", later)["stalled"])
         activity.end("school")
         self.assertIsNone(activity.live("school"))
 
@@ -94,12 +94,12 @@ class Live(unittest.TestCase):
         self.assertEqual(activity.outcome("money")["words"], "Any bills this week?")
         self.assertIsNone(activity.outcome("money", time.time() + activity.STALE_SEC + 1))
         activity.finished("money", "x", "y")
-        activity.begin("money")                      # the hub's own turn: the failure still stands
+        activity.begin("money")
         self.assertIsNotNone(activity.outcome("money"))
         activity.expect("money", "Try again")
-        activity.begin("money")                      # the person's next message moves on
+        activity.begin("money")
         self.assertIsNone(activity.outcome("money"))
-        activity.finished("money", "x", "y", stopped=True)   # a stopped turn is not a failure
+        activity.finished("money", "x", "y", stopped=True)
         self.assertIsNone(activity.outcome("money"))
 
     def test_stream_turn_reports_the_chat_lane_only(self):
@@ -123,7 +123,7 @@ class Live(unittest.TestCase):
             self.assertIsNone(activity.live("clients"))
             seen.clear()
             asyncio.run(go(lane="team"))
-            self.assertEqual(seen, [None, None])   # a teammate lane is not the person's chat
+            self.assertEqual(seen, [None, None])
 
 
 class _Turns(unittest.TestCase):
@@ -229,11 +229,11 @@ class QueueAndStop(_Turns):
                 await asyncio.wait_for(self._done(first), 5)
                 types = [e["type"] for e in first.events]
                 self.assertIn("stopped", types)
-                self.assertNotIn("error", types)           # a stop is not shown as a failure
+                self.assertNotIn("error", types)
                 self.assertEqual(second.events[-2]["type"], "stopped")
                 self.assertTrue(second.events[-2]["returned"])
                 await asyncio.sleep(0.7)
-                self.assertNotIn("started", [e["type"] for e in second.events])   # never ran
+                self.assertNotIn("started", [e["type"] for e in second.events])
                 self.assertIsNone(activity.outcome("default"))
         asyncio.run(go())
 
@@ -348,7 +348,6 @@ class QueueAndStop(_Turns):
                 task = asyncio.create_task(turns.run_internal("default", "[Board update] Builder finished"))
                 await asyncio.sleep(0.7)
                 self.assertEqual(ran, [])
-                # Answering a card is the person's own doing: its follow-up goes ahead.
                 await turns.run_internal("default", "[Hub note] allowed", continues="sid")
                 self.assertEqual(ran, ["[Hub note] allowed"])
                 turns.release("default")
@@ -420,7 +419,7 @@ class Kinds(unittest.TestCase):
     def test_the_master_switch_comes_first(self):
         store.set_notify("money", False)
         self.assertFalse(notifyprefs.allows("money", "needs"))
-        self.assertEqual(notifyprefs.kinds_for("money")["needs"], True)   # the choices are kept for later
+        self.assertEqual(notifyprefs.kinds_for("money")["needs"], True)
 
 
 class Endpoints(unittest.TestCase):
@@ -526,7 +525,7 @@ class Endpoints(unittest.TestCase):
         st = self.bots()[z.id]["status"]
         self.assertEqual((st["state"], st["what"], st["line"]),
                          ("expired", "Email Dana about repo access", "Its card closed with no answer."))
-        activity._began[z.id] = time.time() + 5   # the person asked again: a turn began after the card closed
+        activity._began[z.id] = time.time() + 5
         self.assertIsNone(self.bots()[z.id]["status"])
 
     def test_stop_endpoint(self):
@@ -565,7 +564,7 @@ class Endpoints(unittest.TestCase):
         since = time.time() - 60
         self.assertEqual(self.client.get(f"/api/away?since={since}", headers=self.phone).json()["items"], [])
         z = self.a_zip()
-        store.add_feed("checkin", z.id, None, "Daily spending update", "All quiet.")   # routine: not news
+        store.add_feed("checkin", z.id, None, "Daily spending update", "All quiet.")
         self.assertEqual(self.client.get(f"/api/away?since={since}", headers=self.phone).json()["items"], [])
         store.add_feed("task_done", z.id, "t_1", f"{z.name} finished", "Draft reply to Dana\n\nDrafted and saved.")
         store.add_feed("task_blocked", "default", "t_2", "Zero is blocked", "Book the dentist\n\nWhich day works?")

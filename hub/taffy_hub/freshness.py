@@ -28,8 +28,8 @@ from . import config, store
 
 log = logging.getLogger("taffy.freshness")
 
-SETTING = "chat_prompts"   # session key -> {"sid": Hermes session, "soul": sha256 of the SOUL.md it was checked against}
-MIN_LINE = 8               # shorter lines ("---", "## Tone") prove nothing about which version a prompt holds
+SETTING = "chat_prompts"
+MIN_LINE = 8
 
 
 def home(bot_id: str) -> Path:
@@ -127,10 +127,10 @@ def check(recheck: bool = False, everything: bool = False) -> list[str]:
             log.warning("could not read %s's chat %s: %s", bot_id, sid, e)
             continue
         if found is None:
-            continue   # Hermes lost it; the hub starts a new session on the next message
+            continue
         tip, prompt = found
         if prompt is None or not (everything or missing_lines(prompt, soul)):
-            records[key] = done   # built from this SOUL.md already, or built fresh on its next turn
+            records[key] = done
             continue
         if clear_prompt(bot_id, tip):
             refreshed.append(key)

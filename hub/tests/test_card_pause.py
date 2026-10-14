@@ -63,8 +63,8 @@ class CardEndpoints(unittest.TestCase):
         store.note_said("default", now - 60)
         self.assertIsNone(self.bots()["default"]["status"])
         card = self.activity_cards("default")[fid]
-        self.assertEqual(card["state"], "open")      # still pinned and usable
-        self.assertFalse(card["waiting"])            # but nothing waits on it
+        self.assertEqual(card["state"], "open")
+        self.assertFalse(card["waiting"])
 
     def test_a_card_from_the_latest_turn_pauses_until_the_person_writes_again(self):
         now = time.time()
@@ -75,7 +75,7 @@ class CardEndpoints(unittest.TestCase):
         self.assertEqual(st["feed_id"], fid)
         self.assertAlmostEqual(st["at"], now - 20, delta=2)
         self.assertTrue(self.activity_cards("default")[fid]["waiting"])
-        store.note_said("default", now + 5)          # "I think I actually bought them over the phone."
+        store.note_said("default", now + 5)
         self.assertIsNone(self.bots()["default"]["status"])
         self.assertFalse(self.activity_cards("default")[fid]["waiting"])
 
@@ -86,7 +86,7 @@ class CardEndpoints(unittest.TestCase):
         self.assertIsNone(self.bots()["default"]["status"])
         with mock.patch.object(signin.consent, "site_of", lambda url: "1800contacts.com"):
             again, _ = signin.ask("default", "https://www.1800contacts.com/account/signin", "see your order", "sid")
-        self.assertEqual(again, fid)   # moved down, notified again (more than REPUSH_SEC since the first)
+        self.assertEqual(again, fid)
         self.assertEqual(self.bots()["default"]["status"]["state"], "paused")
 
     def test_chat_cards_from_before_the_latest_message_do_not_pause(self):
@@ -98,12 +98,10 @@ class CardEndpoints(unittest.TestCase):
                    "created": now - 600, "session_id": "chat-sid"}
             self.pending = [old]
             self.assertIsNone(self.bots()[z.id]["status"])
-            # The same card holding a board task, or from other work, still pauses it.
             self.pending = [dict(old, task_id="t_9")]
             self.assertEqual(self.bots()[z.id]["status"]["state"], "paused")
             self.pending = [dict(old, session_id="some-lane")]
             self.assertEqual(self.bots()[z.id]["status"]["state"], "paused")
-            # Raised in the latest turn: paused, with when.
             self.pending = [dict(old, created=now + 2)]
             st = self.bots()[z.id]["status"]
             self.assertEqual(st["state"], "paused")
@@ -134,24 +132,23 @@ class CardEndpoints(unittest.TestCase):
             out = asyncio.run(self.app.internal_close_sign_in(
                 self.app.MacBody(bot_id="default", session_id="", args={"site": "https://www.1800contacts.com/x"}),
                 None))
-            cont.assert_not_called()                   # the Zip closed it itself: no follow-up turn
+            cont.assert_not_called()
         self.assertTrue(out["ok"], out)
         self.assertIn("1800contacts.com", out["result"])
         cards = self.activity_cards("default")
         self.assertEqual(cards[fid]["state"], "retired")
-        self.assertEqual(cards[other]["state"], "open")   # only the card it named
+        self.assertEqual(cards[other]["state"], "open")
         again = asyncio.run(self.app.internal_close_sign_in(
             self.app.MacBody(bot_id="default", session_id="", args={"site": "1800contacts.com"}), None))
         self.assertFalse(again["ok"])
         self.assertIn("no open sign-in card", again["error"])
-        # Without a site, the newest open card.
         self.assertEqual(signin.retire("default"), ["netlify.com"])
         self.assertRaises(signin.AskError, signin.retire, "default")
 
     def test_the_zip_hears_about_older_open_cards_in_its_chat_only(self):
         from taffy_hub import team
-        team._ready = False                        # this test's own database gets the team tables
-        self.addCleanup(setattr, team, "_ready", False)   # and the next test's gets them too
+        team._ready = False
+        self.addCleanup(setattr, team, "_ready", False)
         now = time.time()
         _card("default", "1800contacts.com", now - 3600)
         store.note_said("default", now)
@@ -170,7 +167,7 @@ class HeldOnACard(fluid._Turns):
 
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(signin, "done_in_chat", lambda *a: None)   # no sign-in card is read or answered
+        p = mock.patch.object(signin, "done_in_chat", lambda *a: None)
         p.start()
         self.addCleanup(p.stop)
 
@@ -188,7 +185,7 @@ class HeldOnACard(fluid._Turns):
                         activity.note(bot_id, ev)
                         yield ev
                     await asyncio.wait_for(self.release.wait(), 3)
-                    if "run_held" in hermes.yielded_runs:   # what hermes._stream_turn does on run.cancelled
+                    if "run_held" in hermes.yielded_runs:
                         hermes.yielded_runs.discard("run_held")
                         yield {"type": "yielded"}
                     else:
@@ -218,10 +215,10 @@ class HeldOnACard(fluid._Turns):
                 await asyncio.wait_for(self._done(first), 5)
                 self.assertEqual(self.stopped_runs, [("default", "run_held")])
                 types = [e["type"] for e in second.events]
-                self.assertNotIn("queued", types)                    # never shown as queued
+                self.assertNotIn("queued", types)
                 self.assertIn("reply", types)
                 first_types = [e["type"] for e in first.events]
-                self.assertNotIn("error", first_types)               # making way is not a failure
+                self.assertNotIn("error", first_types)
                 self.assertIsNone(activity.outcome("default"))
                 self.assertEqual(turns.queued_counts(), {})
         asyncio.run(go())

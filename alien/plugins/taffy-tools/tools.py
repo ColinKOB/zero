@@ -30,7 +30,6 @@ _DENIED = {
               "apply_sensitive_thread_label"],
 }
 CONNECTOR_TIMEOUT_SEC = 240
-# Bots may run with a per-profile HOME; logins (Claude, himalaya) and Tally live in the real one.
 REAL_HOME = os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir
 
 
@@ -49,7 +48,6 @@ def tally_env() -> str:
     return str(home.expand(_tally_settings().get("env_file") or "~/tally/server/.env", REAL_HOME))
 
 
-# The model that runs account lookups (Trello, Calendar, Drive, Gmail search).
 CONNECTOR_MODEL = "claude-haiku-5-5"
 
 
@@ -71,7 +69,7 @@ _MISSING_WORDS = ("needs authentication", "need to authenticate", "not authentic
                   "re-authorize", "reauthorize", "sign in again", "authorize it")
 
 
-_route = threading.local()   # how the last _account_check in this thread said to reach the account
+_route = threading.local()
 
 
 def _account_check(service: str, request: str, session_id: str, failed: bool = False) -> str | None:
@@ -110,13 +108,7 @@ def _limits(service: str, request: str) -> str:
 
 
 # MARK: Other connectors on the person's Claude account (Notion, Slack, Linear and so on)
-
 SERVICE_ID = re.compile(r"^[a-z0-9_]{2,40}$")
-# Their tools are unknown ahead of time, so every tool of that connector goes through a hook (connector_guard.py)
-# that lets a tool run only when its name says it does what this request may do: reading tools on every run, ordinary
-# changes on a change, and a send, publish, delete or share only when the gate asked Colin about this exact request
-# and he said yes. Tools that move money never run. Names that say nothing about what they do stay open (Oct 8 QA
-# round 9, M1 and L1; before, only names with a send, delete or share word were blocked).
 GUARD_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "connector_guard.py")
 
 
@@ -146,8 +138,6 @@ def _guard(server: str, kinds: list[str]) -> str:
 
 
 # MARK: The ChatGPT plan: Codex CLI with the person's ChatGPT apps
-
-# The model for account lookups on a ChatGPT plan: the plan's fast model (codex models list, Oct 8).
 CHATGPT_MODEL = "gpt-6-luna"
 # ChatGPT's tools that send, delete, share, answer invitations or change existing files. Each is switched off for the
 # run (apps.<id>.tools.<tool>.enabled = false), like _DENIED for Claude. Names from Codex's app/read on Oct 8.
@@ -230,7 +220,6 @@ def connectors(args: dict, **kwargs) -> str:
         return json.dumps({"error": missing, "account_not_connected": True})
     route = getattr(_route, "value", None) or {}
     if route.get("via") == "zero" and route.get("tool"):
-        # Connected in Zero's Connect Apps: the direct tool reads in a second and asks with a card before a change.
         return json.dumps({"error": f"{service} is connected directly in Zero. Use the {route['tool']} tool instead; "
                                     "it is faster.", "use_tool": route["tool"]})
     prompt = (
@@ -244,7 +233,6 @@ def connectors(args: dict, **kwargs) -> str:
     )
     via = route.get("via") or "claude"
     if via == "chatgpt":
-        # Only a ChatGPT plan has this account: Codex runs it with the person's ChatGPT app.
         cmd = codex_command(service, str(route.get("app") or ""), prompt)
         if not cmd:
             return json.dumps({"error": f"{service} can't be reached through ChatGPT right now."})
@@ -275,7 +263,6 @@ def connectors(args: dict, **kwargs) -> str:
             return json.dumps({"error": "Connector run failed.", "stderr": out.stderr[-800:],
                                "stdout": out.stdout[-800:]})
     text = str(data.get("result", ""))
-    # The run itself found the account missing (it expired between checks): the hub looks again and asks.
     if data.get("is_error") or any(w in text.lower() for w in _MISSING_WORDS):
         missing = _account_check(service, request, session_id, failed=True)
         if missing:

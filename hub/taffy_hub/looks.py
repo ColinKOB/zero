@@ -24,10 +24,8 @@ PARTS = {
     "neck": ["none", "scarf", "bowtie", "bandana"],
 }
 
-# The rendered characters (ios/Taffy/Views/Agent): bodies and their outfits.
 BODIES = ["o", "star", "moon", "bolt", "drop", "pebble", "pill", "hex", "gem", "squircle", "mushroom", "bean", "arch",
           "flower", "dome", "leaf", "bell", "plus", "cube", "gumdrop"]
-# Flat bodies: vector shapes drawn by the app (FlatFigure.swift). They have no outfits.
 FLAT = ["o", "star", "moon", "bolt", "drop", "pill", "hex", "gem", "squircle", "mushroom", "bean", "arch", "flower",
         "dome", "leaf", "bell", "plus", "pebble", "acorn", "kite", "book", "calendar", "briefcase", "coin", "suitcase",
         "receipt"]
@@ -77,7 +75,7 @@ def clean_rendered(look: dict) -> dict:
         if outfit not in ("none", "plain"):
             raise LookError("Flat Zips wear no outfits.")
         outfit = "none"
-    elif outfit == "none":   # plush looks saved before every body had outfits
+    elif outfit == "none":
         outfit = "plain"
     elif outfit not in OUTFITS:
         raise LookError("Pick an outfit from the list.")

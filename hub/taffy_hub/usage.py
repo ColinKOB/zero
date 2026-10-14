@@ -33,16 +33,14 @@ log = logging.getLogger("taffy.usage")
 
 PLAN_EVERY = 30 * 60
 PING_AFTER = 55 * 60       # the cache lasts an hour after its last read
-WINDOW = 3 * 3600          # pings stop this long after the chat's last turn
+WINDOW = 3 * 3600
 TICK = 60
-UNPATCHED_PAUSE = 6 * 3600  # Hermes without the keepwarm endpoint: try again this much later
+UNPATCHED_PAUSE = 6 * 3600
 
-_last_turn: dict[str, float] = {}    # Zip -> when its chat's last turn ended (the cache was written or read then)
+_last_turn: dict[str, float] = {}
 _last_ping: dict[str, float] = {}
 _paused_until = [0.0]
 
-
-# ── The log ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 def usage_dir() -> Path:
     return config.HUB_DIR / "usage"
@@ -83,13 +81,11 @@ def caller(depth: int = 2) -> str:
         f = sys._getframe(depth)
     except ValueError:
         f = None
-    while f is not None and f.f_globals.get("__name__", "").startswith("asyncio"):   # through asyncio.wait_for
+    while f is not None and f.f_globals.get("__name__", "").startswith("asyncio"):
         f = f.f_back
     name = f.f_globals.get("__name__", "") if f is not None else ""
     return "hub-" + (name.rsplit(".", 1)[-1] or "unknown")
 
-
-# ── Plan readings ─────────────────────────────────────────────────────────────────────────────────────────────
 
 def _credentials() -> Path:
     base = os.environ.get("CLAUDE_CONFIG_DIR") or str(home.USER_HOME / ".claude")
@@ -122,8 +118,6 @@ def read_plan(now: float | None = None) -> dict | None:
             "five_hour": five.get("utilization"), "five_hour_resets": five.get("resets_at")}
 
 
-# ── Keep-warm ─────────────────────────────────────────────────────────────────────────────────────────────────
-
 def on() -> bool:
     return bool(home.get("cache.keep_warm"))
 
@@ -153,7 +147,7 @@ def due(now: float | None = None) -> list[str]:
         if now - base < PING_AFTER:
             continue
         if turns.is_busy(bot_id) or bot_id in activity._live:
-            continue   # never during a turn (a run held on a card counts)
+            continue
         out.append(bot_id)
     return out
 
@@ -170,7 +164,7 @@ async def ping(bot_id: str) -> dict:
         async with httpx.AsyncClient(timeout=180) as client:
             r = await client.post(f"{config.api_prefix(bot_id)}/api/sessions/{sid}/keepwarm",
                                   headers=hermes._headers(bot_id), json={})
-        if r.status_code in (404, 405) and "json" not in r.headers.get("content-type", ""):   # no such route
+        if r.status_code in (404, 405) and "json" not in r.headers.get("content-type", ""):
             _paused_until[0] = time.time() + UNPATCHED_PAUSE
             out = {"skipped": "hermes_without_keepwarm"}
         elif r.status_code >= 400:

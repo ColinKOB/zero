@@ -36,7 +36,7 @@ GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 TIMEOUT_SEC = 20
-REFRESH_EARLY_SEC = 120   # refresh this long before Google's expiry, so a token handed out still has time left
+REFRESH_EARLY_SEC = 120
 
 SCOPE_MAIL_READ = "https://www.googleapis.com/auth/gmail.modify"
 SCOPE_MAIL_SEND = "https://www.googleapis.com/auth/gmail.send"
@@ -341,8 +341,8 @@ def api_response(address: str, url: str, params: dict | None = None) -> httpx.Re
         if r.status_code == 401 and attempt == 0:
             with _lock(address):
                 data = _load(address)
-                if data:   # disconnected meanwhile: nothing to refresh, and no file to bring back
-                    data["expires_at"] = 0   # force a refresh on the next try
+                if data:
+                    data["expires_at"] = 0
                     _save(address, data)
             continue
         if r.status_code == 401:

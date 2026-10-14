@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from taffy_hub import accounts, config, profile, store, turns  # noqa: E402
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "alien" / "plugins" / "taffy-tools"
-if not PLUGIN_DIR.exists():   # on alien the hub is deployed without the repo; use the installed plugin
+if not PLUGIN_DIR.exists():
     PLUGIN_DIR = Path.home() / "taffy" / "plugins" / "taffy-tools"
 
 SIGNED_IN = json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
@@ -68,7 +68,7 @@ class Base(unittest.TestCase):
         accounts._others.update(at=0.0, items=[])
         self.fake = FakeClaude()
         accounts._run = self.fake
-        self.chatgpt = {"state": "missing", "apps": {}}   # no Codex here unless a test says so
+        self.chatgpt = {"state": "missing", "apps": {}}
 
         async def fake_chatgpt():
             return self.chatgpt
@@ -168,13 +168,12 @@ class Checking(Base):
         async def go():
             await accounts.check()
             n = len(self.fake.calls)
-            await accounts.check()                      # cached for ten minutes
-            await accounts.check(force=True)            # the Connect screen polling right after: shared
+            await accounts.check()
+            await accounts.check(force=True)
             self.assertEqual(len(self.fake.calls), n)
             accounts._last["checked_at"] -= accounts.MIN_GAP_SEC + 1
-            await accounts.check(force=True)            # a real new check
+            await accounts.check(force=True)
             self.assertEqual(len(self.fake.calls), 2 * n)
-            # Two polls at once run one check.
             accounts._last["checked_at"] -= accounts.MIN_GAP_SEC + 1
             await asyncio.gather(accounts.check(force=True), accounts.check(force=True))
             self.assertEqual(len(self.fake.calls), 3 * n)
@@ -192,7 +191,7 @@ class Cards(Base):
         self.assertEqual(first["state"], accounts.NOT_CONNECTED)
         self.assertIn("Stop working on this now", first["message"])
         self.assertIsNotNone(first["card"])
-        self.assertIsNone(second["card"])                # one Connect Google card covers all three
+        self.assertIsNone(second["card"])
         self.assertIn("is now at the bottom of your chat", second["message"])
         cards = self.cards()
         self.assertEqual(len(cards), 1)
@@ -207,7 +206,7 @@ class Cards(Base):
             return (await accounts.need("money", "gmail", "x", "s1"), await accounts.need("money", "drive", "x", "s1"))
         ok, trouble = asyncio.run(go())
         self.assertTrue(ok["connected"])
-        self.assertTrue(trouble["connected"])            # never block the Zip on a hiccup
+        self.assertTrue(trouble["connected"])
         self.assertEqual(self.cards(), [])
 
     def test_connecting_closes_the_card_and_wakes_the_zip(self):
@@ -234,9 +233,9 @@ class Cards(Base):
         fid, _ = accounts.ask("money", "gmail", "x", "s1", accounts.NOT_CONNECTED)
         self.assertEqual(accounts.close("money", fid)["state"], "declined")
         fid2, _ = accounts.ask("money", "gmail", "x", "s1", accounts.NOT_CONNECTED)
-        self.assertIsNotNone(fid2)                       # a new ask is allowed after closing
+        self.assertIsNotNone(fid2)
         with self.assertRaises(accounts.AskError):
-            accounts.close("school", fid2)               # another Zip's card
+            accounts.close("school", fid2)
 
     def test_trello_has_its_own_card(self):
         accounts.ask("builder", "gmail", "x", "s1", accounts.NOT_CONNECTED)
@@ -260,9 +259,9 @@ class Alerts(Base):
         accounts._last = None
         r = asyncio.run(accounts.check())
         news = accounts.broken_news(r)
-        self.assertEqual(len(news), 1)                   # Calendar was never connected, so only Gmail
+        self.assertEqual(len(news), 1)
         self.assertIn("Gmail needs you to sign in again", news[0][1])
-        self.assertEqual(accounts.broken_news(r), [])    # told once
+        self.assertEqual(accounts.broken_news(r), [])
         self.fake.statuses = {"claude.ai Gmail": "✔ Connected"}
         accounts._last = None
         r = asyncio.run(accounts.check())
@@ -281,7 +280,7 @@ class Alerts(Base):
     def test_welcome_lists_what_works(self):
         self.fake.statuses = {"claude.ai Google Calendar": "✔ Connected"}
         asyncio.run(accounts.check())
-        with mock.patch.object(profile.logins, "list_all", return_value=[]):   # never the live vaults
+        with mock.patch.object(profile.logins, "list_all", return_value=[]):
             self.assertEqual(profile.summary("")["connectors"], ["Google Calendar"])
 
 
@@ -362,8 +361,6 @@ class ConnectorsTool(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

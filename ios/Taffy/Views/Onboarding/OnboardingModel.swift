@@ -73,10 +73,8 @@ final class OnboardingModel {
         } else if let start {
             draft = Draft(step: start)
             #if DEBUG
-            // Jumping to a later screen for a screenshot: give it the answers it would have by then.
             if Step.allCases.firstIndex(of: start)! > Step.allCases.firstIndex(of: .name)! { draft.agentName = "Zero" }
             if Step.allCases.firstIndex(of: start)! > Step.allCases.firstIndex(of: .talk)! { draft.personName = "Sam" }
-            // -look o,cozy: a body and outfit, for screenshots.
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-look"), i + 1 < args.count {
                 let parts = args[i + 1].split(separator: ",").map(String.init)

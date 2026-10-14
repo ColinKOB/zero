@@ -32,12 +32,12 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-SIZE = 512            # every body sits in a SIZE x SIZE canvas, centered, feet on the same line
-FILL = 0.9            # the picture's longer side, as a share of the canvas
-FLOOR = 0.97          # where the feet touch, as a share of the canvas height
-ICON = 160            # longest side of an outfit box icon
-CHANGED = 40          # a pixel belongs to the face when a color channel differs from the plain frame by more than this
-ALPHA_STEPS = 16      # the overlay's soft edge uses this many opacity levels, which keeps its palette small
+SIZE = 512
+FILL = 0.9
+FLOOR = 0.97
+ICON = 160
+CHANGED = 40
+ALPHA_STEPS = 16
 
 HERE = Path(__file__).resolve().parent
 IOS = HERE.parent
@@ -53,7 +53,7 @@ ICONS = ["glasses-round", "scarf", "beanie", "headphones", "cap", "glasses-squar
 
 def frame(src: Path, body: str, outfit: str, face: str) -> Path:
     if body == "o":
-        if outfit == "plain":   # the original expression frames are the plain O
+        if outfit == "plain":
             return src / "frames" / f"{'base' if not face else face[1:]}.png"
         return src / "outfits" / "zero" / f"{outfit}{face}.png"
     return src / "outfits" / body / f"{outfit}{face}.png"
@@ -71,7 +71,6 @@ def masks(pairs: list[tuple[Path, Path]]) -> None:
 def imageset(name: str, img: Image.Image) -> None:
     d = CATALOG / f"{name}.imageset"
     d.mkdir(parents=True, exist_ok=True)
-    # 256 colors with dithering: indistinguishable on the fur at this size, and about a fifth of the bytes.
     img.quantize(256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.FLOYDSTEINBERG).save(
         d / f"{name}.png", optimize=True)
     write_contents(d, name)
@@ -99,11 +98,11 @@ def overlay(base: Image.Image, face: Image.Image) -> tuple[Image.Image, float]:
     b = np.asarray(base).astype(float)
     f = np.asarray(face).astype(float)
     core = np.abs(f[..., :3] - b[..., :3]).max(axis=2) > CHANGED
-    core &= b[..., 3] >= 250                                   # never at the silhouette
+    core &= b[..., 3] >= 250
     grown = ndimage.binary_dilation(core, disc(3))
     grown = ndimage.binary_fill_holes(ndimage.binary_closing(grown, disc(4)))
     labels, n = ndimage.label(grown)
-    sizes = ndimage.sum(core, labels, range(1, n + 1))        # drop specks of grain that passed the threshold
+    sizes = ndimage.sum(core, labels, range(1, n + 1))
     grown = np.isin(labels, [i + 1 for i, v in enumerate(sizes) if v >= 20])
     grown = ndimage.binary_dilation(grown, disc(4))
     a = ndimage.gaussian_filter(grown.astype(float), 2.0)
@@ -146,11 +145,9 @@ def main() -> None:
     (CATALOG / "Contents.json").write_text(json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
     tmp = Path(tempfile.mkdtemp())
     colors = {}
-    worst = 0.0   # the biggest color error of any overlay on its plain frame
-    only = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else None   # for trying out: just these bodies
+    worst = 0.0
+    only = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else None
 
-    # Each body's outfits. One mask per outfit (from its base frame, used for all its faces so edges never
-    # jitter), and one crop box for all of a body's outfits together.
     for b in ["o"] + BODIES:
         if only and b not in only:
             continue
@@ -173,7 +170,6 @@ def main() -> None:
                 imageset(f"{prefix(b)}-{o}{face}", img)
         print("outfits", b)
 
-    # Icons for the outfit boxes: already transparent, trimmed to what is drawn.
     for name in ICONS:
         img = Image.open(src / "addons" / f"{name}.png").convert("RGBA")
         img = img.crop(bbox(img.getchannel("A")))

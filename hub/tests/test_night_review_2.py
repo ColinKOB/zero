@@ -55,7 +55,7 @@ class AnsweredCard(fluid._Turns):
                                {"type": "status", "text": "Waiting for your okay", "waiting": True}):
                         activity.note(bot_id, ev)
                         yield ev
-                    await asyncio.wait_for(self.release.wait(), 3)   # the allowed command runs, with no events
+                    await asyncio.wait_for(self.release.wait(), 3)
                     if "run_held" in hermes.yielded_runs:
                         hermes.yielded_runs.discard("run_held")
                         yield {"type": "yielded"}
@@ -72,7 +72,7 @@ class AnsweredCard(fluid._Turns):
 
     def test_a_message_after_allowing_the_card_never_cancels_the_allowed_command(self):
         async def answer(bot_id, run_id, request_id, choice):
-            return True   # Hermes was still waiting and took the answer
+            return True
 
         async def go():
             with mock.patch.object(hermes, "stream_turn", self.stream()), \
@@ -82,13 +82,13 @@ class AnsweredCard(fluid._Turns):
                 await asyncio.sleep(0.05)
                 self.assertTrue(activity.waiting("default"))
                 card = {"bot_id": "default", "fingerprint": approvals.fingerprint("run_held", "req-1")}
-                self.assertTrue(await approvals.decide(card, True))   # Allow Once, while the run still waits
-                self.assertFalse(activity.waiting("default"))          # working again, not paused
+                self.assertTrue(await approvals.decide(card, True))
+                self.assertFalse(activity.waiting("default"))
                 self.assertFalse(activity.live("default")["waiting"])
                 second = turns.send("default", "Thanks!")
                 await asyncio.sleep(0.05)
-                self.assertEqual(self.stopped_runs, [])                # the allowed command is not stopped
-                self.assertEqual(second.events[0]["type"], "queued")   # it waits for the working Zip, as usual
+                self.assertEqual(self.stopped_runs, [])
+                self.assertEqual(second.events[0]["type"], "queued")
                 self.release.set()
                 await asyncio.wait_for(_done(second), 5)
                 await asyncio.wait_for(_done(first), 5)
@@ -128,7 +128,7 @@ class InterruptedHubTurns(unittest.TestCase):
     def stream(self, yielded: bool):
         async def stream(bot_id, text, team=False, lane=None):
             yield {"type": "run", "id": "run_hub"}
-            if yielded:   # what hermes._stream_turn does when the run made way for the person (turns.send)
+            if yielded:
                 hermes.last_yield[bot_id] = True
                 yield {"type": "yielded"}
             else:
@@ -171,7 +171,7 @@ class InterruptedHubTurns(unittest.TestCase):
     def test_a_board_relay_cut_off_keeps_its_news_for_the_next_try(self):
         with mock.patch.object(hermes, "stream_turn", self.stream(False)):
             told = asyncio.run(watcher._team_update([("t_1", "- Builder finished the Halloween update.")]))
-        self.assertFalse(told)   # the watcher tries again; the news is not lost
+        self.assertFalse(told)
         self.assertEqual((self.feed, self.pushed), ([], []))
 
 
@@ -196,16 +196,16 @@ class StopWhileShortening(fluid._Turns):
                     mock.patch.object(store, "note_said", lambda *a, **k: None):
                 self.release = asyncio.Event()
                 t = turns.send("default", "Morning. What's on my plate today?")
-                await asyncio.sleep(0.15)   # the reply came; Haiku is writing the short version
+                await asyncio.sleep(0.15)
                 self.assertTrue(haiku.prompts)
                 result = await turns.stop("default")
                 await asyncio.wait_for(_done(t), 5)
                 replies = [e for e in t.events if e["type"] == "reply"]
                 self.assertEqual(len(replies), 1)
-                self.assertEqual(replies[0]["text"], sr.GOOD_SHORT)   # what the history will show
+                self.assertEqual(replies[0]["text"], sr.GOOD_SHORT)
                 self.assertNotIn("stopped", [e["type"] for e in t.events])
                 self.assertFalse(result["stopped"])
-                self.assertNotIn("default", turns._stopped)            # no "[Stopped by ...]" note next time
+                self.assertNotIn("default", turns._stopped)
         try:
             asyncio.run(go())
         finally:
@@ -213,7 +213,6 @@ class StopWhileShortening(fluid._Turns):
 
 
 class ShortRepliesAcrossPaths(AppCase):
-    # The helpers of test_short_replies.ChatTurns, borrowed so its tests are not collected here a second time.
     turn = sr.ChatTurns.turn
     history = sr.ChatTurns.history
 
@@ -251,8 +250,8 @@ class ShortRepliesAcrossPaths(AppCase):
             run(watcher._team_update([("t_1", "- Builder finished the Halloween update.")]))
             pushed.clear()
             run(sr.REAL_FOLLOW_UP("default", "[Hub note: allowed]", "sid-1", urgent=True))
-        self.assertEqual(pushed, [sr.STATUS])   # asked for the list: shown in full
-        self.assertEqual(len(self.haiku.prompts), 1)   # only the relay went to Haiku
+        self.assertEqual(pushed, [sr.STATUS])
+        self.assertEqual(len(self.haiku.prompts), 1)
 
     def test_a_short_reply_with_a_picture_is_left_alone(self):
         """The streamed text has the picture inline as a data URL. It is not prose: a two-sentence reply with a
@@ -267,9 +266,9 @@ class ShortRepliesAcrossPaths(AppCase):
         streamed = sr.STATUS + "\n\n" + PICTURE_INLINE
         out = self.turn(streamed, "Morning. What's on my plate today?")
         reply = next(e for e in out if e["type"] == "reply")
-        self.assertEqual(reply["text"], sr.GOOD_SHORT + "\n\n" + PICTURE_INLINE)   # the picture stays
+        self.assertEqual(reply["text"], sr.GOOD_SHORT + "\n\n" + PICTURE_INLINE)
         self.assertNotIn("base64", self.haiku.prompts[0])
-        saved = sr.STATUS + "\n\n" + PICTURE_PATH   # what Hermes keeps in the session
+        saved = sr.STATUS + "\n\n" + PICTURE_PATH
         msgs = self.history([{"id": 2, "role": "assistant", "text": saved, "ts": 2}])
         self.assertEqual(msgs[0]["display"], sr.GOOD_SHORT + "\n\n" + PICTURE_PATH)
         self.assertEqual(msgs[0]["full"], saved)

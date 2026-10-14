@@ -42,10 +42,10 @@ KEEP=0; KEEP_BUILD=0; BUILD=1; SAMPLE=1; MATRIX=1; INBOX=1
 DEVICE="iPhone 17 Pro"; RUNTIME=""
 RESULT=""
 BUILD_DIR="${ZERO_E2E_BUILD:-/tmp/wp5-build}"
-TEST_HUB_PORT=8652          # the test home's hub on alien; --live reads the real one from /srv/zero/homes.json
+TEST_HUB_PORT=8652
 TEST_HERMES_PORT=8644
 TEST_USER=zero-test
-ZERO_BIN="${ZERO_BIN:-/srv/zero/bin}"   # WP3's zero-home-* scripts on alien
+ZERO_BIN="${ZERO_BIN:-/srv/zero/bin}"
 PERSONA="$HARNESS/persona.json"
 COLIN_HUB_PORT=8650; COLIN_HERMES_PORT=8642; TALLY_PORT=18930
 MIN_FREE_GB=6
@@ -77,13 +77,13 @@ WORK="$(mktemp -d /tmp/zero-e2e.XXXXXX)"; chmod 700 "$WORK"
 TOKEN_FILE="$WORK/harness-token"
 STEPS="$WORK/steps.md"; : > "$STEPS"
 FAILED=0
-PIDS=()            # processes this script started (tunnels, the fixture hub)
+PIDS=()
 SIM=""; SIM_CREATED=0
-BUILT=0            # this run built into BUILD_DIR (only then is it deleted at the end)
+BUILT=0
 HOME_UP=0
 
 say()  { printf '\n== %s\n' "$*"; }
-step() {  # step <PASS|FAIL|SKIP|WARN> <name> <detail>
+step() {
   printf -- '- **%s** %s: %s\n' "$1" "$2" "$3" >> "$STEPS"
   printf '%-5s %s: %s\n' "$1" "$2" "$3"
   [ "$1" = FAIL ] && FAILED=1 || true
@@ -146,8 +146,7 @@ write_result() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# A section of assertion results for the result file, from a harness JSON file.
-section_from_json() {  # section_from_json <title> <json> <out.md>
+section_from_json() {
   "$PY" - "$1" "$2" "$3" <<'PYEOF'
 import json, sys
 title, src, out = sys.argv[1:4]
@@ -164,7 +163,6 @@ PYEOF
 }
 
 # MARK: The simulator and the build
-
 ensure_sim() {
   [ -n "$SIM" ] && return 0
   if [ -z "$RUNTIME" ]; then
@@ -191,7 +189,7 @@ build_tests() {
   fi
 }
 
-ui_test() {  # ui_test <test name> <mode fixture|hub> <server> <code> <mailbox 0|1>
+ui_test() {
   local name="$1" mode="$2" server="${3:-}" code="${4:-}" mailbox="${5:-0}"
   mkdir -p "$SHOTS"
   say "Simulator: $name ($mode)"
@@ -223,8 +221,7 @@ PYEOF
 }
 
 # MARK: Pairing as the harness
-
-pair_harness() {  # pair_harness <hub url> <code>; leaves the token in $TOKEN_FILE, prints a fresh code for the app
+pair_harness() {
   "$PY" - "$HARNESS" "$1" "$2" "$TOKEN_FILE" <<'PYEOF'
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -236,7 +233,7 @@ print(hub.new_code())
 PYEOF
 }
 
-assertions() {  # assertions <hub url> [extra args]
+assertions() {
   local hub="$1"; shift
   say "Hub-state assertions"
   local args=(--hub "$hub" --token-file "$TOKEN_FILE" --json "$WORK/assert.json" --persona "$PERSONA")
@@ -249,20 +246,18 @@ assertions() {  # assertions <hub url> [extra args]
   section_from_json "Hub-State Assertions" "$WORK/assert.json" "$WORK/2-assert.result.md"
 }
 
-fresh_home_checks() {  # fresh_home_checks <hub url> [extra args]; before the onboarding
+fresh_home_checks() {
   local hub="$1"; shift
   if "$PY" "$HARNESS/live_checks.py" --hub "$hub" --token-file "$TOKEN_FILE" --json "$WORK/fresh.json" "$@" \
       > "$WORK/fresh.log" 2>&1; then
     step PASS fresh_home "$(tail -1 "$WORK/fresh.log")"
   else
-    # Before WP1, a fresh home's /api/me falls back to Colin's name; that is a finding, not a harness failure.
     step WARN fresh_home "$(tail -1 "$WORK/fresh.log"); $(grep '^FAIL' "$WORK/fresh.log" | cut -c7- | paste -sd';' - | cut -c1-400)"
   fi
   section_from_json "Fresh Home, Before Onboarding" "$WORK/fresh.json" "$WORK/1-fresh.result.md"
 }
 
 # MARK: Modes
-
 run_fixture() {
   ensure_sim; build_tests
   ui_test testStrangerOnboarding fixture
@@ -323,13 +318,10 @@ run_dry() {
 
 run_live() {
   say "Live mode: the test home on $HOST"
-  # WP3's scripts live in /srv/zero/bin and re-run themselves as zero-test through the sudoers file the wizard
-  # installs (docs/qa/2026-10-09-zfa-wp3.md, "Run order for the lead").
   if ! remote "test -x $ZERO_BIN/zero-home-test && test -x $ZERO_BIN/zero-home-check && test -r /srv/zero/homes.json" > "$WORK/which.log" 2>&1; then
     step FAIL preflight "$ZERO_BIN/zero-home-test, zero-home-check or /srv/zero/homes.json is missing on $HOST (run the wizard's host and test-home steps first)"
     exit 1
   fi
-  # The test home's ports from the registry (WP3 moves them off listeners already taken; previews are 18500+ today).
   remote "cat /srv/zero/homes.json" > "$WORK/homes.json"
   read -r TEST_HUB_PORT TEST_HERMES_PORT TEST_PREVIEW TEST_USER < <("$PY" - "$WORK/homes.json" <<'PYEOF'
 import json, sys
@@ -340,19 +332,16 @@ PYEOF
 )
   step PASS registry "the test home is $TEST_USER: hub $TEST_HUB_PORT, Hermes API $TEST_HERMES_PORT, previews from $TEST_PREVIEW"
 
-  # Our seed (hub/tests/harness/greenmail/messages.json) in WP3's --seed format: a list of {from, subject, body}.
   local seed_remote="/tmp/zero-e2e-seed-$STAMP.json"
   "$PY" -c 'import json,sys; m=json.load(open(sys.argv[1]))["messages"]; json.dump([{k: x[k] for k in ("from","subject","body")} for x in m], open(sys.argv[2],"w"), indent=1)' \
     "$HARNESS/greenmail/messages.json" "$WORK/seed.json"
   scp -q -o BatchMode=yes "$WORK/seed.json" "$HOST:$seed_remote" && ssh -o BatchMode=yes "$HOST" "chmod 644 $seed_remote"
   if ! remote "$ZERO_BIN/zero-home-test up --seed $seed_remote" > "$WORK/up.log" 2>&1; then
-    HOME_UP=1   # partly up: tear down what is there
+    HOME_UP=1
     step FAIL home_up "zero-home-test up failed: $(tail -3 "$WORK/up.log" | tr '\n' ' ')"; exit 1
   fi
   HOME_UP=1
   ssh -o BatchMode=yes "$HOST" "rm -f $seed_remote" || true
-  # zero-home-create prints "  Code:    ABCD-2345" (and a zero://pair link); zero-home-test prints
-  # "Seeded N messages into ADDRESS (IMAP 127.0.0.1:P, SMTP 127.0.0.1:P, ...)" the first time it seeds.
   local code imap smtp seeded
   code="$(grep -iE '^\s*code:' "$WORK/up.log" | tail -1 | grep -Eo '[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}' | tail -1 || true)"
   imap="$(grep -Eo 'IMAP 127\.0\.0\.1:[0-9]+' "$WORK/up.log" | tail -1 | grep -Eo '[0-9]+$' || true)"
@@ -361,7 +350,6 @@ PYEOF
   imap="${imap:-$((TEST_PREVIEW + 51))}"; smtp="${smtp:-$((TEST_PREVIEW + 50))}"
   if [ -z "$code" ]; then step FAIL home_up "no pairing code in zero-home-test up's output"; exit 1; fi
   step PASS home_up "zero-home-test up printed a pairing code; ${seeded:-mail was seeded on an earlier run}; GreenMail IMAP $imap, SMTP $smtp"
-  # The app types the mailbox as the hub sees it: alien's loopback and the GreenMail ports of this home.
   "$PY" -c 'import json,sys; p=json.load(open(sys.argv[1])); p["mailbox"].update(imap_port=int(sys.argv[3]), smtp_port=int(sys.argv[4])); json.dump(p, open(sys.argv[2],"w"))' \
     "$HARNESS/persona.json" "$WORK/persona.json" "$imap" "$smtp"
   PERSONA="$WORK/persona.json"
@@ -393,16 +381,12 @@ PYEOF
 
 isolation_live() {
   say "Isolation probes"
-  # As Colin's user: the test home's files and services must be closed to him too.
   if ssh -o BatchMode=yes "$HOST" "python3 - --victim-home /home/$TEST_USER --victim-hub $TEST_HUB_PORT --victim-hermes $TEST_HERMES_PORT" \
       < "$HARNESS/isolation_probe.py" > "$WORK/iso-colin.log" 2>&1; then
     step PASS isolation_colin_to_test "$(tail -1 "$WORK/iso-colin.log")"
   else
     step FAIL isolation_colin_to_test "$(grep '^FAIL' "$WORK/iso-colin.log" | paste -sd';' - | cut -c1-500)"
   fi
-  # As zero-test: zero-home-check above already ran its as-home checks through sudo. This probe adds Tally, mail
-  # folders outside ~/.config and other processes' environments; it needs a way to run as zero-test, which the
-  # sudoers file grants only to zero-home-* (see the integration notes in docs/qa/2026-10-09-zfa-wp5.md).
   if ssh -o BatchMode=yes "$HOST" "sudo -n -u $TEST_USER true" >/dev/null 2>&1; then
     if ssh -o BatchMode=yes "$HOST" "sudo -n -u $TEST_USER python3 - --victim-home /home/jdoe --victim-hub $COLIN_HUB_PORT --victim-hermes $COLIN_HERMES_PORT --tally $TALLY_PORT --victim-uid 1000" \
         < "$HARNESS/isolation_probe.py" > "$WORK/iso-test.log" 2>&1; then

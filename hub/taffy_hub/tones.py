@@ -16,7 +16,7 @@ from . import config, store
 TONES = ("chime", "marimba", "pluck", "bell", "glass", "harp", "ding", "knock", "bubble", "pop")
 SPECIAL = ("default", "none", "custom")
 _SETTING = "notify_tones"
-LEAD = "default"   # Zero, the lead Zip
+LEAD = "default"
 
 
 def default_for(bot_id: str | None) -> str:

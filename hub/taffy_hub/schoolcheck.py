@@ -21,7 +21,7 @@ from . import config, notices, store, who
 log = logging.getLogger("taffy.schoolcheck")
 
 KEY = "proactivity_school_checks"
-WAIT_SEC = 20 * 60        # a check not back by then counts as unknown
+WAIT_SEC = 20 * 60
 KEEP_SEC = 2 * 86400
 ANSWERS = ("yes", "no", "unknown")
 

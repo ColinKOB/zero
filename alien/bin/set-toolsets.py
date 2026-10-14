@@ -56,9 +56,6 @@ HOME = _hermes_home()
 # and nothing in Settings (Oct 8 QA, M12). Zero gets its own Connect flow first; the gate also blocks the tool.
 CORE = ["browser", "code_execution", "computer_use", "delegation", "file", "memory",
         "session_search", "skills", "taffy", "terminal", "todo", "vision", "web"]
-# Every Zip keeps the screen tool (computer_use): Colin calls it critical to being a Zip (Oct 8). The screen runs on
-# the home's computer outside a Zip's container, so zip-desktop-lockdown.py takes the terminal and launcher off each
-# Zip's desktop. Colin's six are named here; any Zip of any home keeps it too (see screen()).
 SCREEN = {"default", "builder", "career", "clients", "money", "school"}
 
 
@@ -66,20 +63,11 @@ def screen(bot: str) -> bool:
     """Every Zip, in every home, keeps the screen tool."""
     return True
 FALLBACK = [{"provider": "openai-codex", "model": "gpt-6.1-sol"}]
-# A Zip whose main model is Sol (the Oct 11 blind trial; docs/plans/2026-10-11-opus-vs-sol-bakeoff.md) falls back to
-# Opus on the Claude plan instead, so a ChatGPT limit never leaves it with no model.
 FALLBACK_FOR_SOL = [{"provider": "claude-subscription-directsdk-experimental", "model": "opus"}]
 LEAD_MEMORY_CHARS = 10000
 ZIP_MEMORY_CHARS = 5000
-USER_CHARS = 5000   # must match hub/taffy_hub/onboarding.py USER_CHAR_LIMIT
+USER_CHARS = 5000
 KANBAN = {"review_dispatch": False, "auto_subscribe_on_create": False, "notify_in_gateway": False}
-# Compaction (docs/qa/2026-10-10-usage-cache.md): a chat is summarized once it passes 200k tokens, or at the first
-# turn after three idle hours (its cache is gone by then anyway). The newest 30 messages always stay word for word;
-# the person's own messages from the summarized part are quoted in the summary too (Hermes's lean tail).
-# Oct 11: at 100k a chat compacted every few hours of use, because instructions and tools alone are about 51k and a
-# compacted chat came back at about 65k. Each compaction held the reply for 40 to 60 s (Colin waited 57 s for "What's
-# on my list this week?") and dropped detail. At 200k it happens about four times less often; larger cache reads
-# about offset the rewrites saved, so cost stays about even and the Zip keeps more of the conversation.
 COMPRESSION = {"threshold_tokens": 200000, "protect_last_n": 30, "idle_compact_after_seconds": 10800}
 
 EVERYONE = {"colin-email", "pdf", "docx", "xlsx", "powerpoint", "google-workspace", "document-to-action-items",
@@ -120,7 +108,7 @@ def main() -> None:
     paths = [(HOME / "config.yaml", True)] + [(p, False) for p in sorted((HOME / "profiles").glob("*/config.yaml"))]
     for path, lead in paths:
         if not lead and path.parent.name.startswith("."):
-            continue   # a deleted bot's leftovers (profiles/.deleted)
+            continue
         data = yaml.load(path.read_text())
         before = {k: list(v) for k, v in (data.get("platform_toolsets") or {}).items()}
         bot = "default" if lead else path.parent.name
@@ -129,12 +117,10 @@ def main() -> None:
         data["fallback_providers"] = FALLBACK_FOR_SOL if on_sol else FALLBACK
         data.setdefault("kanban", {}).update(KANBAN)
         data.setdefault("compression", {}).update(COMPRESSION)
-        # The memory review runs on the Zip's own model: on Haiku it wrote the whole chat to Haiku's cache, 50k to 75k
-        # weighted per review, where the main model reads its warm cache for about 25k (usage QA, Oct 10).
         aux = data.get("auxiliary")
         if isinstance(aux, dict):
             aux.pop("background_review", None)
-        if bot in SKILLS:   # a bot added later keeps every skill until it gets a list here
+        if bot in SKILLS:
             skills = data.setdefault("skills", {})
             keep = SKILLS[bot] if screen(bot) else SKILLS[bot] - {"computer-use"}
             skills["disabled"] = sorted(skill_names(path.parent) - keep)
@@ -142,14 +128,13 @@ def main() -> None:
         data.setdefault("memory", {})["user_char_limit"] = USER_CHARS
         agent = data.get("agent") or {}
         if agent.get("reasoning_effort") == "":
-            del agent["reasoning_effort"]      # an empty value means nothing; the others leave it unset
+            del agent["reasoning_effort"]
         shutil.copy2(path, path.with_name(f"config.yaml.bak-{stamp}"))
         with path.open("w") as f:
             yaml.dump(data, f)
         gone = {k: sorted(set(before.get(k, [])) - set(v)) for k, v in data["platform_toolsets"].items()}
         off = len((data.get("skills") or {}).get("disabled") or [])
         print(bot, {k: v for k, v in gone.items() if v}, f"skills off: {off}")
-        # A bot's screen and browser hold its logins: only Colin's user may open them.
         for d in [path.parent / "bot-desktop", *path.parent.glob("bot-desktop/browser-profile*")]:
             if d.is_dir():
                 d.chmod(0o700)

@@ -132,7 +132,6 @@ class Brief(unittest.TestCase):
                 "start from what's on GitHub.\n\nQuestion: Should I include the scraper-blocking change from your "
                 "Mac when I update her site?")
         out = voice.brief(text)
-        # Oct 11: the question comes with the sentence it depends on, and no chat line stands in for the result.
         self.assertTrue(out.endswith("My plan is to start from what's on GitHub. Should I include the "
                                      "scraper-blocking change from your Mac when I update her site?"))
         self.assertTrue(out.startswith("The copy on your Mac isn't newer for the Halloween part."))
@@ -158,7 +157,7 @@ class FakeTurn:
 class HandOff(Base):
     def setUp(self):
         super().setUp()
-        voice.ask_bot, voice.update_job = self.real[6], self.real[7]     # the real ones, for these tests
+        voice.ask_bot, voice.update_job = self.real[6], self.real[7]
         self.fake = FakeServer()
         self.patches = [mock.patch.object(voice.server, "call", self.fake.call),
                         mock.patch.object(voice, "WORKING_FIRST_SEC", 0.2),
@@ -210,7 +209,7 @@ class HandOff(Base):
         out, evs = asyncio.run(go())
         cues = [(e["text"], e["id"]) for e in evs if e["type"] == "cue"]
         self.assertEqual(cues, [("started", 1), ("done", 1)])
-        self.assertEqual(out, reply)          # three sentences: said in full (Oct 11 call review)
+        self.assertEqual(out, reply)
         self.assertIn(voice.CALL_REQUEST_MARKER, made[0][1])
 
     def test_no_working_sound_after_a_tasks_done_sound(self):
@@ -224,7 +223,7 @@ class HandOff(Base):
             await voice.cue(call, "working", 1)
             await voice.cue(call, "done", 1)
             await voice.cue(call, "working", 1)
-            await voice.cue(call, "working", 2)   # another task still sounds
+            await voice.cue(call, "working", 2)
             evs = events_of(call)
             call.closed = True
             return [(e["text"], e["id"]) for e in evs if e["type"] == "cue"]
@@ -373,7 +372,6 @@ class MissedTurn(Base):
         self.assertEqual(self.fake.calls, [])
 
     def test_words_the_phone_never_heard_the_person_say_are_not_chased(self):
-        # A TV or someone across the room: recognized words, but the phone's microphone never heard the person.
         self.run_line("and in other news the markets fell today", heard=False)
         self.assertEqual(self.fake.calls, [])
 
@@ -449,11 +447,11 @@ class VoiceIdentity(Base):
     def test_the_last_voice_chosen_on_any_device_is_the_homes(self):
         pick = lambda given, chosen: voice.pick_voice(given, chosen, voice.VOICE_SETTING, voice.VOICES,
                                                       voice.DEFAULT_VOICE)
-        self.assertEqual(pick("cove", False), "cove")                   # nothing saved yet: as sent
-        self.assertEqual(pick("maple", True), "maple")                  # the iPhone chose Maple
+        self.assertEqual(pick("cove", False), "cove")
+        self.assertEqual(pick("maple", True), "maple")
         self.assertEqual(store.get_setting(voice.VOICE_SETTING), "maple")
-        self.assertEqual(pick("cove", False), "maple")                  # the iPad never chose: Maple too
-        self.assertEqual(pick("cove", None), "cove")                    # an older app: as sent, nothing saved
+        self.assertEqual(pick("cove", False), "maple")
+        self.assertEqual(pick("cove", None), "cove")
         self.assertEqual(store.get_setting(voice.VOICE_SETTING), "maple")
         self.assertEqual(pick("nonsense", True), "maple")
         self.assertEqual(pick(None, None), "maple")
@@ -550,7 +548,6 @@ class Prompts(Base):
                      "If you missed it, say so plainly", "sounds like a TV", "goodbye", "When {0} starts talking, "
                      "stop and listen".format(first), "a soft sound tells"):
             self.assertIn(want, p)
-        # Colin's speaking rules stay.
         for keep in ("Never ask an either-or question", "Never join two questions with a comma", "Oh, man",
                      'If {0} says "um" or "uh"'.format(first)):
             self.assertIn(keep, p)
@@ -602,7 +599,7 @@ class Routes(Base):
         self.assertEqual(voice.calls[cid].transcript[0], ("You", voice.greeting(late=True)))
         r = self.client.post("/api/bots/default/voice/local", json={"voice": "george"}, headers=self.auth)
         cid2 = r.json()["call_id"]
-        self.assertEqual(r.json()["voice"], "george")            # an older app: its own voice, as before
+        self.assertEqual(r.json()["voice"], "george")
         self.assertEqual(self.client.post(f"/api/voice/{cid2}/ready", headers=self.auth).status_code, 200)
         self.assertEqual(voice.calls[cid2].transcript[0], ("You", voice.greeting()))
 

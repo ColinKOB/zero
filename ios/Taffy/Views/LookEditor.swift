@@ -47,7 +47,7 @@ struct LookEditor: View {
                     .background(Color.white)
             }
             .toolbar(.hidden, for: .navigationBar)
-            .environment(\.colorScheme, .light)   // the picker's boxes and art are made for white
+            .environment(\.colorScheme, .light)
             .alert("That Did Not Work", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(error ?? "") }

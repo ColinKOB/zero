@@ -221,14 +221,13 @@ class CalDAV(CalendarCase):
         out = self.tool(action="list", start="2026-10-12", end="2026-10-25")
         self.assertEqual(self.cards(), [])
         report = next(c for c in self.dav.calls if c[0] == "REPORT")
-        self.assertEqual(report[1], "https://p01-caldav.icloud.com/123/calendars/home/")   # not Reminders
+        self.assertEqual(report[1], "https://p01-caldav.icloud.com/123/calendars/home/")
         self.assertEqual(report[2:4], ("sam@icloud.com", "abcd-efgh-ijkl-mnop"))
         self.assertIn('<c:time-range start="20261012T050000Z" end="20261026T050000Z"/>', report[4])
         titles = [(e["title"], e["start"]) for e in out["events"]]
         self.assertIn(("Dinner, with Robin", "2026-10-14T19:00-05:00"), titles)
         self.assertIn(("Fall break", "2026-10-15"), titles)
         biology = [e["start"] for e in out["events"] if e["title"] == "Biology"]
-        # Mondays and Wednesdays from Oct 12, six times, without the Oct 14 class.
         self.assertEqual(biology, ["2026-10-12T09:00-05:00", "2026-10-19T09:00-05:00", "2026-10-21T09:00-05:00",
                                    "2026-10-26T09:00-05:00"][:3])
         dinner = next(e for e in out["events"] if e["title"].startswith("Dinner"))
@@ -254,7 +253,7 @@ class CalDAV(CalendarCase):
         self.assertTrue(url.startswith("https://p01-caldav.icloud.com/123/calendars/home/") and url.endswith(".ics"))
         self.assertEqual(headers["If-None-Match"], "*")
         self.assertIn("SUMMARY:Dinner with Robin", body)
-        self.assertIn("DTSTART:20261017T000000Z", body)       # 7 p.m. Central is midnight UTC
+        self.assertIn("DTSTART:20261017T000000Z", body)
         self.assertIn("DTEND:20261017T010000Z", body)
         self.assertNotIn("ATTENDEE", body)
         act = plugin.recent_actions(1)[0]
@@ -277,11 +276,11 @@ class CalDAV(CalendarCase):
         plugin.decide(card["id"], True)
         out = self.tool(**args)
         self.assertEqual(out["done"], "created; invitations sent to ken@rivera.example")
-        body = self.dav.puts()[-1][1].replace("\r\n ", "")   # unfolded
+        body = self.dav.puts()[-1][1].replace("\r\n ", "")
         self.assertTrue(all(len(l.encode()) <= 75 for l in self.dav.puts()[-1][1].split("\r\n")))
         self.assertIn("ORGANIZER;CN=Sam Rivera:mailto:sam@icloud.com", body)
         self.assertIn("ATTENDEE;RSVP=TRUE;PARTSTAT=NEEDS-ACTION;ROLE=REQ-PARTICIPANT:mailto:ken@rivera.example", body)
-        self.assertIn("blocked", self.tool(**args))   # Allow Once covered one call
+        self.assertIn("blocked", self.tool(**args))
 
     def test_changing_an_event_with_guests_needs_notify_and_a_card(self):
         self.dav.event = EVENT.replace("{extra}", "ORGANIZER:mailto:sam@icloud.com\r\nATTENDEE:mailto:robin@x.example\r\n")
@@ -302,7 +301,7 @@ class CalDAV(CalendarCase):
         self.assertIn("DTSTART:20261015T010000Z", body)
         self.assertNotIn("TZID=America/Chicago:20261014T190000", body)
         self.assertIn("ATTENDEE:mailto:robin@x.example", body)
-        self.assertIn("BEGIN:VALARM", body)   # everything else in the event stays
+        self.assertIn("BEGIN:VALARM", body)
 
     def test_a_change_of_sams_own(self):
         self.ask("rename dinner")
@@ -310,7 +309,7 @@ class CalDAV(CalendarCase):
         self.assertEqual(out["done"], "changed")
         body = self.dav.puts()[-1][1]
         self.assertIn("SUMMARY:Dinner at Luigi's", body)
-        self.assertEqual(body.count("SUMMARY:"), 2)   # the event's and the alarm's
+        self.assertEqual(body.count("SUMMARY:"), 2)
         self.assertIn("SUMMARY:Alarm inside", body)
 
     def test_an_event_elsewhere_or_repeating_is_refused(self):
@@ -352,7 +351,6 @@ class ICal(CalendarCase):
     def test_a_private_address_is_read_only(self):
         out = self.tool(action="list", calendar="school", start="2026-10-12", end="2026-10-19")
         self.assertEqual(self.fetched, ["https://example.edu/cal/secret-token.ics"])
-        # The end date counts as a whole day; Oct 14's class was cancelled (EXDATE).
         self.assertEqual([(e["title"], e["start"], e["repeats"]) for e in out["events"]],
                          [("Biology", "2026-10-12T09:00-05:00", True), ("Fall break", "2026-10-15", False),
                           ("Biology", "2026-10-19T09:00-05:00", True)])

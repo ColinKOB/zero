@@ -27,8 +27,8 @@ from . import facts, notices, who
 from .notices import Candidate, Option
 
 RUN_OUT_LEAD_DAYS = 2
-LATE_DAYS = 3                  # the card stays up to this long after the predicted day
-MIN_GAP_DAYS = 3               # two orders closer than this are one shopping trip
+LATE_DAYS = 3
+MIN_GAP_DAYS = 3
 _AUTO = re.compile(r"\b(autoship|auto-ship|subscribe|subscription|auto-?refill|every \d+ (days?|weeks?|months?))\b", re.I)
 _LASTS = re.compile(r"\b(?:lasts?|last me|goes? through|go through|uses? up|runs? out (?:in|after)|every)\s+"
                     r"(?:about |around |roughly |a |one )?(?P<n>\d+(?:\.\d+)?|a|one|two|three|four|five|six)?\s*"
@@ -76,7 +76,6 @@ def predictions(now: float) -> list[dict]:
         last = items[-1]
         if any(_AUTO.search(x["text"]) or x.get("every") for x in items[-2:]):
             continue
-        # One shopping trip may list several lines (two eyes of contact lenses); a trip is the first line's date.
         trips = [items[0]["ordered_at"]]
         for x in items[1:]:
             if x["ordered_at"] - trips[-1] >= MIN_GAP_DAYS * 86400:

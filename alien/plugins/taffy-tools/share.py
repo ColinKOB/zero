@@ -14,7 +14,7 @@ from pathlib import Path
 from . import consent, gate, home, safe_files
 
 MAX_WIDTH = 1600
-MEDIA = OUTBOX = None   # tests set these; otherwise hub-state/media and hub-state/outbox of the home
+MEDIA = OUTBOX = None
 
 
 def _hub_state() -> Path:
@@ -63,8 +63,6 @@ def _capture(bot: str):
     display = env.get("DISPLAY")
     if not display:
         raise RuntimeError("Could not find your screen.")
-    # Captured in a separate process with that screen's own settings, so the gateway's environment
-    # never changes while other bots are working.
     import subprocess, sys, tempfile
     from PIL import Image
     out = Path(tempfile.mkstemp(suffix=".png")[1])
@@ -100,8 +98,6 @@ def share(args: dict, session_id: str = "") -> str:
         pass
     try:
         if path:
-            # Links and ".." are followed before the check, and the file is read through a handle that does not
-            # follow links (safe_files.py): a link in a work folder must not hand Colin's app a file elsewhere.
             try:
                 f = safe_files.open_file(path, safe_files.zip_roots(consent.REAL_HOME, bot), str(consent.REAL_HOME))
             except safe_files.Refused as e:

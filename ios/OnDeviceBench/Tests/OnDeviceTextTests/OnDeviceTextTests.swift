@@ -1,5 +1,3 @@
-// The text rules of On-Device Voice calls, from the call test's lessons (docs/research/2026-10-08-kokoro-call-test.md,
-// 2026-10-09-george-questions.md, 2026-10-09-call-test-hearing.md).
 import XCTest
 
 final class SentenceTests: XCTestCase {
@@ -64,7 +62,6 @@ final class SentenceTests: XCTestCase {
     func testPausesBetweenSentences() {
         XCTAssertEqual(SpokenSentence(text: "Done.", paragraphEnd: false).pauseAfter, 0.25, accuracy: 0.001)
         XCTAssertEqual(SpokenSentence(text: "Done.", paragraphEnd: true).pauseAfter, 0.40, accuracy: 0.001)
-        // Pocket's own trailing silence and time already lost both count toward the pause.
         XCTAssertEqual(SpokenPause.pad(previous: 0.25, trailing: 0.05, late: 0.0), 0.15, accuracy: 0.001)
         XCTAssertEqual(SpokenPause.pad(previous: 0.25, trailing: 0.3, late: 0.0), 0)
     }
@@ -88,7 +85,7 @@ final class HearingTests: XCTestCase {
     func testOnlyForeignWordsInterruptOnTheSpeaker() {
         let voice = Set(HeardText.words("Tacos at six sound great. Want a recipe?"))
         XCTAssertFalse(HeardText.interruption(heard: ["yeah"], voiceWords: voice).confirmed)
-        XCTAssertFalse(HeardText.interruption(heard: ["tacos", "six"], voiceWords: voice).confirmed)   // its own echo
+        XCTAssertFalse(HeardText.interruption(heard: ["tacos", "six"], voiceWords: voice).confirmed)
         XCTAssertTrue(HeardText.interruption(heard: ["stop"], voiceWords: voice).confirmed)
         XCTAssertTrue(HeardText.interruption(heard: ["actually", "pizza"], voiceWords: voice).confirmed)
         XCTAssertTrue(HeardText.interruption(heard: ["burgers"], voiceWords: voice).confirmed)

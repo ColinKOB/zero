@@ -38,7 +38,7 @@ class RunningLow(ProCase):
     def test_two_orders_give_the_day_and_one_card_on_it_none_before(self):
         self.order(28)
         self.order(14)
-        runs_out = self.clock                   # every 14 days, last one 14 days ago: today
+        runs_out = self.clock
         self.assertEqual(self.cards_at(runs_out - 3 * DAY), [])
         [c] = self.cards_at(runs_out - 2 * DAY)
         self.assertIsNone(notices.check(c))
@@ -49,7 +49,7 @@ class RunningLow(ProCase):
         self.assertEqual(c.options[0].kind, "act")
         self.assertIn("Stop at checkout", c.options[0].say)
         self.assertNotRegex(c.options[0].say, r"(?i)please (buy|order|pay)")
-        self.assertEqual(self.cards_at(runs_out + 4 * DAY), [])     # long past: the card has closed
+        self.assertEqual(self.cards_at(runs_out + 4 * DAY), [])
 
     def test_through_the_rules_once(self):
         self.order(28)
@@ -58,7 +58,7 @@ class RunningLow(ProCase):
         cands = run(supplies.running_low())
         ids = run(notices.consider(cands, paced=False))
         self.assertEqual(len([i for i in ids if i]), 1)
-        self.assertEqual(run(notices.consider(run(supplies.running_low()), paced=False)), [])   # never twice
+        self.assertEqual(run(notices.consider(run(supplies.running_low()), paced=False)), [])
 
     def test_a_newer_order_moves_the_day(self):
         self.order(28)

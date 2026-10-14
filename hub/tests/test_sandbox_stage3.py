@@ -65,7 +65,6 @@ class ContainerCase(GateCase):
         self.real_home = Path(tempfile.mkdtemp())
         for d in ("taffy/work/school", "taffy/shared", "Projects/secret"):
             (self.real_home / d).mkdir(parents=True)
-        # Password fills other tests made in this process are remembered in memory; this browser has none.
         patches = [mock.patch.object(plugin, "REAL_HOME", self.real_home),
                    mock.patch.object(sandbox, "_resolve", lambda host: NAMES.get(host, [])),
                    mock.patch.dict(gate._filled, clear=True)]
@@ -146,7 +145,7 @@ class BrowserAddresses(ContainerCase):
         ctx = types.SimpleNamespace(register_tool=lambda name, toolset, schema, handler: handlers.__setitem__(name, handler),
                                     register_hook=lambda *a, **kw: None,
                                     dispatch_tool=lambda *a, **kw: self.fail("a step ran"))
-        page = types.ModuleType("tools.browser_vault_tool")   # Hermes's page lookup, faked even where Hermes exists
+        page = types.ModuleType("tools.browser_vault_tool")
         page._current_page_origin = lambda task_id: "https://example.com/"
         tools_pkg = types.ModuleType("tools")
         tools_pkg.browser_vault_tool = page
@@ -270,7 +269,6 @@ class BrowserExec(ContainerCase):
         secret = self.real_home / "Projects" / "secret" / "notes.txt"
         secret.write_text("x")
         self.assertIn("work or shared folders", self.exec_(f'upload_file("#f", "{secret}")')["message"])
-        # A link the Zip made in its own folder names the file it points to on alien.
         link = self.real_home / "taffy" / "work" / "school" / "notes.txt"
         link.symlink_to(secret)
         self.assertIn("work or shared folders", self.exec_(f'upload_file("#f", "{link}")')["message"])
@@ -341,7 +339,6 @@ class Screen(ContainerCase):
             spec = importlib.util.spec_from_file_location("set_toolsets_s3", script)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-        # Colin: the screen tool is critical to being a Zip, so every Zip keeps it (Oct 8).
         for bot, lead, keeps in (("default", True, True), ("school", False, True), ("builder", False, True),
                                  ("clients", False, True), ("career", False, True), ("money", False, True)):
             with self.subTest(bot=bot):
@@ -470,7 +467,6 @@ class DesktopLockdown(unittest.TestCase):
         self.assertTrue(list(self.conf.glob("xfce4-panel.xml.bak-*")))
 
     def test_skips_a_running_screen(self):
-        # The running check itself is tested against a made-up /proc in test_sandbox_fixes.py.
         with mock.patch.object(self.mod, "running", lambda desk: desk == self.desk):
             self.assertIn("skipped", self.mod.lock(self.home, "clients", [str(self.apps)]))
         self.assertIn("TerminalEmulator", (self.conf / "xfce4-keyboard-shortcuts.xml").read_text())

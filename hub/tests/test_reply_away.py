@@ -50,7 +50,7 @@ class ReplyAway(AppCase):
 
     def turn(self, *, leave: bool, typed: bool = True, reply: str = REPLY):
         async def fake_stream(bot_id, text, **kw):
-            if leave:   # the person put the phone down while the Zip worked
+            if leave:
                 looking._seen[PHONE] = time.time() - looking.AWAY_SEC - 1
             yield {"type": "reply", "text": reply}
             yield {"type": "done"}
@@ -77,7 +77,7 @@ class ReplyAway(AppCase):
         title, body, bot, kw = self.pushed[0]
         self.assertEqual((title, body, bot), ("School", REPLY, "school"))
         self.assertTrue(kw.get("urgent"))
-        self.assertTrue(kw.get("exact"))   # the Zip's own words, cut to fit, never rewritten
+        self.assertTrue(kw.get("exact"))
 
     def test_a_long_reply_notifies_with_its_first_paragraph(self):
         self.turn(leave=True, reply=REPLY + "\n\nForm C is already graded.")

@@ -27,10 +27,8 @@ from test_proactivity import run  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 BROKER = REPO / "alien" / "broker" / "zero_broker.py"
-REAL_FOLLOW_UP = turns.follow_up   # AppCase swaps it for a recorder
+REAL_FOLLOW_UP = turns.follow_up
 
-# A status reply in the shape of the ones Colin called "less like a teammate" (made up, same shape: a lead, a list,
-# a caveat paragraph and a question at the end).
 STATUS = """Good morning. One thing is due tonight: your POL 101 Unit 6 video, at 11:55 p.m. It's question 8, on the \
 shortcuts people use to cope with voter ignorance.
 
@@ -207,8 +205,8 @@ class Shorten(unittest.TestCase):
         self.assertEqual(run(shortreply.shorten("default", "Uhh it's the oasys one", PRICES, ask=FakeHaiku(good))), good)
         changed = good.replace("$93.49", "$93")
         shown = run(shortreply.shorten("default", "Uhh it's the oasys one", PRICES, ask=FakeHaiku(changed, changed)))
-        self.assertNotIn("$93 ", shown)                      # the changed number never reaches the person
-        self.assertTrue(PRICES.startswith(shown))           # the reply's own opening shows instead
+        self.assertNotIn("$93 ", shown)
+        self.assertTrue(PRICES.startswith(shown))
 
     def test_a_rewrite_that_fails_the_checks_is_asked_for_once_more_with_the_reason(self):
         haiku = FakeHaiku(GOOD_SHORT.replace("11:55", "11:50", 1), GOOD_SHORT)
@@ -230,7 +228,7 @@ class Shorten(unittest.TestCase):
         bad = "Your Unit 6 video is due tonight at 11:55 p.m. Mr. Hart wants it in early."
         short = run(shortreply.shorten("default", "What's up today?", STATUS, ask=FakeHaiku(bad, bad)))
         self.assertTrue(STATUS.startswith(short.split("\n\n")[0]))
-        self.assertIn("Do you want me to pull up the reading", short)   # the reply's own question stays
+        self.assertIn("Do you want me to pull up the reading", short)
         self.assertIsNone(shortreply.faithful(STATUS, short, "What's up today?"))
 
     def test_the_opening_is_not_used_when_it_would_drop_a_link_or_is_only_a_lead_in(self):
@@ -296,8 +294,6 @@ print(json.dumps({{"type": "result", "subtype": "success", "is_error": False}}))
             if key == "plan.claude.command":
                 return str(self.fake) if shared else default
             return real_get(key, default)
-        # A shared home: the real accounts.claude_bin finds the broker's client from the home's settings. Its own plan:
-        # the home's Claude Code.
         own = mock.patch("taffy_hub.accounts.claude_bin", lambda: str(self.fake)) if not shared else mock.patch.dict({})
         with mock.patch.object(home, "get", get), own, \
                 mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-never-used"}):
@@ -382,7 +378,7 @@ class ChatTurns(AppCase):
                              {"id": 2, "role": "assistant", "text": STATUS, "ts": 2}])
         self.assertEqual(msgs[1]["display"], GOOD_SHORT)
         self.assertEqual(msgs[1]["full"], STATUS)
-        self.assertEqual(msgs[1]["text"], STATUS)        # the Zip's own words are untouched
+        self.assertEqual(msgs[1]["text"], STATUS)
         self.assertNotIn("full", msgs[0])
 
     def test_a_requested_list_and_a_draft_are_shown_as_written(self):
@@ -409,7 +405,7 @@ class ChatTurns(AppCase):
         self.assertEqual(next(e for e in out if e["type"] == "reply")["text"], STATUS)
         self.assertEqual(len(self.haiku.prompts), 1)
         msgs = self.history([{"id": 2, "role": "assistant", "text": STATUS, "ts": 2}])
-        self.assertEqual(msgs[0]["display"], STATUS)     # off means every reply shows as written
+        self.assertEqual(msgs[0]["display"], STATUS)
         self.client.put("/api/settings", json={"keep_replies_short": True})
         self.assertEqual(self.history([{"id": 2, "role": "assistant", "text": STATUS, "ts": 2}])[0]["display"],
                          GOOD_SHORT)
@@ -479,7 +475,7 @@ class OwnShort(ChatTurns):
         self.assertEqual(self.haiku.prompts, [])
 
     def test_an_own_short_version_that_fails_the_checks_goes_to_haiku(self):
-        bad = OWN.replace("11:55 p.m. Form", "11:30 p.m. Form")   # a time the reply does not say
+        bad = OWN.replace("11:55 p.m. Form", "11:30 p.m. Form")
         self.assertFalse(shortreply.offer("default", STATUS, bad))
         self.haiku.answers = [GOOD_SHORT]
         out = self.turn(STATUS, "What's on my plate today?")

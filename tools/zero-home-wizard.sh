@@ -196,7 +196,7 @@ HOME_ID="${1:-riley}"
 ALIEN="${ZERO_ALIEN:-alien}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$HOME/.config/zero"
-ENV_FILE="$HOME/.config/zero/wizard.env"     # the Google client id only; it is not a secret
+ENV_FILE="$HOME/.config/zero/wizard.env"
 
 case "$HOME_ID" in
   riley) PERSON="Riley"; GMAIL="riley@example.com" ;;
@@ -207,8 +207,6 @@ esac
 BUNDLE_ID=$(awk '/PRODUCT_BUNDLE_IDENTIFIER:/ {print $2; exit}' "$REPO/ios/project.yml")
 CLIENT_ID_RE='^[0-9]{6,20}-[a-z0-9]{10,64}\.apps\.googleusercontent\.com$'
 HAVE_CLIENT_ID=$(_existing ZERO_GOOGLE_CLIENT_ID || true)
-# Zero's own iOS client already exists (project zero-signin, CONFIGURE.md) and every new home
-# is written with it, so the Google Cloud steps below run only when ZERO_GOOGLE_CLIENT_ID= is set empty on purpose.
 ZERO_CLIENT_ID_DEFAULT="000000000000-yourgoogleclientid.apps.googleusercontent.com"
 if [[ -z "$HAVE_CLIENT_ID" ]] && ! grep -qE '^ZERO_GOOGLE_CLIENT_ID=$' "$ENV_FILE" 2>/dev/null; then
   HAVE_CLIENT_ID="$ZERO_CLIENT_ID_DEFAULT"
@@ -229,7 +227,6 @@ TOTAL_STAGES=$((1 + GOOGLE_STAGES + PERSON_STAGES))
 
 banner "Zero: what only Colin and $PERSON can do"
 
-# ── 1 ────────────────────────────────────────────────────────────────────
 stage "Check that alien is ready"
 say "The lead should already have made the $HOME_ID home on alien. This checks that before anything else."
 if on_alien "test -f /srv/zero/homes.json && python3 -c \"import json,sys; sys.exit(0 if '$HOME_ID' in json.load(open('/srv/zero/homes.json'))['homes'] else 1)\""; then
@@ -241,7 +238,6 @@ fi
 note "Nothing on alien changes in this stage."
 pause "Press Enter to continue."
 
-# ── 2 to 6: Google sign-in, once for every home ─────────────────────────
 if [[ -n "$HAVE_CLIENT_ID" ]]; then
   stage "Google sign-in is already set up"
   say "The Google Client ID from an earlier run is saved, so the Google Cloud steps are skipped."
@@ -343,7 +339,6 @@ if [[ "$HOME_ID" == "test" ]]; then
   exit 0
 fi
 
-# ── 7 ────────────────────────────────────────────────────────────────────
 stage "Invite Riley to the tailnet"
 say "Riley's phone reaches her home through Tailscale. She joins as her own Tailscale user, so her devices"
 say "stay hers. Her home is published only on the tailnet, never on the internet."
@@ -360,7 +355,6 @@ note "Optional: an access rule can limit her devices to alien's port $(on_alien 
 note "The wizard does not change your tailnet rules; edit them on the Access controls page if you want that."
 pause "Press Enter when her iPhone shows up on the Machines page."
 
-# ── 8 ────────────────────────────────────────────────────────────────────
 stage "Install the Zero app on Riley's iPhone"
 say "Until TestFlight exists, her phone gets the app from your developer account, like yours does."
 step "Plug in her iPhone, unlock it, and tap Trust if it asks."
@@ -384,7 +378,6 @@ fi
 step "On her iPhone: Settings, General, VPN and Device Management, then trust your developer profile if asked."
 pause "Press Enter when Zero opens on her phone."
 
-# ── 9 ────────────────────────────────────────────────────────────────────
 stage "Pair Riley's phone with her home"
 say "This asks her home for a one-time pairing code, valid for an hour. It runs on alien as her home's user,"
 say "through the sudo rule for /srv/zero/bin/zero-home-* scripts. Nothing else changes."
@@ -405,7 +398,6 @@ step "Opens the Tailscale app and turns it on."
 step "Opens Zero, taps I Have My Code, and scans the QR code, or types the address and the code."
 pause "Press Enter when her phone shows her home."
 
-# ── 10 ────────────────────────────────────────────────────────────────────
 stage "Keep Riley's backup password"
 say "Her home's nightly backup is encrypted with a password that only you keep. It goes into your Mac's"
 say "login keychain as \"Zero backup riley\", so the morning copy on this Mac can be checked. It is never"
@@ -425,7 +417,6 @@ else
 fi
 pause "Press Enter to continue."
 
-# ── 11 ───────────────────────────────────────────────────────────────────
 stage "Riley connects her Gmail"
 say "Her Zips read her mail and calendar after she signs in with Google in the app."
 step "In Zero, Riley opens Email and Calendar and taps Sign In with Google."

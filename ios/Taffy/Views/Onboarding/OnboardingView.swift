@@ -21,7 +21,6 @@ struct OnboardingView: View {
     init(rehearsal: Bool = false) {
         var start: OnboardingModel.Step?
         #if DEBUG
-        // -onboarding <step>, or -rehearsal <step> for the rehearsal from Settings.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: rehearsal ? "-rehearsal" : "-onboarding") {
             start = i + 1 < args.count ? OnboardingModel.Step(rawValue: args[i + 1]) ?? .meet : .meet
@@ -41,7 +40,6 @@ struct OnboardingView: View {
         }
         .environment(\.colorScheme, .light)
         .environment(model)
-        // A zero://pair link or QR code before the home is connected: straight to the code screen, filled in.
         .onChange(of: state.pendingPair) { _, link in
             guard link != nil, !state.paired, !model.rehearsal else { return }
             if [.meet, .name, .talk, .account, .mac, .guide, .noMac].contains(model.draft.step) {
@@ -120,7 +118,6 @@ extension OnboardingModel {
 
 /// Links the onboarding shares.
 enum OnboardingLinks {
-    // The newest Zero for Mac: heyzero.app/download sends it from the public repository's releases.
     static let macDownload = URL(string: "https://heyzero.app/download")!
 
     /// What the setup guide copies for ChatGPT or Claude, which then walks the person through setting up the chosen
@@ -278,7 +275,6 @@ struct OnboardingPage<Content: View, Footer: View>: View {
                 }
                 Spacer()
                 if model.rehearsal {
-                    // Nothing is saved in a rehearsal; tapping the label ends it.
                     Button { state.rehearsingOnboarding = false } label: {
                         HStack(spacing: 5) {
                             Text("Rehearsal")

@@ -46,7 +46,7 @@ class Reading(unittest.TestCase):
             ("linear", "Linear", accounts.TROUBLE),
             ("notion", "Notion", accounts.CONNECTED),
             ("slack", "Slack", accounts.NEEDS_SIGN_IN),
-        ])   # Gmail is one of SERVICES; plugin and local servers are not the person's Claude account
+        ])
         self.assertNotIn("SHOULD-NOT-LEAK", json.dumps(items))
         self.assertEqual(items[2]["connector"], "claude.ai Notion")
         self.assertEqual(accounts.parse_list(""), [])
@@ -103,7 +103,6 @@ class Plans(Base):
         self.assertEqual(result["plan"], "claude")
         self.assertIn("Notion", accounts.connected_names())
         self.assertNotIn("SHOULD-NOT-LEAK", json.dumps(result))
-        # The list is reused for a while: a forced check does not list again.
         n = sum(1 for c in self.fake.calls if c[:2] == ("mcp", "list"))
         accounts._last["checked_at"] -= accounts.MIN_GAP_SEC + 1
         asyncio.run(accounts.check(force=True))
@@ -120,7 +119,7 @@ class Plans(Base):
         self.assertEqual((rows["drive"]["state"], rows["drive"]["via"]), (accounts.NOT_CONNECTED, "chatgpt"))
         self.assertEqual(rows["trello"]["state"], accounts.NEEDS_CLAUDE)
         self.assertEqual(result["google"], {"connected": 1, "total": 3})
-        self.assertNotIn(GMAIL_APP, json.dumps(result))   # app ids stay in the hub
+        self.assertNotIn(GMAIL_APP, json.dumps(result))
         self.assertEqual(accounts.broken_news(result), [])
 
     def test_both_plans_claude_first(self):
@@ -170,7 +169,7 @@ class Routes(Base):
         self.assertEqual(r["state"], accounts.NO_SUCH)
         self.assertIn('no account called "asana"', r["message"])
         self.assertIn("notion (Notion)", r["message"])
-        self.assertEqual(self.cards(), [])               # nothing to connect, so no card
+        self.assertEqual(self.cards(), [])
 
     def test_another_connector_gets_its_own_card(self):
         r = asyncio.run(accounts.need("school", "slack", "read #class", "s1"))
@@ -248,7 +247,6 @@ class PluginRoutes(unittest.TestCase):
         self.assertIn("mcp__claude_ai_Notion,ToolSearch", cmd)
         matcher, allowed = self.guard_of(cmd)
         self.assertTrue(re.search(matcher, "mcp__claude_ai_Notion__notion-update-page"))
-        # A read request reads: since round 9 a change tool is closed on it too (Oct 8 QA round 9, M1).
         for name, open_ in (("notion-create-comment", False), ("notion-delete-page", False), ("deletePage", False),
                             ("share_page", False), ("notion-search", True), ("notion-get-comments", True),
                             ("notion-update-page", False)):
@@ -312,7 +310,7 @@ class Templates(unittest.TestCase):
         from taffy_hub import app
         self.assertEqual(app.template_services({"id": "inbox"}), ["gmail"])
         self.assertEqual(app.template_services({"id": "cleanup"}), [])
-        self.assertEqual(app.template_services({"id": "inbox", "services": ["drive"]}), ["drive"])   # the file wins
+        self.assertEqual(app.template_services({"id": "inbox", "services": ["drive"]}), ["drive"])
         self.assertEqual(app.template_services({"id": "new-one"}), [])
         known = {s.id for s in accounts.SERVICES}
         self.assertTrue(all(set(v) <= known for v in app.TEMPLATE_SERVICES.values()))
@@ -321,8 +319,6 @@ class Templates(unittest.TestCase):
         """Voice setup QA L2: one wording for the ChatGPT plan line."""
         if not (REPO / "ios").exists():
             self.skipTest("needs the repo")
-        # Oct 9: the line says calls need Codex signed in with ChatGPT on the person's computer, and it is written
-        # once (VoiceWording.chatGPTPlan) and used by all three screens.
         line = "For now, calls use ChatGPT's voice. They need Codex on your computer, signed in with a ChatGPT plan."
         self.assertIn(line, (REPO / "ios" / "Taffy" / "Views/Onboarding/OnboardingSetup.swift").read_text())
         for f in ("Views/Onboarding/OnboardingSetup.swift", "Views/RootView.swift", "Views/VoiceSetupView.swift"):
@@ -332,8 +328,6 @@ class Templates(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

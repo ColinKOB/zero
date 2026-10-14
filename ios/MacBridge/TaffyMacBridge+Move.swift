@@ -52,7 +52,6 @@ extension TaffyMacBridge {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         #if DEBUG
-        // Tests move into a scratch folder, never over the Zero already in Applications.
         if let scratch = ProcessInfo.processInfo.environment["ZERO_MOVE_TO"] { folder = URL(fileURLWithPath: scratch) }
         #endif
         let dest = folder.appendingPathComponent("Zero.app")

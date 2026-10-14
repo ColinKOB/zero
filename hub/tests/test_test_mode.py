@@ -69,17 +69,17 @@ class TheGate(GateCase):
         with real_env():
             self.call("terminal", {"command": DEPLOY})
             real_id = plugin.pending()[0]["id"]
-            self.assertIsNone(plugin.decide_test(real_id, True))   # zip-test-cards never answers a real card
+            self.assertIsNone(plugin.decide_test(real_id, True))
         self.assertNotEqual(test_id, real_id)
         self.assertIsNotNone(plugin.decide_test(test_id, True))
         with real_env():
-            self.assertIsNotNone(self.call("terminal", {"command": DEPLOY}))   # the test answer does not cover it
+            self.assertIsNotNone(self.call("terminal", {"command": DEPLOY}))
         with test_env():
-            self.assertIsNone(self.call("terminal", {"command": DEPLOY}))      # it covers the test call, once
+            self.assertIsNone(self.call("terminal", {"command": DEPLOY}))
             self.assertIsNotNone(self.call("terminal", {"command": DEPLOY}))
         plugin.decide(real_id, True)
         with test_env():
-            self.assertIsNotNone(self.call("terminal", {"command": DEPLOY}))   # a real answer does not cover a test
+            self.assertIsNotNone(self.call("terminal", {"command": DEPLOY}))
         with real_env():
             self.assertIsNone(self.call("terminal", {"command": DEPLOY}))
 
@@ -177,7 +177,7 @@ class TheHub(AppCase):
         self.assertEqual(self.client.get("/api/signin-requests").json()["requests"], [])
         perms = self.client.get("/api/permissions").json()
         self.assertEqual((perms["actions"], perms["signins"]), ([], []))
-        self.assertEqual(plugin.pending(), [])   # what the app's card list and its per-Zip counts read
+        self.assertEqual(plugin.pending(), [])
         asyncio.run(watcher.scan_consent())
         self.assertEqual(self.pushed, [])
         self.assertEqual(self.feed(), [])

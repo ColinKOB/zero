@@ -88,7 +88,6 @@ final class PermissionGuide: NSObject {
         refresh()
         window?.center()
         window?.orderFrontRegardless()
-        // Quiet: shown without taking focus or opening System Settings, because a Zip may be working on the Mac.
         if !quiet {
             NSApp.activate(ignoringOtherApps: true)
             window?.makeKey()
@@ -148,7 +147,6 @@ final class PermissionGuide: NSObject {
         helper = SettingsHelper(step: step)
         helper?.start()
         refresh()
-        // Beside System Settings once it is open, so the step and the list are both in view.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
             MainActor.assumeIsolated { self?.placeBesideSettings() }
         }
@@ -162,9 +160,9 @@ final class PermissionGuide: NSObject {
         let primary = NSScreen.screens.first?.frame.height ?? screen.frame.height
         let size = window.frame.size
         let visible = screen.visibleFrame
-        var x = settings.frame.minX - size.width - 16          // to the left of Settings if it fits
+        var x = settings.frame.minX - size.width - 16
         if x < visible.minX { x = min(settings.frame.maxX + 16, visible.maxX - size.width) }
-        let y = primary - settings.frame.minY - size.height     // tops aligned
+        let y = primary - settings.frame.minY - size.height
         window.setFrameOrigin(NSPoint(x: max(visible.minX, x), y: max(visible.minY, min(y, visible.maxY - size.height))))
         window.orderFrontRegardless()
     }
@@ -180,7 +178,6 @@ final class PermissionGuide: NSObject {
             if let next = Step.allCases.first(where: { !Self.allowed($0) }) {
                 begin(next)
             } else {
-                // Everything is allowed: back to Zero.
                 NSApp.activate(ignoringOtherApps: true)
                 window?.orderFrontRegardless()
             }
@@ -226,7 +223,7 @@ final class PermissionGuide: NSObject {
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 420),
                         styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         p.title = "Let Zips Use This Mac"
-        p.titleVisibility = .hidden   // the heading inside says it
+        p.titleVisibility = .hidden
         p.titlebarAppearsTransparent = true
         p.level = .floating
         p.isReleasedWhenClosed = false
@@ -434,17 +431,16 @@ private final class SettingsHelper: NSObject {
     private func follow() {
         guard let panel else { return }
         guard let settings = Self.settingsWindow() else {
-            if sawSettings { close() } else { panel.orderOut(nil) }   // closed after being opened: the step is over
+            if sawSettings { close() } else { panel.orderOut(nil) }
             return
         }
         sawSettings = true
         guard settings.front || NSApp.isActive else { return panel.orderOut(nil) }
-        // Inside the content column (right of the sidebar), just above the window's bottom edge.
         let sidebar: CGFloat = 216
         let width = min(420, settings.frame.width - sidebar - 32)
         let height = panel.frame.height
         let x = settings.frame.minX + sidebar + (settings.frame.width - sidebar - width) / 2
-        let topY = settings.frame.maxY - height - 44   // above the list's + and - buttons
+        let topY = settings.frame.maxY - height - 44
         let primary = NSScreen.screens.first?.frame.height ?? 0
         let frame = NSRect(x: x, y: primary - topY - height, width: width, height: height)
         if panel.frame != frame { panel.setFrame(frame, display: true) }

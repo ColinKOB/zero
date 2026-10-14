@@ -44,34 +44,34 @@ class Gate(ProCase):
         r = self.notice("conflict:a:b")
         self.assertEqual(r["state"], "handled")
         self.assertEqual(r["end_reason"], "Not worth asking: It is his own sleep block, not an appointment.")
-        self.assertIsNone(r["feed_id"])                                       # nothing reached the chat
+        self.assertIsNone(r["feed_id"])
         self.assertEqual(notices._count("vetoed", 0), 1)
         prompt = self.haiku.prompts[0]
         self.assertIn("Would a sharp human assistant interrupt Colin O'Brien with this right now?", prompt)
         self.assertIn("routine, sleep, focus or planning blocks", prompt)
         self.assertIn("Keep UPS shift; Keep Dentist; I'll sort it out", prompt)
         self.raise_(clash(deadline=self.soon(30)))
-        self.assertEqual(len(self.haiku.prompts), 1)                          # a veto is not asked again
+        self.assertEqual(len(self.haiku.prompts), 1)
 
     def test_the_gate_keeps_codes_wording(self):
         self.raise_(clash(deadline=self.soon(30)))
         card = self.card("conflict:a:b")
         self.assertEqual(card["question"], "Which one do you want to keep?")
-        self.assertTrue(card["evidence"].startswith("Sunday you have UPS shift"))   # not "Haiku evidence."
+        self.assertTrue(card["evidence"].startswith("Sunday you have UPS shift"))
 
     def test_no_check_no_question(self):
         self.haiku.fail = True
         self.raise_(clash(deadline=self.soon(30)))
-        self.assertIsNone(self.notice("conflict:a:b"))                        # waits for a later look
+        self.assertIsNone(self.notice("conflict:a:b"))
         self.haiku.fail = False
-        with mock.patch.dict(health.status, {"claude": False}):                # the plan's limit
+        with mock.patch.dict(health.status, {"claude": False}):
             self.raise_(clash(deadline=self.soon(30)))
         self.assertIsNone(self.notice("conflict:a:b"))
         for i in range(notices.settings()["haiku_daily"]):
-            notices._log("haiku", "renewal", f"x{i}")                         # the day's checks are used
+            notices._log("haiku", "renewal", f"x{i}")
         self.raise_(clash(deadline=self.soon(30)))
         self.assertIsNone(self.notice("conflict:a:b"))
-        self.haiku.extra = {"ask": "maybe"}                                   # anything but true or false waits
+        self.haiku.extra = {"ask": "maybe"}
         self.clock += 86400
         self.raise_(clash(deadline=self.soon(30)))
         self.assertIsNone(self.notice("conflict:a:b"))
@@ -140,7 +140,7 @@ class Clashes(P2Case):
             ev("mon", "Advising", at(10, 12, 10), at(10, 12, 11), attendees=[person("Andrea", "a@lakeview.test")]),
             ev("mon2", "UPS shift", at(10, 12, 10, 30), at(10, 12, 15), location="UPS EHT / store 4995")]
         found = self.find("conflict")
-        self.assertEqual(len(found), 2)                                       # Sunday's and Monday's
+        self.assertEqual(len(found), 2)
         sunday = next(c for c in found if "ups" in c.subject and "mon" not in c.subject)
         self.assertIn("There are 2 more clashes that day.", sunday.evidence)
 
@@ -194,8 +194,8 @@ class SchoolDeadlines(P2Case):
         self.assertIsNone(notices.check(pol))
         self.src.zip_notes["school"] = ["Writing Lab done. Colin must sign and date Form C and submit by Oct 9."]
         pol2 = next(c for c in self.find("school_deadline") if "pol-101" in c.subject)
-        self.assertEqual(pol2.evidence, pol.evidence)                         # School's note is the same Form C
-        self.assertEqual(self.find("conflict"), [])                           # due times are never a clash
+        self.assertEqual(pol2.evidence, pol.evidence)
+        self.assertEqual(self.find("conflict"), [])
         self.raise_(pol)
         card = self.card(pol.subject)
         self.assertNotIn("—", json.dumps(card, ensure_ascii=False))
@@ -207,7 +207,7 @@ class Pacing(ProCase):
     def setUp(self):
         super().setUp()
         s = notices.settings()
-        s["enabled_at"] = self.clock - 3 * 86400                               # not the first day
+        s["enabled_at"] = self.clock - 3 * 86400
         notices._save(s)
 
     def paced(self, *cands):
@@ -226,46 +226,46 @@ class Pacing(ProCase):
         thread = self.cand("mail-sent:x", noticer="unreplied", consequence="Theo is waiting.")
         school = self.cand("deadline:x", noticer="school_deadline", deadline=self.soon(10))
         self.assertEqual(len(self.paced(later, thread, school)), 1)
-        self.assertEqual(self.notice("deadline:x")["state"], "open")          # due inside a day
+        self.assertEqual(self.notice("deadline:x")["state"], "open")
         self.assertIsNone(self.notice("renewal:x"))
         self.assertIsNone(self.notice("mail-sent:x"))
-        self.assertEqual(len(self.haiku.prompts), 1)                          # the others cost nothing yet
+        self.assertEqual(len(self.haiku.prompts), 1)
         self.paced(later, thread, school)
-        self.assertIsNone(self.notice("renewal:x"))                           # one card at a time (Oct 10)
+        self.assertIsNone(self.notice("renewal:x"))
         self.assertEqual(len(self.haiku.prompts), 1)
         notices.answer(self.notice("deadline:x")["feed_id"], "Keep it")
         self.clock += 2 * 3600
         self.paced(later, thread, school)
-        self.assertEqual(self.notice("renewal:x")["state"], "open")           # then the next look's best
+        self.assertEqual(self.notice("renewal:x")["state"], "open")
 
     def test_one_of_each_kind_a_day_and_three_in_all(self):
         self.look(self.cand("renewal:1", deadline=self.soon(72)))
         self.look(self.cand("renewal:2", deadline=self.soon(72)))
-        self.assertIsNone(self.notice("renewal:2"))                           # one renewal a day
+        self.assertIsNone(self.notice("renewal:2"))
         for kind in ("bill", "form", "window", "charge"):
             self.look(self.cand(f"{kind}:1", noticer=kind, deadline=self.soon(72)))
-        self.assertEqual(notices._raised_today(), 3)                          # three a day (Oct 10)
+        self.assertEqual(notices._raised_today(), 3)
         self.assertIsNone(self.notice("window:1"))
         self.clock = at(10, 9, 10)
         self.paced(self.cand("renewal:2", deadline=self.soon(72)))
-        self.assertEqual(self.notice("renewal:2")["state"], "open")           # a new day
+        self.assertEqual(self.notice("renewal:2")["state"], "open")
 
     def test_a_saved_old_default_reads_as_the_new_one(self):
         s = notices.settings()
-        s["daily_cards"] = 4                                                  # saved before Oct 9 by every home
+        s["daily_cards"] = 4
         store.set_setting("proactivity", s)
         self.assertEqual(notices.settings()["daily_cards"], 3)
-        store.set_setting("proactivity", {**s, "daily_cards": 6})             # a choice of the person's own
+        store.set_setting("proactivity", {**s, "daily_cards": 6})
         self.assertEqual(notices.settings()["daily_cards"], 6)
 
     def test_the_first_day_is_gentle(self):
         notices.set_enabled(False)
-        notices.set_enabled(True)                                             # turned on just now
+        notices.set_enabled(True)
         self.assertTrue(notices.first_day())
         backlog = [self.cand(f"{k}:1", noticer=k, deadline=self.soon(72 + i))
                    for i, k in enumerate(("renewal", "bill", "form", "window", "charge", "promise"))]
         raised = sum(len(self.look(*backlog)) for _ in range(5))
-        self.assertEqual(raised, 2)                                           # the top two, not a backlog dump
+        self.assertEqual(raised, 2)
         self.clock = notices.day_start() + 86400 + 10 * 3600
         self.assertFalse(notices.first_day())
         raised = sum(len(self.look(*backlog)) for _ in range(5))
@@ -275,15 +275,15 @@ class Pacing(ProCase):
         self.paced(self.cand("renewal:1", deadline=self.soon(72)))
         self.clock += 3 * 3600
         self.paced(self.cand("promise:1", noticer="promise", deadline=self.soon(72)))
-        self.assertIsNone(self.notice("promise:1"))                           # the open card first
-        self.assertEqual(len(self.haiku.prompts), 1)                          # waiting costs no check
+        self.assertIsNone(self.notice("promise:1"))
+        self.assertEqual(len(self.haiku.prompts), 1)
         self.clock += 22 * 3600
         self.paced(self.cand("promise:1", noticer="promise", deadline=self.soon(72)))
-        self.assertEqual(self.notice("promise:1")["state"], "open")           # a day old: it gives way
+        self.assertEqual(self.notice("promise:1")["state"], "open")
         self.assertEqual(self.notice("renewal:1")["state"], "expired")
         self.assertEqual(self.notice("renewal:1")["end_reason"], "room")
         self.assertEqual(len(notices._open_rows()), 1)
-        out = notices.answer(self.notice("renewal:1")["feed_id"], "Keep it")  # Closed is not final
+        out = notices.answer(self.notice("renewal:1")["feed_id"], "Keep it")
         self.assertEqual(out["send"], "Keep agentmax.app.")
 
     def test_two_hours_between_cards(self):
@@ -291,9 +291,9 @@ class Pacing(ProCase):
         notices.answer(self.notice("renewal:1")["feed_id"], "Keep it")
         self.clock += 30 * 60
         self.paced(self.cand("bill:1", noticer="bill", deadline=self.soon(72)))
-        self.assertIsNone(self.notice("bill:1"))                              # too soon after the last one
+        self.assertIsNone(self.notice("bill:1"))
         self.paced(self.cand("deadline:1", noticer="due_soon", deadline=self.soon(2)))
-        self.assertEqual(self.notice("deadline:1")["state"], "open")          # due within three hours: now
+        self.assertEqual(self.notice("deadline:1")["state"], "open")
         notices.answer(self.notice("deadline:1")["feed_id"], "Keep it")
         self.clock += 2 * 3600
         self.paced(self.cand("bill:1", noticer="bill", deadline=self.soon(72)))
@@ -303,28 +303,28 @@ class Pacing(ProCase):
         self.paced(self.cand("renewal:1", deadline=self.soon(72)))
         self.clock += 600
         self.paced(self.cand("deadline:1", noticer="school_deadline", deadline=self.soon(5)))
-        self.assertIsNone(self.notice("deadline:1"))                          # due today, but not within hours
+        self.assertIsNone(self.notice("deadline:1"))
         self.paced(self.cand("due:1", noticer="due_soon", deadline=self.soon(2)))
         self.assertEqual(self.notice("due:1")["state"], "open")
-        self.assertEqual(self.notice("renewal:1")["state"], "expired")       # Closed, still answerable
+        self.assertEqual(self.notice("renewal:1")["state"], "expired")
         self.assertEqual([r["subject"] for r in notices._open_rows()], ["due:1"])
         self.paced(self.cand("due:2", noticer="due_soon", deadline=self.soon(1)))
-        self.assertIsNone(self.notice("due:2"))                               # never pushes out another one
+        self.assertIsNone(self.notice("due:2"))
 
     def test_cards_from_before_the_rule_close_to_one(self):
         for i, kind in enumerate(("reply_waiting", "school_deadline", "unreplied")):
             self.clock += 60
             self.raise_(self.cand(f"{kind}:1", noticer=kind, deadline=self.soon(30 + 10 * i)))
-        self.assertEqual(len(notices._open_rows()), 3)                        # Oct 10, 8:10 a.m.
+        self.assertEqual(len(notices._open_rows()), 3)
         self.assertEqual(notices.one_at_a_time(), 2)
-        self.assertEqual([r["subject"] for r in notices._open_rows()], ["reply_waiting:1"])   # the soonest date
+        self.assertEqual([r["subject"] for r in notices._open_rows()], ["reply_waiting:1"])
         self.assertIn("I set 2 questions aside so you only get one at a time", notices.brief_text())
         self.assertEqual(notices.one_at_a_time(), 0)
 
     def test_an_open_cards_new_date_is_not_a_new_card(self):
         self.paced(self.cand("renewal:1", deadline=self.soon(72), version="a"))
         self.paced(self.cand("bill:1", noticer="bill", deadline=self.soon(72)))
-        self.paced(self.cand("renewal:1", deadline=self.soon(20), version="b"))   # no pacing for an update
+        self.paced(self.cand("renewal:1", deadline=self.soon(20), version="b"))
         self.assertEqual(self.notice("renewal:1")["version"], "b")
 
 
@@ -353,7 +353,7 @@ class Wording(ProCase):
         self.assertEqual(card["evidence"], "Sunday you have POL 101: Unit 6 from 11 p.m. to 12 a.m. They overlap.")
         self.assertEqual(card["options"][0], "Keep POL 101: Unit 6")
         out = notices.answer(self.notice("conflict:a:b")["feed_id"], "Keep POL 101: Unit 6")
-        self.assertEqual(out["send"], "Keep it.")                             # the tidied option still answers
+        self.assertEqual(out["send"], "Keep it.")
 
     def test_haikus_wording_is_tidy(self):
         self.haiku.extra = {"evidence": "Theo wrote — twice — about the handoff..", "question": "Nudge him?."}
@@ -400,7 +400,7 @@ class ClosedCards(ProCase):
     def test_from_the_lock_screen(self):
         self.close()
         fid = self.notice()["feed_id"]
-        out = notices.lock_answer(fid, "not_now")                           # nothing to hold back on a closed card
+        out = notices.lock_answer(fid, "not_now")
         self.assertEqual(self.notice()["state"], "expired")
         self.assertIsNone(out["send"])
         out = notices.lock_answer(fid, "reply", "Handled it Friday")
@@ -418,8 +418,6 @@ class ClosedCards(ProCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)
@@ -438,7 +436,7 @@ class SavedSettings(ProCase):
         store.set_setting("proactivity", {"enabled": True, "expiry_days": 3, "haiku_daily": 20})
         notices.set_mode("renewal", "digest")
         saved = store.get_setting("proactivity", {})
-        self.assertNotIn("spacing_min", saved)                  # a default never gets pinned by saving
+        self.assertNotIn("spacing_min", saved)
         self.assertEqual(saved["noticers"]["renewal"]["mode"], "digest")
         store.set_setting("proactivity", {k: v for k, v in saved.items() if k not in ("expiry_days", "haiku_daily")})
         notices.set_mode("renewal", "on")

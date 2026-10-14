@@ -57,7 +57,7 @@ CONFIG = HERMES_HOME / "config.yaml"
 VENV = HOME / "taffy" / ".venv" / "bin"
 BIN = HOME / "taffy" / "bin"
 WORK = HOME / "taffy" / "work" / "default"
-FILES = WORK / "files"                   # the same path in every run, so A and B read the same words
+FILES = WORK / "files"
 FIX = HOME / "bench" / "fix"
 TRIP = Path(__file__).parent / "fix-trip"
 OUT = HOME / "bench" / "sim"
@@ -71,14 +71,12 @@ ALL_MODELS = {"opus": {"provider": "claude-subscription-directsdk-experimental",
               # The plugin's "haiku" alias is still Haiku 4.5; an id it does not list passes through as is.
               "haiku": {"provider": "claude-subscription-directsdk-experimental", "default": "claude-haiku-5-5"}}
 SERVED = {"opus": "opus", "sonnet": "sonnet", "sol": "gpt-6.1-sol", "haiku": "claude-haiku-5-5"}
-# The models under test (Oct 12: opus and sol, then opus, sonnet and haiku). SIM_MODELS=opus,sonnet,haiku; each set
-# writes to its own SIM_RESULTS file.
 MODELS = {m: ALL_MODELS[m] for m in (os.environ.get("SIM_MODELS") or "opus,sol").split(",")}
-VISIBLE = {"colin", "bot", "board_reply", "call_reply"}   # history.VISIBLE: what the app's chat shows
+VISIBLE = {"colin", "bot", "board_reply", "call_reply"}
 CARD_KINDS = {"choices", "login", "account", "signin", "signin_decision", "action", "image", "checkin", "mac_ask",
               "mac", "event", "team", "call"}
 MAX_TURNS = 5
-PAUSE_WAIT = 120         # a turn held on a card: how long to wait before the person answers in words instead
+PAUSE_WAIT = 120
 PRODUCT_CHARS = 40000
 SETTLE = 60
 
@@ -88,7 +86,6 @@ def log(*a):
 
 
 # MARK: The hub, as the app talks to it
-
 class Hub:
     def __init__(self):
         self.token = self._pair()
@@ -104,7 +101,6 @@ class Hub:
             except Exception:
                 pass
         out = subprocess.run([str(BIN / "taffy-hub"), "pair"], capture_output=True, text=True, check=True).stdout
-        # "Pairing code: ABCD-EFGH (valid for 0.25 hours)"; the code itself has no dash
         code = next(l.split(":", 1)[1].split("(")[0].strip().replace("-", "") for l in out.splitlines()
                     if l.startswith("Pairing code:"))
         token = self._call("POST", "/api/pair", {"code": code, "device_name": "Blind test (simulated person)"},
@@ -147,7 +143,7 @@ class Hub:
         if r.status >= 400:
             raise RuntimeError(f"send: {r.status} {r.read()[:300]!r}")
         events, paused_at = [], None
-        c.sock.settimeout(90)   # the hub sends a keepalive every 15 s
+        c.sock.settimeout(90)
         while True:
             try:
                 line = r.readline()
@@ -203,7 +199,7 @@ class Hub:
         deadline = time.time() + limit
         while time.time() < deadline:
             if not self.working() and self.idle(None):
-                time.sleep(15)   # a finished task's report can start the lead's turn a moment later
+                time.sleep(15)
                 if not self.working() and self.idle(None):
                     return []
             time.sleep(5)
@@ -211,7 +207,6 @@ class Hub:
 
 
 # MARK: Changing only the model, as alien/bin/model-trial.py does
-
 def busy_ok() -> bool:
     try:
         b = json.loads(BUSY.read_text())
@@ -229,7 +224,6 @@ def set_model(model: str, hub: Hub) -> None:
     data.setdefault("model", {}).update(MODELS[model])
     with CONFIG.open("w") as f:
         yaml.dump(data, f)
-    # The home's own deploy runs it this way (install.sh, zero-home-create): its venv, its HERMES_HOME and ZERO_HOME.
     subprocess.run([str(VENV / "python"), str(BIN / "set-toolsets.py")], check=True, capture_output=True,
                    env={**os.environ, "HERMES_HOME": str(HERMES_HOME), "ZERO_HOME": str(HOME / "taffy" / "home.json")})
     deadline = time.time() + 600
@@ -252,7 +246,6 @@ def set_model(model: str, hub: Hub) -> None:
 
 
 # MARK: The same home for every scenario
-
 def hermes_key() -> str:
     for l in (HERMES_HOME / ".env").read_text().splitlines():
         if l.startswith("API_SERVER_KEY="):
@@ -340,8 +333,6 @@ def reset(b: dict, leftovers: Path | None = None, sessions: list[str] = ()) -> d
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(WORK / rel), dst)
             done.setdefault("moved", []).append(rel)
-    # Any lead chat opened since the baseline that is still there (a run cut off before its own clean-up): the facts
-    # recall and session_search would find it in the next conversation.
     c = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True, timeout=30)
     stray = [r[0] for r in c.execute("SELECT id FROM sessions WHERE source='api_server' AND started_at > ? AND id != ? "
                                      "AND title LIKE '% in the Taffy app%'", (b["at"], b["session"]))]
@@ -362,7 +353,6 @@ def reset(b: dict, leftovers: Path | None = None, sessions: list[str] = ()) -> d
 
 
 # MARK: The simulated person
-
 USER_PROMPT = """You are role-playing a person texting their personal assistant app. Stay in character.
 
 Your brief (the assistant cannot see it):
@@ -419,7 +409,6 @@ def user_turn(brief: str, rows: list[dict], attempts: int = 2) -> dict:
 
 
 # MARK: One conversation
-
 def card_row(item: dict) -> dict:
     """An item from the Zip's activity, as the app's chat draws it (AppState.loadChat): a choice card with its options,
     a sign-in or account card while open, a small centered event line ("Updated memory"), or a labeled line such as
@@ -460,14 +449,14 @@ def run(scn: dict, model: str, hub: Hub, b: dict) -> dict:
     seen_cards = max([c["id"] for c in hub.cards()] or [0])
     started = time.time()
     for n in range(MAX_TURNS):
-        hub.wait_idle()   # a card's follow-up or a board update still running from the last turn
+        hub.wait_idle()
         if tap:
             hub.post(f"/api/bots/{BOT}/choices/{tap['feed_id']}", {"picked": tap["option"]})
         rows.append({"role": "user", "text": message, **({"tapped": True} if tap else {})})
         t0 = time.time()
         got = hub.send(message)
         secs = round(time.time() - t0, 1)
-        time.sleep(2)   # choice cards go up just after the reply (choices.flush)
+        time.sleep(2)
         ev = got["events"]
         steps = []
         for e in ev:
@@ -515,7 +504,7 @@ def run(scn: dict, model: str, hub: Hub, b: dict) -> dict:
     left = hub.wait_team()
     if left:
         errors.append("team tasks still in progress after 20 minutes: " + "; ".join(left))
-    time.sleep(SETTLE)   # the facts reader and Hermes's memory review run just after a turn
+    time.sleep(SETTLE)
     product = {}
     for rel in scn["product"]:
         f = FILES / rel
@@ -540,7 +529,6 @@ def run(scn: dict, model: str, hub: Hub, b: dict) -> dict:
 
 
 # MARK: Usage, from the home's usage log
-
 def usage_for(r: dict) -> dict:
     """The Zip's own model calls (matched by session) and the hub's calls for this Zip in the run's time window
     (Haiku's short versions and the facts reader), kept apart."""
@@ -573,7 +561,6 @@ def usage_for(r: dict) -> dict:
 
 
 # MARK: Main
-
 def save(results: list[dict]) -> None:
     tmp = RESULTS.with_suffix(".tmp")
     tmp.write_text(json.dumps(results, indent=1))
@@ -613,7 +600,7 @@ def main() -> None:
                 r = run(s, model, hub, b)
                 results.append(r)
                 save(results)
-        time.sleep(30)   # the usage log is written as each call ends; a memory review can finish a little later
+        time.sleep(30)
         for r in results:
             r.update(usage_for(r))
             r["clean"] = r["served"] == [SERVED[r["model"]]]
@@ -625,7 +612,7 @@ def main() -> None:
         time.sleep(SETTLE)
         reset(b, sessions=[])
         set_model("opus", hub)
-        with hub_db() as c:   # the lead's own chat from before the test, as it was
+        with hub_db() as c:
             c.execute("INSERT OR REPLACE INTO bot_sessions (bot_id, session_id) VALUES (?, ?)", (BOT, b["session"]))
             c.commit()
         hub.unpair()

@@ -130,7 +130,7 @@ class Computers(unittest.TestCase):
     def test_working_only_while_a_turn_is_running_and_recent(self):
         screen.note_agent_use("money")
         screen.note_agent_use("clients")
-        self.assertEqual(screen.live_states({"money"}), {"money": "working"})   # clients' turn is over
+        self.assertEqual(screen.live_states({"money"}), {"money": "working"})
         screen._agent_used["money"] = time.time() - screen.USE_WINDOW_SEC - 1
         self.assertEqual(screen.live_states({"money"}), {})
 
@@ -170,7 +170,7 @@ class RoutineLines(Store):
         a = {"id": "a1", "name": "Daily spending update", "schedule": {"display": "0 19 * * *"}, "enabled": True}
         self.jobs(a)
         watcher.scan_jobs()
-        self.assertEqual(self.feed(), [])               # the first look only remembers
+        self.assertEqual(self.feed(), [])
         self.jobs(a, {"id": "b2", "name": "Overnight outbound", "schedule": {"display": "0 2 * * *"}, "enabled": True})
         watcher.scan_jobs()
         watcher.scan_jobs()
@@ -308,7 +308,7 @@ class Endpoints(unittest.TestCase):
         config.NAMES = tmp / "bot-names.json"
         config.REGISTRY = tmp / "bots.json"
         config.LOOKS = tmp / "bot-looks.json"
-        config.migrate_registry()   # the team from the registry, as in any home (not only the owner's)
+        config.migrate_registry()
         config.reload_bots = _real_reload
         config._registry_mtime = None
         config.reload_bots()
@@ -384,7 +384,7 @@ class JobWordingAndLoginCards(RoutineLines):
         watcher.scan_jobs()
         seen = store.get_setting("cron_jobs_seen", {})
         for v in seen.values():
-            v["when"] = "a differently worded time"          # the words changed, the schedule did not
+            v["when"] = "a differently worded time"
         store.set_setting("cron_jobs_seen", seen)
         watcher.scan_jobs()
         self.assertEqual(store.db().execute("SELECT 1 FROM feed WHERE kind='checkin'").fetchall(), [])

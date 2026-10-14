@@ -47,7 +47,6 @@ LABELS = "ABC"
 
 
 def weighted(u: dict) -> int:
-    # Cache reads are cheap, cache writes dear, output dearest: roughly how each plan counts them.
     return round(0.1 * u.get("read", 0) + 2 * u.get("write", 0) + u.get("uncached", 0)
                  + 5 * (u.get("out", 0) + u.get("reasoning", 0)))
 
@@ -95,7 +94,6 @@ def data() -> dict:
         for label, model in sealed[s["id"]].items():
             r = next(x for x in runs if x["scenario"] == s["id"] and x["model"] == model)
             u, h = r.get("usage") or {}, r.get("hub_usage") or {}
-            # Only what the phone shows, never the run's id, sessions, served model or raw events.
             rows = [{k: v for k, v in m.items() if k in ("role", "text", "full", "backup", "steps", "secs", "options",
                                                          "picked", "tapped", "kind", "title")} for m in r["transcript"]]
             sides[label] = {"transcript": rows, "product": r["product"], "check": r["check"],
@@ -137,7 +135,6 @@ def reveal() -> dict:
 
 
 # MARK: Sonnet's comparison
-
 def pair_key(pair: dict) -> str:
     """Which model is A, kept as a hash so analysis.json says nothing about it."""
     return hashlib.sha256("|".join(pair[k] for k in sorted(pair)).encode()).hexdigest()[:16]

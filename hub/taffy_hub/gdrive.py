@@ -18,7 +18,7 @@ log = logging.getLogger("taffy.gdrive")
 FIELDS = "files(id,name,mimeType,modifiedTime,webViewLink,size,owners(displayName,emailAddress))"
 LIMIT_MAX = 50
 TEXT_MAX = 30000
-DOWNLOAD_MAX = 2_000_000   # plain files larger than this are not read whole
+DOWNLOAD_MAX = 2_000_000
 
 EXPORTS = {
     "application/vnd.google-apps.document": "text/plain",

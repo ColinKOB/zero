@@ -55,7 +55,7 @@ enum ChatSync {
     static func live(card: Date?, hubWaiting: Bool?, lastSaid: Date?) -> Bool {
         if hubWaiting == false { return false }
         guard let lastSaid, let card else { return true }
-        return card >= lastSaid.addingTimeInterval(-1)   // the hub keeps whole seconds
+        return card >= lastSaid.addingTimeInterval(-1)
     }
 
     /// Whether the Zip shows as paused for the person's okay. While one of its chat turns runs, the hub says whether
@@ -77,11 +77,6 @@ enum ChatSync {
 }
 
 // MARK: Replies (Oct 10)
-//
-// Colin: "i should also be able to reply to specific messages like you can on iphone with the messages app". The
-// person swipes a bubble (or picks Reply) and the message they send carries a short quote of the one they meant. The
-// hub hands the quote to the Zip on a quiet first line and returns it as `reply_to` in the history, so every device
-// shows it above the person's bubble.
 
 /// The message a reply points at: a one-line excerpt and whose it was. `who` is "bot" (the Zip's message), "person"
 /// (the person's own earlier message) or "other" (a team update, a call or a note). `messageID` is known on the
@@ -121,11 +116,6 @@ enum ReplyLogic {
 }
 
 // MARK: Card answers (Oct 10)
-//
-// Colin tapped "Add both to Trello" on a Zip's card and got a second black "Add both to Trello" bubble under it. Now
-// the card itself turns into his answer bubble, and the message that carried the answer to the Zip (the same words,
-// sent right after the card) is not shown again. The pairing is done when the chat is drawn, so it holds for a message
-// still on its way, after the history reloads, and on every device.
 
 enum CardAnswers {
     /// An answered card, as much as the pairing needs.
@@ -166,7 +156,6 @@ enum CardAnswers {
             for l in lines[(i + 1)...] where l.mine && l.answer == nil && !used.contains(l.id) {
                 if let at = a.at, let d = l.date, d < at.addingTimeInterval(-ChatSync.slack) { continue }
                 if a.loose && a.sent == nil {
-                    // Only a message sent within a few minutes of the answer; anything later is his own new words.
                     if let at = a.at, let d = l.date, d > at.addingTimeInterval(ChatSync.slack) { break }
                 } else if !matches(l.text, a) {
                     continue
@@ -188,7 +177,6 @@ enum CardAnswers {
         let pick = ChatSync.normalized(a.text)
         guard !pick.isEmpty else { return false }
         if m == pick || m.hasPrefix(pick + lateNote) { return true }
-        // The hub keeps a Zip card's answer to 500 characters; the message has all of it.
         if pick.count >= 500 && m.hasPrefix(pick) { return true }
         if m.hasPrefix(aboutPrefix) && (m.hasSuffix("\": " + pick) || m.contains("\": " + pick + lateNote)) { return true }
         return false

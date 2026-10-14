@@ -16,7 +16,7 @@ API = "https://api.dropboxapi.com/2"
 CONTENT = "https://content.dropboxapi.com/2"
 LIMIT_MAX = 50
 TEXT_MAX = 30000
-DOWNLOAD_MAX = 2_000_000   # text files larger than this are not read whole
+DOWNLOAD_MAX = 2_000_000
 TEXT_FILES = re.compile(r"\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|html?|log|ini|cfg|conf|py|js|ts|swift|sh|rtf|tex)$",
                         re.I)
 

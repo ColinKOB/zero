@@ -22,10 +22,8 @@ from . import home, link_click, tiers
 MODEL = "gpt-6-luna"
 DEFAULT_MIN_CONFIDENCE = 0.4
 REAL_HOME = os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir
-ENV_FILE = str(home.path("hermes_home", REAL_HOME) / ".env")   # the home's own .env holds its OPENAI_API_KEY
+ENV_FILE = str(home.path("hermes_home", REAL_HOME) / ".env")
 CONSEQUENTIAL = re.compile(r"\b(submit|send|pay|purchase|buy|checkout|place order|confirm|delete|remove|publish|post)\b", re.I)
-# Oct 8: the role used to be matched lazily with an optional name, so every label came out as one letter ("b" for
-# 'button "Send"') and the send/pay check below never saw the button's name.
 REF_LINE = re.compile(r'^\s*-\s+(?P<role>[^"\[]*)(?:"(?P<name>[^"]*)")?.*?\[ref=(?P<ref>e\d+)\]')
 
 SCHEMA = {
@@ -66,7 +64,7 @@ def _api_key() -> str | None:
     return None
 
 
-JUDGE_TIMEOUT_SEC = 3   # permission questions: slower than this and the hard rule for that action decides
+JUDGE_TIMEOUT_SEC = 3
 
 
 def _owner() -> str:
@@ -183,8 +181,6 @@ class Blocked(Exception):
     """The gate stopped a step, as it would stop the same browser tool called on its own (Oct 8 QA round 7, M1)."""
 
 
-# Typed values that look like secrets: a one-time code, a card or account number, a Social Security number, or a
-# word that mixes letters and digits (a password such as "hunter2"). Emails and web addresses are not secrets.
 _SECRET_VALUE = re.compile(r"^\d{4,8}$|^(?:\d[ -]?){11,18}\d$|^\d{3}-?\d{2}-?\d{4}$")
 _SECRET_LABEL = re.compile(r"password|passcode|pass\s*phrase|\bcode\b|\bpin\b|cvv|cvc|security|card number|"
                            r"account number|routing|ssn|social security|secret|token|api key|private key", re.I)
@@ -246,7 +242,6 @@ def run(dispatch, args: dict, page=None) -> str:
 
     def show(step: str) -> str:
         return redact(step, secrets)
-    # The confidence floor is the only guard against a wrong click, so the model cannot lower it below 0.3.
     threshold = max(0.3, float(args.get("min_confidence", DEFAULT_MIN_CONFIDENCE) or DEFAULT_MIN_CONFIDENCE))
     t0 = time.time()
 
@@ -262,7 +257,7 @@ def run(dispatch, args: dict, page=None) -> str:
             return data.get("snapshot") or data.get("content") or data.get("result") or json.dumps(data)
         return str(data)
 
-    log, done, said, stopped = [], [], [], None   # `said`: the steps as the grounding model may see them
+    log, done, said, stopped = [], [], [], None
     for i, (step, (kind, target, value)) in enumerate(zip(steps, parsed), 1):
         step = str(step)
         try:
@@ -284,7 +279,6 @@ def run(dispatch, args: dict, page=None) -> str:
                     stopped = (f"Stopped before step {i} ({show(step)!r}): {label!r} looks like a send, submit, pay or "
                                "delete button. Say that action explicitly in the step, and only with Colin's yes.")
                     break
-                # The gate checks each of these as it checks browser_type and browser_click (dispatch raises Blocked).
                 opened = None
                 if kind == "type":
                     call("browser_type", {"ref": ref, "text": value})

@@ -26,7 +26,7 @@ from taffy_hub import briefing, calllog, config, health, ondevice, store, turns,
 
 REPO = Path(__file__).resolve().parents[2]
 BROKER = REPO / "alien" / "broker" / "zero_broker.py"
-REAL_ASK_HAIKU = briefing.ask_haiku      # tests below swap it for a fake
+REAL_ASK_HAIKU = briefing.ask_haiku
 
 FAKE = textwrap.dedent('''\
     import json, os, sys, time
@@ -258,12 +258,12 @@ class Shape(Base):
         self.assertTrue(p.startswith("BRIEFING-MARK"))
         self.assertIn("ask_bot", p)
         self.assertIn("update_job", p)
-        self.assertIn("yes-or-no", p)                     # the shared speaking rules
+        self.assertIn("yes-or-no", p)
         self.assertIn("Never ask an either-or question", p)
-        self.assertIn("two to six words", p)              # what the call test taught about the phone's voice
+        self.assertIn("two to six words", p)
         self.assertIn('Never say "Oh, man"', p)
         self.assertIn(f"live voice call with {first}", p)
-        self.assertNotIn("{", p.replace("{" + "}", ""))   # every placeholder was filled
+        self.assertNotIn("{", p.replace("{" + "}", ""))
 
     def test_history_holds_confirmed_finished_turns_with_what_was_heard(self):
         local = ondevice.Local(greeting="Hey there, what's up?")
@@ -286,7 +286,7 @@ class Shape(Base):
                             for t in texts))
         self.assertEqual(final, "Thanks")
         roles = [r for r, _ in replay]
-        self.assertTrue(all(x != y for x, y in zip(roles, roles[1:])))   # strictly alternating
+        self.assertTrue(all(x != y for x, y in zip(roles, roles[1:])))
         self.assertEqual(roles[-1], "assistant")
 
     def test_shared_plan_apology_names_the_shared_plan(self):
@@ -309,7 +309,7 @@ class Flow(Base):
             return call, evs
         call, evs = asyncio.run(go())
         texts = [e["text"] for e in evs if e["type"] == "text"]
-        self.assertGreaterEqual(len(texts), 2)                         # streamed in pieces
+        self.assertGreaterEqual(len(texts), 2)
         self.assertEqual("".join(texts), "Sure thing. Tacos at six sound great.")
         self.assertEqual(evs[-1]["type"], "done")
         lines = self.lines(call.id)
@@ -340,7 +340,7 @@ class Flow(Base):
             await self.settle(0.3)
             before = list(self.asked)
             self.assertTrue(ondevice.confirm(call, 1))
-            await self.settle(2.5)       # the hand-off runs, then voice.say waits for a pause (1.2 s of quiet)
+            await self.settle(2.5)
             news = None
             while not call.events.empty():
                 ev = call.events.get_nowait()
@@ -354,7 +354,7 @@ class Flow(Base):
         call, evs, before, news, reply = asyncio.run(go())
         self.assertEqual("".join(e["text"] for e in evs if e["type"] == "text"), "One sec.")
         self.assertEqual(evs[-1]["handoff"], "ask_bot")
-        self.assertEqual(before, [])                                   # nothing ran while it was speculative
+        self.assertEqual(before, [])
         self.assertEqual(self.asked, [("ask_bot", "Check the email from Theo and say what he wants.")])
         self.assertIsNotNone(news)
         self.assertIn("slides", "".join(e["text"] for e in reply if e["type"] == "text"))

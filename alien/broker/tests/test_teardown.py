@@ -70,7 +70,7 @@ class RootSteps(unittest.TestCase):
         rule = [l for l in text.splitlines() if l.startswith("jdoe")][0]
         self.assertIn("(%zero-homes)", rule)
         self.assertNotIn("ALL=(ALL", rule)
-        self.assertEqual(rule.count("/srv/zero/bin/zero-home-"), 5)   # create, render, check, test, deploy
+        self.assertEqual(rule.count("/srv/zero/bin/zero-home-"), 5)
         self.assertNotIn("sudo-prep", rule)
 
     def test_every_step_has_a_flag(self):

@@ -89,7 +89,6 @@ DRIVE_SCHEMA = {
 }
 
 
-# The read-only apps (the hub's apps.READS): tool name -> (the hub's app id, actions, description, parameters).
 READ_ONLY = {
     "outlook": ("outlook", ("mail", "message", "events"), (
         "Colin's Outlook mail and calendar, connected in Zero, read only. action 'mail' lists the inbox's latest mail, "
@@ -143,7 +142,6 @@ def drive_schema() -> dict:
 
 
 # MARK: The gate's view
-
 def _clean(v, limit: int = 200) -> str:
     return " ".join(str(v or "").split())[:limit]
 
@@ -176,7 +174,7 @@ def classify(tool_name: str, args: dict):
     """The tier of an app tool's call: None to act (reading), or an Action that asks with a card."""
     from . import tiers
     if tool_name != "trello":
-        return None   # drive and the READ_ONLY apps only read
+        return None
     action = str(args.get("action") or "")
     if action not in TRELLO_WRITES:
         return None
@@ -201,7 +199,6 @@ def classify(tool_name: str, args: dict):
 
 
 # MARK: The tools
-
 def _hub(args: dict, session_id: str) -> dict:
     """The hub's answer for one call. Tests replace this."""
     from . import mac

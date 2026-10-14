@@ -30,8 +30,6 @@ READ = {"get", "list", "search", "read", "fetch", "find", "query", "retrieve", "
 READ_SUFFIX = {"reader", "readers", "viewer", "lister", "getter", "fetcher", "searcher", "finder"}
 CHANGE_SUFFIX = {"updater", "writer", "editor", "creator", "manager", "mutator"}
 
-# What each word in a tool's name does. Checked as whole parts of the name: "send_message", "notion-create-comment",
-# "deletePage" and "trelloWriteCard" split into words first.
 WORDS = {
     "write": {"create", "add", "update", "edit", "set", "move", "rename", "archive", "unarchive", "close", "reopen",
               "assign", "unassign", "label", "tag", "untag", "mark", "complete", "append", "insert", "patch", "upload",
@@ -54,17 +52,14 @@ WORDS = {
             "checkout", "purchase", "buy", "billing", "finalize", "void", "dispute", "disputes", "credit", "balance",
             "donate", "donation", "wire", "money", "funds"},
 }
-# Each part's own kind. A word in two sets counts as both (none is today).
 _KIND_OF = {}
 for _kind, _words in WORDS.items():
     for _w in _words:
         _KIND_OF.setdefault(_w, set()).add(_kind)
 
-# Verbs that send a draft when they come right before "draft".
 SEND_VERBS = {"send", "post", "reply", "forward", "publish", "schedule"}
 # A GitHub file tool commits straight to a branch, which can deploy it ("create_or_update_file").
 COMMIT_NOUNS = {"file", "files", "contents"}
-# Which kinds of tool each request kind may use. Reads, and names that say nothing, are open on every run.
 ALLOWED = {
     "read": {"read", "unknown"},
     "write": {"read", "unknown", "write"},
@@ -74,8 +69,6 @@ ALLOWED = {
     "account": {"read", "unknown", "write", "account"},
 }
 
-# Said with no name, since this file runs on its own in every home: the run's report goes back to the Zip, which
-# speaks to its person.
 BLOCKED = ("Zero blocked this tool: this request did not ask for it, or it has not been approved. Say what you could "
            "not do. If the request asked for a change, say so and the Zip can ask again with the change spelled out.")
 MONEY = ("Zero blocked this tool: Zips never pay, refund, charge, transfer or change billing. Say what you found, so "

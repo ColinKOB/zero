@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from . import calcache, config, home, mail, notices, who
 from . import noticers as base
 from .notices import Candidate, Option
-P = notices.plain   # outside text in the person's words: one plain line, no quotes (QA round 10, L5)
+P = notices.plain
 
 STOP = {"with", "meeting", "call", "about", "from", "this", "that", "your", "into", "work", "time", "block", "prep",
         "class", "week", "today", "tomorrow", "the", "and", "for", "zoom", "google", "meet", "appointment",
@@ -48,7 +48,7 @@ def words(text: str) -> set[str]:
     """The telling words of a title. "Unit 6" and "Form H" are one word each ("unit6", "formh"), so Unit 5's
     finished task never stands for Unit 6's deadline (Oct 9)."""
     t = NUMBERED.sub(r"\1\2", (text or "").lower())
-    own = {w.lower() for w in who.full().split()}   # the person's own name is no clue to what an event is about
+    own = {w.lower() for w in who.full().split()}
     return {w for w in re.findall(r"[a-z][a-z0-9]{3,}", t) if w not in STOP and w not in own}
 
 
@@ -99,9 +99,6 @@ def timed(e: dict) -> bool:
     return not e.get("all_day") and not calcache.declined(e)
 
 
-# Colin's own blocks: his routine ("Routine: Sleep (11 p.m. to 7 a.m.)"), focus and planning blocks ("School: POL
-# revision", "Build: Fernhill Tech"). They are his plan for the time, not somewhere he has to be, so they never
-# clash with anything (Oct 9: a sleep block "overlapped" three Canvas due times).
 SELF_BLOCK = re.compile(r"^\s*[A-Z][\w&/+ ]{0,24}:\s|^\s*(routine|focus|sleep|wind down|downtime|free time|"
                         r"buffer|hold|tentative|block|reminder|to ?do|travel|commute|lunch|breakfast|dinner|chores|"
                         r"gym|workout|rest)\b", re.I)
@@ -179,7 +176,7 @@ async def school_deadline(src: base.Sources) -> list[Candidate]:
     t = _now()
     horizon = t + DEADLINE_HOURS * 3600
     events, cards = src.calendar(), src.trello()
-    items: list[tuple[str, str, float, str]] = []   # (name, source, due, card list)
+    items: list[tuple[str, str, float, str]] = []
     for c in cards:
         due = c.get("due")
         if not due or c.get("due_complete") or not t < due <= horizon:
@@ -199,7 +196,7 @@ async def school_deadline(src: base.Sources) -> list[Candidate]:
             if t < due <= horizon:
                 items.append((thing, "School's notes", due, ""))
     if notices.mode("due_soon") != "off":
-        items = [i for i in items if i[2] - t > DUE_SOON_SEC]   # the last hours are due_soon's "is it done?"
+        items = [i for i in items if i[2] - t > DUE_SOON_SEC]
     if not items:
         return []
     groups = await src.board()
@@ -208,20 +205,18 @@ async def school_deadline(src: base.Sources) -> list[Candidate]:
     groups: list[list[tuple[str, str, float]]] = []
     for name, source, due, card_list in sorted(items, key=lambda x: x[2]):
         if card_list.lower().startswith("doing") or any(alike(name, c["name"]) for c in doing):
-            continue   # he is working on it
+            continue
         if any(timed(e) and not DUE.search(e["title"]) and e["start"] < due and alike(name, e["title"])
                for e in events):
-            continue   # time is blocked for it
+            continue
         if any(alike(name, x.get("title") or "") and x.get("status") in ("done", "running", "review", "ready")
                for x in tasks):
-            continue   # a Zip has it, or finished it
-        # Related things due the same evening (three POL 101 items at 11:55 p.m. Sunday) are one question.
+            continue
         for g in groups:
             gname, _, gdue = g[0]
             same_evening = notices._et(gdue).date() == notices._et(due).date() and abs(gdue - due) < 6 * 3600
             if same_evening and any(alike(name, n) or courses(name) & courses(n) or numbered(name) & numbered(n)
                                     for n, _, _ in g):
-                # The same thing from a second place (School's note about Form C, the calendar's Form C) once.
                 if not any(n.lower() == name.lower() or _items(name) & _items(n) for n, _, _ in g):
                     g.append((name, source, due))
                 break
@@ -316,14 +311,14 @@ def _deadline(name: str, source: str, due: float, events: list[dict]) -> Candida
 # MARK: 15. Schoolwork due within hours that the course site doesn't show as turned in
 
 DUE_SOON_SEC = 3 * 3600
-DUE_SOON_MIN_SEC = 10 * 60   # closer than that, a question can't help
+DUE_SOON_MIN_SEC = 10 * 60
 
 
 def _due_items(src: base.Sources, t: float, start: float, end: float) -> list[tuple[str, float, dict | None]]:
     """(name, due, its Trello card or None) for schoolwork due between start and end, from Trello, the calendar and
     School's notes. An all-day item has no hour to be due at, so it is school_deadline's alone."""
     out = []
-    for e in src.calendar():   # first, so an item on both is named as the course calendar names it
+    for e in src.calendar():
         if e.get("all_day") or not DUE.search(e["title"]) or not _schoolish(e["title"]):
             continue
         if start < e["start"] <= end:
@@ -376,7 +371,7 @@ async def due_soon(src: base.Sources) -> list[Candidate]:
     groups: list[list[tuple[str, float, dict | None]]] = []
     for name, due, card in sorted(items, key=lambda x: x[1]):
         if any(alike(name, x.get("title") or "") and x.get("status") == "done" for x in tasks):
-            continue   # a Zip finished it
+            continue
         for g in groups:
             if abs(g[0][1] - due) < 1800 and any(alike(name, n) or courses(name) & courses(n) for n, _, _ in g):
                 same = next((i for i, (n, _, _) in enumerate(g) if n.lower() == name.lower() or _items(name) & _items(n)),
@@ -384,7 +379,7 @@ async def due_soon(src: base.Sources) -> list[Candidate]:
                 if same is None:
                     g.append((name, due, card))
                 elif card and not g[same][2]:
-                    g[same] = (g[same][0], g[same][1], card)   # the same item on Trello: its card
+                    g[same] = (g[same][0], g[same][1], card)
                 break
         else:
             groups.append([(name, due, card)])
@@ -402,11 +397,11 @@ async def due_soon(src: base.Sources) -> list[Candidate]:
                 schoolcheck.request(subject, names, due, busy=busy)
             continue
         if res.get("state") != "done":
-            continue   # the Zip is still looking
+            continue
         status = {i["name"]: i for i in res.get("items") or []}
         left = [n for n in names if (status.get(n) or {}).get("submitted") != "yes"]
         if not left:
-            continue   # the course site shows all of it turned in
+            continue
         cards = [c for n, _, c in g if c and n in left] or [c for c in src.trello() if not c.get("due_complete")
                                                              and any(alike(n, c.get("name") or "") for n in left)]
         found.append(_due_soon(subject, g, left, status, res.get("site") or "", due, cards[0] if cards else None))
@@ -499,7 +494,7 @@ async def conflict(src: base.Sources) -> list[Candidate]:
             if b["start"] >= a["end"] + GAP_SEC:
                 continue
             if a["title"].strip().lower() == b["title"].strip().lower() and a["start"] == b["start"]:
-                continue   # one event on two calendars
+                continue
             day_key = notices._et(min(a["start"], b["start"])).strftime("%Y-%m-%d")
             if b["start"] < a["end"] and a["start"] < b["end"]:
                 by_day.setdefault(day_key, []).append(("overlap", a, b, "", ""))
@@ -621,12 +616,12 @@ async def prep(src: base.Sources) -> list[Candidate]:
         subject = f"prep:{e['id']}"
         old = notices.row(subject)
         if old and old["state"] not in ("open", "expired"):
-            continue   # he answered (made the prep, or skipped it); the day-of reminder is only for an open one
+            continue
         names = words(e["title"]) | {w for p in calcache.outside_people(e) for w in words(p.get("name") or "")}
         stamp = {start_et.strftime("%Y-%m-%d"), start_et.strftime("%b%d").lower(), start_et.strftime("%m%d")}
         if any((words(name) & names) or any(s in name.lower() for s in stamp) for _, name, _ in files
                if "prep" in name.lower() or words(name) & names):
-            continue   # there is a prep file for it
+            continue
         owner = owner_for_event(e)
         promise = await _promise_for(src, e, owner, names)
         found.append(_prep(e, phase, owner, promise))

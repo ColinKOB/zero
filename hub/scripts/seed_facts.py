@@ -133,7 +133,7 @@ def main() -> int:
         store._local.conn = None
         store._schema_ready = False
     facts.reset_for_tests()
-    extract.HAIKU_DAILY = 10_000   # this run's own count; it does not touch the home's daily budget when dry
+    extract.HAIKU_DAILY = 10_000
     config.reload_bots()
     print(f"{len(facts.current(None))} facts before (team notes are already among them).")
     sources = []

@@ -27,7 +27,6 @@ final class Browser: NSObject, WKNavigationDelegate, NSApplicationDelegate {
         address.font = .systemFont(ofSize: 12)
         address.textColor = .secondaryLabelColor
         address.lineBreakMode = .byTruncatingMiddle
-        // A long address must not widen the window.
         address.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let bar = NSView()
         bar.wantsLayer = true
@@ -45,7 +44,6 @@ final class Browser: NSObject, WKNavigationDelegate, NSApplicationDelegate {
         ])
         window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         window.contentView = root
-        // Closing the window keeps it, so a page opened later shows it again, the way Safari opens a new window.
         window.isReleasedWhenClosed = false
         window.title = "Test Browser"
         // AppKit frames start at the bottom left; the arguments are top-left like the accessibility frames.

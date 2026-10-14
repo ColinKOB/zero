@@ -53,7 +53,7 @@ extension TaffyMacBridge {
     func offerGuide(_ step: PermissionGuide.Step) {
         let show = {
             MainActor.assumeIsolated {
-                guard !self.guideOfferedThisGrant else { return }   // once per grant
+                guard !self.guideOfferedThisGrant else { return }
                 self.guideOfferedThisGrant = true
                 PermissionGuide.shared.offer(step)
             }

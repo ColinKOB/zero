@@ -62,7 +62,7 @@ class CallCase(Base):
             return "Saved."
         turns.run_internal = run_internal
         briefing.refresh_soon = lambda bot_id: None
-        voice.server.proc = None      # no Codex here: stop() must not try to reach it
+        voice.server.proc = None
 
     def tearDown(self):
         briefing.ask_haiku, turns.run_internal, briefing.refresh_soon, voice.server.proc = self.real
@@ -96,14 +96,14 @@ class CallCase(Base):
                 await voice.on_event(call, "thread/realtime/transcript/delta", {"role": "assistant", "delta": "Ta"})
                 await voice.on_event(call, "thread/realtime/transcript/done",
                                      {"role": "assistant", "text": "Tacos at six."})
-                voice.set_talking(call_id, True)         # over the voice, which just made a sound
+                voice.set_talking(call_id, True)
                 voice.set_talking(call_id, False)
                 await voice.on_event(call, "thread/realtime/transcript/done", {"role": "user", "text": "Great, thanks."})
                 await voice.on_event(call, "thread/realtime/speechStarted", {})
                 await voice.on_event(call, "thread/realtime/speechStarted", {})
                 voice.set_away(call_id, True)
                 voice.set_away(call_id, False)
-                call.started -= 40     # long enough for the wrap-up
+                call.started -= 40
                 await voice.stop(call_id, reason="the app ended it")
                 for _ in range(50):
                     await asyncio.sleep(0.02)
@@ -135,7 +135,7 @@ class Saving(CallCase):
             self.assertIn(t.utcoffset(), (timedelta(hours=-4), timedelta(hours=-5)))
             self.assertEqual(e["from"], "hub")
         said = [(e["who"], e["text"]) for e in events if e["event"] == "line"]
-        lead = config.BOTS_BY_ID["default"].name        # Zero, unless another test renamed it
+        lead = config.BOTS_BY_ID["default"].name
         self.assertEqual(said, [(lead, "Hey Colin. What's up?"), ("Colin", "What's for dinner tonight?"),
                                 (lead, "Tacos at six."), ("Colin", "Great, thanks.")])
         firsts = [e for e in events if e["event"] == "first_reply"]
@@ -145,7 +145,7 @@ class Saving(CallCase):
         self.assertGreaterEqual(firsts[1]["ms_after_mic"], firsts[1]["ms_after_words"])
         self.assertIn("interrupted", kinds)
         self.assertEqual([e["on"] for e in events if e["event"] == "hold"], [True, False])
-        self.assertEqual(kinds.count("other_event"), 1)       # each unknown realtime event once
+        self.assertEqual(kinds.count("other_event"), 1)
         end = next(e for e in events if e["event"] == "end")
         self.assertEqual(end["reason"], "the app ended it")
         self.assertEqual(end["colin_lines"], 2)
@@ -162,9 +162,9 @@ class Saving(CallCase):
         async def go():
             voice.set_talking("c3", True)
             voice.set_talking("c3", False)
-            await voice.on_event(call, "thread/realtime/outputAudio/delta", {})      # the voice answers
+            await voice.on_event(call, "thread/realtime/outputAudio/delta", {})
             await voice.on_event(call, "thread/realtime/transcript/done", {"role": "user", "text": "Hi there"})
-            await voice.on_event(call, "thread/realtime/outputAudio/delta", {})      # same answer, still going
+            await voice.on_event(call, "thread/realtime/outputAudio/delta", {})
         asyncio.run(go())
         firsts = [e for e in self.lines("c3") if e["event"] == "first_reply"]
         self.assertEqual(len(firsts), 1)
@@ -234,7 +234,7 @@ class Saving(CallCase):
 
 class OffSwitch(CallCase):
     def test_nothing_is_saved_when_off(self):
-        self.assertTrue(calllog.enabled())          # on by default
+        self.assertTrue(calllog.enabled())
         calllog.set_enabled(False)
         self.run_call("off-call")
         self.assertEqual(self.files(), [])
@@ -304,8 +304,8 @@ class Endpoint(Base):
              "error_domain": "com.apple.CallKit.error.requesttransaction", "error_code": 1,
              "error_description": "The operation couldn't be completed."},
             {"event": "route", "output": "BluetoothHFP", "output_name": "AirPods", "at": now + 1,
-             "source": "callkit", "call_id": "other"},                # names the hub also uses are fine
-            {"event": "Bad Name", "at": now},                       # dropped
+             "source": "callkit", "call_id": "other"},
+            {"event": "Bad Name", "at": now},
             {"event": "timing", "step": "x" * 900, "nested": {"a": 1}, "../path": 1, "at": now + 2},
             "not an event",
         ])
@@ -329,7 +329,6 @@ class Endpoint(Base):
         events = self.lines("app-0f1e2d3c-4b5a")
         self.assertEqual(events[0]["event"], "start")
         self.assertIn("never reached the hub", events[0]["note"])
-        # An id the hub never made and that is not the app's own kind saves nothing.
         self.assertEqual(self.post("made-up-id", [{"event": "x", "at": time.time()}]).json()["saved"], 0)
         self.assertEqual(self.post("bad.id", [{"event": "x"}]).status_code, 400)
 
@@ -341,7 +340,7 @@ class Endpoint(Base):
         self.assertEqual(r.json(), {"muted_bots": ["default"], "save_call_transcripts": False,
                                     "keep_replies_short": True})
         self.assertFalse(calllog.enabled())
-        r = self.client.put("/api/settings", json={"muted_bots": []}, headers=self.auth)   # the older app's PUT
+        r = self.client.put("/api/settings", json={"muted_bots": []}, headers=self.auth)
         self.assertEqual(r.json(), {"muted_bots": [], "save_call_transcripts": False,
                                     "keep_replies_short": True})
         self.assertEqual(self.client.put("/api/settings", json={"save_call_transcripts": True}).status_code, 401)
@@ -355,7 +354,6 @@ class Command(Base):
     def setUp(self):
         super().setUp()
         now = time.time()
-        # A fallback call with an error, from today.
         calllog.begin("019abc-fallback", at=now - 300, bot="default", bot_name="Zero", voice="cove",
                       engine="chatgpt-realtime", relay_model="gpt-6-luna", route="codex app-server")
         calllog.app_events("019abc-fallback", [
@@ -371,13 +369,11 @@ class Command(Base):
         calllog.write("019abc-fallback", "error", at=now - 280, stage="voice", message="Realtime session hiccup")
         calllog.write("019abc-fallback", "end", at=now - 200, reason="the app ended it", duration=95, lines=2)
         calllog.write("019abc-fallback", "summary", at=now - 190, text="You asked about rain.\n\n- **Rain:** None.")
-        # A clean CallKit call, earlier.
         calllog.begin("019def-callkit", at=now - 3600, bot="career", bot_name="Career", voice="sol")
         calllog.app_events("019def-callkit", [{"event": "system_call", "used": "callkit", "accepted": True,
                                                "at": now - 3599}])
         calllog.write("019def-callkit", "line", at=now - 3590, who="Colin", text="Any news?")
         calllog.write("019def-callkit", "end", at=now - 3500, duration=61)
-        # An old one, outside --days 7.
         old = now - 10 * 86400
         calllog.begin("019old-call", at=old, bot="default", bot_name="Zero", voice="cove")
 
@@ -390,7 +386,7 @@ class Command(Base):
         r = self.run_cmd("list")
         self.assertEqual(r.returncode, 0, r.stderr)
         rows = [l for l in r.stdout.splitlines() if l.startswith("019")]
-        self.assertEqual(len(rows), 2)                       # newest first, the old call left out
+        self.assertEqual(len(rows), 2)
         self.assertTrue(rows[0].startswith("019abc-fal"))
         self.assertIn("1:35", rows[0])
         self.assertIn("fallback", rows[0])
@@ -398,7 +394,7 @@ class Command(Base):
         self.assertIn("CallKit", rows[1])
         self.assertIn("1:01", rows[1])
         self.assertIn("none", rows[1])
-        self.assertRegex(rows[0], r"fallback\s+1\s")         # one turn by Colin
+        self.assertRegex(rows[0], r"fallback\s+1\s")
         r = self.run_cmd("list", "--days", "30")
         self.assertEqual(len([l for l in r.stdout.splitlines() if l.startswith("019")]), 3)
 
@@ -441,13 +437,10 @@ class Command(Base):
 @unittest.skipUnless((REPO / "alien" / "bin" / "taffy-backup").exists(), "repo-only check")
 class Backup(unittest.TestCase):
     def test_backup_skips_saved_calls(self):
-        # The 30 days Settings promises hold only if the nightly backup does not keep calls for months.
         self.assertIn('hub-state/calls', (REPO / "alien" / "bin" / "taffy-backup").read_text())
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

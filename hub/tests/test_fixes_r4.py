@@ -24,7 +24,7 @@ import hermes_detector  # noqa: E402
 tiers = tt.tiers
 REPO = Path(__file__).resolve().parents[2]
 WORK = "~/taffy/work/builder/site"
-HOME_FOLDER = "~/taffy"   # where a Zip's terminal starts
+HOME_FOLDER = "~/taffy"
 
 
 class FolderCase(GateCase):
@@ -47,12 +47,10 @@ class AgentCheckReadsOnlyCommands(FolderCase):
     file contents or paths."""
 
     FINE = [
-        # The report's cases.
         """grep -rl "claude" src | xargs sed -i 's/claude-haiku/claude-sonnet/'""",
         """find . -name '*.py' | xargs grep -l "codex\"""",
         """git commit -m "codex review fixes" -m "Runs at startup now\"""",
         """sudo grep -r "hermes" /etc/systemd""",
-        # More of the same: launchers whose own command is ordinary, and the words as data.
         "tmux new -d -s claude-work 'npm run dev'", "ssh alien 'grep -r claude ~/taffy/work'",
         "watch -n 5 'grep -c codex log.txt'", "screen -dmS codex npm start", "nohup npm run dev > /tmp/claude.log &",
         "systemd-run --user --unit=build npm run build", "sudo -u jdoe grep claude /var/log/syslog",
@@ -218,7 +216,7 @@ class GateRecordsWhatHermesWillAsk(FolderCase):
                     "rm -rf ~/Documents/old-report"]:
             with self.subTest(cmd=cmd):
                 self.assertIsNotNone(self.call("terminal", {"command": cmd}))
-                self.assertIsNone(plugin.gate_checked(self.bot, cmd))   # nothing recorded until it is allowed
+                self.assertIsNone(plugin.gate_checked(self.bot, cmd))
                 plugin.decide(self.cards()[-1]["id"], True)
                 self.assertIsNone(self.call("terminal", {"command": cmd}))
                 self.assertEqual(plugin.gate_checked(self.bot, cmd)["cleared"], 1)
@@ -338,7 +336,7 @@ class LateAnswers(AppCase):
 
         async def answer(bot_id, run_id, request_id, choice):
             self.answers.append(choice)
-            return False   # Hermes already stopped waiting
+            return False
         patcher = mock.patch.object(approvals, "answer", answer)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -461,7 +459,6 @@ class DeployHooksAndTitles(FolderCase):
                  "Publish sugared-heron to production on Netlify")]:
             with self.subTest(cmd=cmd, cwd=cwd):
                 self.assertEqual(tiers.classify_command(cmd, cwd=cwd).summary, title)
-        # Allow Once still tells one folder's deploy from another's.
         self.assertEqual(tiers.classify_command("netlify deploy --prod", cwd=HOME_FOLDER).target, HOME_FOLDER)
 
 
@@ -503,7 +500,7 @@ class DeclineButtons(GateCase):
             with self.subTest(label=label):
                 self.assertIsNone(tiers.classify_click(label, "calendar.google.com"))
         self.assertEqual(tiers.classify_click("Send", "calendar.google.com").kind, "send")
-        self.assertEqual(tiers.classify_click("No", "calendar.google.com").kind, "send")   # an RSVP still tells the host
+        self.assertEqual(tiers.classify_click("No", "calendar.google.com").kind, "send")
         self.assertEqual(tiers.classify_click("Not going", "partiful.com").kind, "send")
 
 
@@ -528,8 +525,6 @@ class AppCopyAndFixtures(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

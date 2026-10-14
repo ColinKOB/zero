@@ -67,7 +67,7 @@ class BulkMail(unittest.TestCase):
                 mock.patch.object(mail, "uses_google", lambda a: False):
             mail.read("personal", "INBOX", "12335")
         argv = calls[0]
-        self.assertIn("-p", argv)                                       # still never marked read
+        self.assertIn("-p", argv)
         for h in ("List-Unsubscribe", "List-Id", "Precedence", "From", "Subject"):
             self.assertIn(h, argv)
             self.assertEqual(argv[argv.index(h) - 1], "-H")
@@ -91,14 +91,14 @@ class Newsletters(ProCase):
         karen = ("Miss Dana", "karen@blueheron.test")
         sam = ("Sam Creator", "sam@creator.example")
         self.src.mail[("personal", "INBOX")] = [
-            env(1, "Please don't build this yet", frm=MICHIA, date=at(10, 6, 9)),        # List-Unsubscribe, bulk
-            env(2, "If you're working hard, read this", frm=sam, date=at(10, 5, 9)),     # weekly, never answered
-            env(3, "Banner size", frm=karen, date=at(10, 5, 9)),                          # a real thread
+            env(1, "Please don't build this yet", frm=MICHIA, date=at(10, 6, 9)),
+            env(2, "If you're working hard, read this", frm=sam, date=at(10, 5, 9)),
+            env(3, "Banner size", frm=karen, date=at(10, 5, 9)),
         ]
         self.src.bodies = {"1": NEWSLETTER, "2": "Are you working on the right thing? Hit reply and tell me.",
                            "3": "Can you confirm the banner size by Friday?"}
         self.src.sent_by = {sam[1]: self.letters(sam[1], 5), karen[1]: self.letters(karen[1], 5)}
-        self.src.wrote = {karen[1]}                                     # Colin writes to Dana; never to Sam
+        self.src.wrote = {karen[1]}
         found = run(noticers.reply_waiting(self.src))
         self.assertEqual([c.subject for c in found], ["mail-in:personal:karen@blueheron.test:banner size"])
         c = found[0]
@@ -211,7 +211,7 @@ class DueSoon(P2Case):
         p = mock.patch.object(schoolcheck, "run_turn", turn)
         p.start()
         self.addCleanup(p.stop)
-        due = self.clock + 2 * 3600                                        # noon: due in two hours
+        due = self.clock + 2 * 3600
         self.due = due
         self.src.events = [ev("formh", f"{self.FORM_H} due", due, due + 300, calendar="Lakeview Classes"),
                            ev("formc", f"{self.FORM_C} due", due, due + 300, calendar="Lakeview Classes"),
@@ -227,22 +227,22 @@ class DueSoon(P2Case):
         return run(go())
 
     def test_the_school_zip_looks_first_then_asks_is_it_done(self):
-        self.assertEqual(self.look(), [])                                  # nothing until the Zip has looked
+        self.assertEqual(self.look(), [])
         self.assertEqual(len(self.turns), 1)
         bot, text = self.turns[0]
         self.assertEqual(bot, "school" if "school" in notices.config.BOTS_BY_ID else "default")
         self.assertIn("Only read: don't submit, upload, post, mark or change anything", text)
         self.assertIn(f"- {self.FORM_H}", text)
         self.assertIn(f"- {self.FORM_C}", text)
-        self.assertNotIn("BUS 305", text)                                 # due tomorrow, not within hours
+        self.assertNotIn("BUS 305", text)
         found = self.look()
-        self.assertEqual(len(self.turns), 1)                               # one look per item, not one per pass
+        self.assertEqual(len(self.turns), 1)
         self.assertEqual(len(found), 1)
         c = found[0]
         self.assertEqual(c.noticer, "due_soon")
         self.assertEqual(c.question, "Is it done?")
         self.assertIn(f"Your {self.FORM_H} is due {calendar_noticers.when(self.due)}, in about two hours.",
-                      c.evidence)                                          # today at 12 p.m. Eastern
+                      c.evidence)
         self.assertIn(f"I checked eLearning: {self.FORM_C} shows as turned in, but I couldn't find a submission "
                       f"for {self.FORM_H}.", c.evidence)
         self.assertIsNone(notices.off_voice(c.evidence))
@@ -255,14 +255,14 @@ class DueSoon(P2Case):
         card = self.card(c.subject)
         self.assertEqual(card["question"], "Is it done?")
         self.assertNotIn("—", card["evidence"])
-        self.assertEqual(notices.row(c.subject)["urgent"], 1)              # due today: it may push
+        self.assertEqual(notices.row(c.subject)["urgent"], 1)
 
     def test_with_a_mac_the_answer_opens_what_he_needs_there(self):
         self.look()
         with mock.patch.object(calendar_noticers, "_has_mac", lambda: True):
             c = self.look()[0]
         self.assertEqual(c.options[1].text, "Not done yet. Open what I need on my Mac")
-        self.assertIn("on my Mac", c.options[1].say)                      # his words, so the Mac grant can start
+        self.assertIn("on my Mac", c.options[1].say)
 
     def test_nothing_is_asked_when_the_site_shows_it_turned_in(self):
         self.answer = check_reply((self.FORM_H, "yes"), (self.FORM_C, "yes"))
@@ -276,7 +276,7 @@ class DueSoon(P2Case):
         self.assertEqual(c.question, "Are they done?")
         self.assertIn("I couldn't get into the course site to check, and nothing else shows they are done.",
                       c.evidence)
-        self.assertNotIn("eLearning", c.evidence)                         # never a site it didn't see
+        self.assertNotIn("eLearning", c.evidence)
 
     def test_no_trello_card_means_finished_just_closes(self):
         self.src.trello_cards = []
@@ -299,7 +299,7 @@ class DueSoon(P2Case):
         self.src.groups["working"] = [{"id": "t1", "title": "Read chapter 4", "assignee": schoolcheck.checker(),
                                        "status": "running", "created_at": self.clock}]
         self.assertEqual(self.look(), [])
-        self.assertEqual(self.turns, [])                                    # the next pass tries again
+        self.assertEqual(self.turns, [])
         self.src.groups["working"] = []
         self.look()
         self.assertEqual(len(self.turns), 1)

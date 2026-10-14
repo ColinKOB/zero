@@ -31,14 +31,10 @@ from . import calllog, config, logins, onboarding, store, team
 
 log = logging.getLogger("taffy.erase")
 
-# Folders and files inside the hub's own folder (config.HUB_DIR) that hold the person's things.
 HUB_FOLDERS = ("calls", "media", "briefings", "outbox")
 HUB_FILES = ("person.json", "calendar.json", "trello.json", "codex-app-server.log", "codex-app-server.log.1")
-# Hub settings that hold the person's words, answers or choices. Cursors and health state are left alone, because
-# clearing them would make the hub re-announce old work.
 PERSONAL_SETTINGS = ("onboarding", "onboarding_ack", "muted_bots", "snoozed", "held_pushes", "pending_updates",
                      "proactivity_brief_lines", "proactivity_mail_sig", "proactivity_brief_day")
-# Tables that hold the person's data. Created lazily by their modules, so each is checked before use.
 TABLES = ("feed", "bot_sessions", "reactions", "notices", "notice_log", "team_notes", "team_msgs", "team_seen",
           "team_cursor", "facts", "fact_shown")
 
@@ -168,7 +164,7 @@ def delete_everything(device_token: str | None = None) -> dict:
         _remove(hub / name)
     calllog._open.clear()
     removed["profile_notes"] = _clear_about()
-    team._write_notes_file()   # the file the Zips read, now empty
+    team._write_notes_file()
     removed["saved_logins"] = _clear_logins()
     removed["accounts"] = _clear_accounts()
     log.info("everything deleted at the person's request: %s", removed)

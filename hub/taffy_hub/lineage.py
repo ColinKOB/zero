@@ -29,7 +29,7 @@ from . import config, store
 
 _cache: dict[tuple[str, str], tuple[str, float]] = {}
 _cache_lock = threading.Lock()
-ROOT_TTL = 60.0     # a session not yet known to be a child is checked again after this long
+ROOT_TTL = 60.0
 
 # Children that are their own conversation, never a compaction's continuation (hermes_state_compression.py).
 _FORK_MARKERS = ("_branched_from", "_delegate_from", "_reset_from")
@@ -105,8 +105,6 @@ def same(bot_id: str | None, a: str | None, b: str | None) -> bool:
     return a == b or root(bot_id, a) == root(bot_id, b)
 
 
-# ── Stable message ids ──────────────────────────────────────────────────────────────────────────────────────────
-
 def _key(m: dict) -> str | None:
     ts = m.get("ts") if "ts" in m else m.get("timestamp")
     if ts in (None, ""):
@@ -154,8 +152,6 @@ def _typed(stored: str, like):
             return stored
     return stored
 
-
-# ── Tool calls that put up a card ───────────────────────────────────────────────────────────────────────────────
 
 def remember_card(bot_id: str, call_ids: set[str]) -> None:
     if not bot_id or not call_ids:

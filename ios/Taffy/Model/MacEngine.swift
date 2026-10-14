@@ -159,7 +159,6 @@ final class MacEngine {
                 self.signIn = .failed(String(line.dropFirst("ZERO-ERROR ".count)))
             }
         }
-        // Another sign-in took over, or the person stopped this one (the engine exits 3).
         guard signingIn == tool, result.code != 3 else { return false }
         signingIn = nil
         if result.code == 0 {

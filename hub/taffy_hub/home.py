@@ -32,11 +32,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 log = logging.getLogger("taffy.home")
 
-USER_HOME = Path(os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir)   # see config.HOME
+USER_HOME = Path(os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir)
 VERSION = 1
 
-# Every key, with the values every home shares unless its file says otherwise (the plugin's reader,
-# alien/plugins/taffy-tools/home.py, holds the same).
 DEFAULTS: dict = {
     "version": 1,
     "home_id": "colin",
@@ -55,7 +53,7 @@ DEFAULTS: dict = {
     },
     "ports": {"hub": 8650, "hermes_api": 8642, "broker_http": 8660,
               "preview": {"base": 18200, "per_zip": 10, "count": 6}, "docker_subnet_base": "172.30"},
-    "network": {"public_url": "", "serve_port": 6443},   # a home without an address prints no link
+    "network": {"public_url": "", "serve_port": 6443},
     "host": {"name": "alien", "kind": "server", "sandbox_image": "taffy/zip-sandbox:2026-10-08-v1",
              "lead_backend": "docker"},
     "plan": {
@@ -63,7 +61,6 @@ DEFAULTS: dict = {
         "chatgpt": {"mode": "own", "codex_command": "~/.local/bin/codex", "codex_base_url": None},
         "connectors": "none",
         "frugal": False,
-        # In a home on a shared plan: the first name of the person who shares it ("that Colin shares with you").
         "owner_name": None,
     },
     "mail": {"accounts": []},
@@ -94,13 +91,9 @@ DEFAULTS: dict = {
     "push": {"key_dir": "~/.config/taffy-push", "team_id": "YOUR_TEAM_ID", "topic": "com.example.Taffy"},
     "backup": {"repo": "~/backups/taffy-restic", "drop": None, "mac_copy_expected": False},
     "zips": {"max": None, "container_memory_mb": None},
-    # Keep-warm pings (usage.py): refresh an idle chat's prompt cache at read price. Off until a home is measured.
     "cache": {"keep_warm": False},
 }
 
-# Colin's own facts: the defaults of his home (no file, or a file whose home_id is "colin"), equal to what the code
-# held before home.json existed. A file for any other home never inherits these, so a key missing from a stranger's
-# file can never put Colin's data in front of their Zips.
 COLIN_FACTS: dict = {
     "person": {"name": "Colin O'Brien", "first_name": "Colin", "pronoun_free": False},
     "paths": {"background_docs": ["~/taffy/shared/background-notes.md",
@@ -117,7 +110,6 @@ COLIN_FACTS: dict = {
         {"id": "goodworks", "address": "colin@goodworks.test", "label": "Good Works work",
          "owner_zip": "clients", "kind": "imap", "provider": "gmail", "signoff": "Colin"},
     ],
-        # Which Zip follows up on a thread with someone at these domains (the hub's mail and calendar noticers).
         "owner_by_domain": {"lakeview.test": "school", "brightpath.test": "clients", "goodworks.test": "clients",
                             "blueheron.test": "clients", "theblueheron.test": "clients",
                             "netlify.com": "builder", "railway.app": "builder", "cloudflare.com": "builder",
@@ -129,9 +121,7 @@ COLIN_FACTS: dict = {
     },
     "judge": {"enabled": True},
     "backup": {"mac_copy_expected": True},
-    "cache": {"keep_warm": True},   # Colin asked for it (Oct 10); measured on the test home first
-    # Words in an event that say which Zip prepares or follows up (beside the generic words in
-    # calendar_noticers.owner_for_event): Colin's schools, employers, clients and projects.
+    "cache": {"keep_warm": True},
     "zips": {"owner_keywords": {"school": "lakeview", "career": "acme",
                                 "clients": "karen|ken|jake|matt|josh|heron|brightpath|maple grove|"
                                            "good works|gwi|bloomerang",
@@ -144,10 +134,8 @@ def colin_settings() -> dict:
     return merge(DEFAULTS, COLIN_FACTS)
 
 
-# The owner's user (Colin's) and the one file that may leave home_id out and still be his home: his own
-# ~/taffy/home.json. zero-home-lib.py and the plugin's reader use the same user and rule.
 OWNER_USER = os.environ.get("ZERO_OWNER_USER", "jdoe")
-NO_ID = "unnamed"   # the home_id a file without one reads as, anywhere but the owner's own file
+NO_ID = "unnamed"
 
 
 def owner_file() -> Path:
@@ -178,7 +166,6 @@ def is_colin(raw_file: dict | None, file: Path | None = None) -> bool:
     return _is_owner_file(file)
 
 
-# Tests point this at a temporary file (tests/home_fixture.py); it wins over ZERO_HOME.
 FILE: Path | None = None
 
 _lock = threading.Lock()
@@ -250,7 +237,7 @@ def load() -> dict:
         colin = is_colin(raw, p)
         data = merge(colin_settings() if colin else DEFAULTS, raw or {})
         if not str((raw or {}).get("home_id") or ""):
-            data["home_id"] = "colin" if colin else NO_ID   # the defaults' "colin" never names another home
+            data["home_id"] = "colin" if colin else NO_ID
         _cache.update(key=key, data=data, raw=raw)
         return data
 
@@ -336,7 +323,6 @@ def zone() -> ZoneInfo:
     return ZoneInfo(timezone_name())
 
 
-# How a time zone is named in a sentence ("2:14 p.m. Eastern"). Others use the city from the zone's name.
 _TZ_WORDS = {
     "America/New_York": "Eastern", "America/Detroit": "Eastern", "America/Indiana/Indianapolis": "Eastern",
     "America/Kentucky/Louisville": "Eastern", "America/Toronto": "Eastern",

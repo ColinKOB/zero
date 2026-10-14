@@ -52,7 +52,6 @@ final class Probe: NSObject, WKNavigationDelegate {
         web.load(URLRequest(url: URL(string: "https://aistudio.google.com/apikey")!))
         after(9) {
             self.save("1-apikey-signed-out") {
-                // Follow the sign-in path the page offers, or go straight to Google's sign-in.
                 self.web.load(URLRequest(url: URL(string: "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Faistudio.google.com%2Fapikey")!))
                 self.after(7) {
                     self.save("2-signin-identifier") {

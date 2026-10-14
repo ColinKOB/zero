@@ -54,7 +54,6 @@ def _vendored(mod, ansi):
     return detect_dangerous_command
 
 
-# The detector's module (Hermes's own, or the copy), so tests can read its list of patterns.
 module = _real()
 SOURCE = "hermes" if module is not None else "fixture"
 if module is not None:

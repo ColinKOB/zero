@@ -22,26 +22,24 @@ from datetime import datetime
 from . import chatter, config, facts, hermes, home, store, teamvoice, who
 
 log = logging.getLogger("taffy.team")
-ET = home.TZ   # the home's time zone, followed live
+ET = home.TZ
 
 NOTES_FILE = config.SHARED_DIR / "team-notes.md"
 SOUL_START = "<!-- team:start -->"
 SOUL_END = "<!-- team:end -->"
 
-ANSWER_WAIT_SEC = 45        # an answer later than this arrives as a heads-up instead
-BUSY_WAIT_SEC = 20          # how long a question waits for the other bot's last answer to finish
-ASKS_PER_SESSION_HOUR = 5   # per asking conversation (a chat, a board task, a call)
-ASKS_PER_DAY = 100          # across the whole team
-REPEAT_SEC = 3600           # the same question to the same bot within this returns the earlier answer
+ANSWER_WAIT_SEC = 45
+BUSY_WAIT_SEC = 20
+ASKS_PER_SESSION_HOUR = 5
+ASKS_PER_DAY = 100
+REPEAT_SEC = 3600
 MAX_NOTES_SHOWN = 60
-WORK_NOTES_DAYS = 14        # board tasks and scheduled jobs get recent notes only, not the whole history
+WORK_NOTES_DAYS = 14
 WORK_NOTES_MAX = 25
 NOTES_PER_SESSION_HOUR = 5
 NOTES_PER_DAY = 30
-# Bot-to-bot traffic is held in code, not by asking the bots to be quiet (#79: "5 of my agents talking to each other
-# for 7 hours"; #90: a third of all turns were bots waking bots). A thread is the conversation the message comes from.
-TELLS_PER_PAIR_HOUR = 3          # heads-ups from one Zip to another
-TEAM_MSGS_PER_SESSION_HOUR = 8   # questions and heads-ups together, from one conversation
+TELLS_PER_PAIR_HOUR = 3
+TEAM_MSGS_PER_SESSION_HOUR = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS team_notes (
@@ -169,17 +167,13 @@ def in_team_session(session_id: str | None) -> bool:
 
 # MARK: Team notes
 
-# What never crosses between bots in any form: account and card numbers, codes, passwords, ID numbers.
 _SECRET = [
-    # Nine or more digits in a run (spaces or dashes allowed between them), but not dates or phone numbers:
-    # account and card numbers stay with their owner, a contact's phone number may be passed on.
     (re.compile(r"(?<![\d-])(?!\d{4}-\d{2}-\d{2}\b)(?!\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b)\d(?:[ -]?\d){8,}(?![\d-])"),
      "Account and card numbers stay with the bot that owns them."),
     (re.compile(r"(password|passcode|\bpin\b|\botp\b|security code|verification code|confirmation code|"
                 r"\bcode\s*(is|:|=))", re.I), "Passwords, PINs and codes never go to other bots."),
     (re.compile(r"social security|\bssn\b|routing number|\bcvv\b", re.I), "ID and routing numbers never go to other bots."),
 ]
-# What also stays out of the shared notes every bot reads (a specific question can still get a specific answer).
 _PRIVATE = _SECRET + [
     (re.compile(r"\$\s?\d|\b\d[\d,]*(\.\d\d)?\s*(dollars|bucks|usd|cad)\b", re.I),
      "Keep amounts with the bot that owns them; save the fact without the number."),
@@ -308,7 +302,6 @@ def context_for(bot_id: str, session_id: str, first: bool, work: bool = False, m
     parts = []
     c = _db()
     now_ = int(time.time())
-    # Chat and team-answer conversations keep separate fallbacks, so one never skips notes the other saw.
     bot_key = f"b:{bot_id}#team" if in_team_session(session_id) else f"b:{bot_id}"
     row = c.execute("SELECT note_id FROM team_cursor WHERE key=?", (f"s:{session_id}",)).fetchone() if session_id else None
     if first:
@@ -353,7 +346,6 @@ def context_for(bot_id: str, session_id: str, first: bool, work: bool = False, m
         direct = _direct_chats()
         if direct:
             parts.append(direct)
-    # Heads-ups go to the bot's own work, never to a conversation where it is answering a teammate.
     if not in_team_session(session_id):
         with store._lock:
             rows = [dict(r) for r in c.execute(
@@ -368,11 +360,8 @@ def context_for(bot_id: str, session_id: str, first: bool, work: bool = False, m
                          "your "
                          "work; there is no need to reply.)")
         if not work:
-            # Cards from this chat that ran out of time without an answer (watcher.tell_expired).
             parts += [f"{who.hub_note()} {n}" for n in store.take_card_notes(bot_id)]
         if not work and session_id and session_id == store.session_for(bot_id):
-            # Older sign-in cards still open in the person's chat, so the Zip can close one the person's new message
-            # makes moot (Oct 9: "I think I actually bought them over the phone").
             try:
                 from . import signin
                 old = signin.old_cards_note(bot_id)
@@ -488,7 +477,6 @@ def tell(from_bot: str, to: str, text: str, session_id: str | None, from_hub: bo
     if len(text) > 1200:
         raise TeamError("Keep a heads-up under 1,200 characters.")
     if not from_hub and _no_news(text):
-        # #78, #79: acknowledgments, thanks and "still working" between bots are dropped, never delivered or shown.
         raise TeamError(f"Not sent: it only acknowledges or says you are working, so {target.name} has nothing to "
                         "act on. Message a teammate only when it needs to act or needs a fact, and send one summary "
                         "when the work is done.")
@@ -500,7 +488,6 @@ def tell(from_bot: str, to: str, text: str, session_id: str | None, from_hub: bo
                         "Put what is left in one message later, or hand the work over on the board.")
     with store._lock:
         c = _db()
-        # The hub's own notes (late answers, task news) carry no conversation and do not count.
         sent = c.execute("SELECT COUNT(*) FROM team_msgs WHERE kind='tell' AND from_bot=? AND to_bot=? AND "
                          "COALESCE(session_id, '') != '' AND created_at>?",
                          (from_bot, target.id, now - 3600)).fetchone()[0]
@@ -538,7 +525,7 @@ async def ask(from_bot: str, to: str, question: str, session_id: str | None) -> 
     if in_team_session(session_id):
         raise TeamError("You are answering a teammate's question, so you cannot ask another bot inside it. "
                         "Answer from what you have and say what you could not check.")
-    if "?" not in question and _no_news(question):   # "Is it posted?" is a question, whatever its words
+    if "?" not in question and _no_news(question):
         raise TeamError(f"Not sent: there is no question in it. Ask {target.name} only for a fact you need; "
                         "no thanks or check-ins.")
     now = int(time.time())
@@ -606,7 +593,7 @@ async def _answer(from_bot: str, target: config.Bot, question: str, mid: int) ->
     text = (f"[From {_name(from_bot)}] {question}\n\n"
             + ANSWER_GUIDE.format(asker=_name(from_bot), person=who.first()))
     answer = None
-    for attempt in range(2):   # a team session Hermes dropped is recreated once
+    for attempt in range(2):
         try:
             answer = await hermes.run_turn(target.id, text, team=True)
         except Exception:
@@ -615,19 +602,19 @@ async def _answer(from_bot: str, target: config.Bot, question: str, mid: int) ->
             break
     answer = (answer or "").strip() or None
     if answer and _no_news(answer, answer=True):
-        answer = None   # "Got it" or "." answers nothing; the asker hears it could not answer
+        answer = None
     if answer:
         answer, _ = _redact(answer)
     with store._lock:
         _db().execute("UPDATE team_msgs SET answer=? WHERE id=?", (answer or "(no answer)", mid))
         _db().commit()
     if answer:
-        _feed(target.id, "answer", target.id, from_bot, answer, msg=mid)    # under the question, in the answering bot's chat
-        _feed(from_bot, "reply", target.id, from_bot, answer, question, msg=mid)   # in the asker's chat, with what it asked
+        _feed(target.id, "answer", target.id, from_bot, answer, msg=mid)
+        _feed(from_bot, "reply", target.id, from_bot, answer, question, msg=mid)
     return answer
 
 
-PING_SHOWN_SEC = 300   # an unanswered question shows as "Pinging" this long, then the chip gives up
+PING_SHOWN_SEC = 300
 
 
 def pinging() -> list[dict]:
@@ -653,7 +640,7 @@ def _late(from_bot: str, to_bot: str, question: str, task: asyncio.Task) -> None
         _db().commit()
 
 
-FINISH_WITHIN_SEC = 6 * 3600   # a card Colin answers later than this no longer finishes the old question
+FINISH_WITHIN_SEC = 6 * 3600
 
 
 def last_question(bot_id: str, since: float = 0) -> dict | None:
@@ -711,7 +698,7 @@ def _owns(bot) -> str:
     desc = " ".join(m.group(1).split())
     if len(desc) > 1 and desc[0] == desc[-1] and desc[0] in "'\"":
         desc = desc[1:-1].replace("''", "'") if desc[0] == "'" else desc[1:-1].replace('\\"', '"')
-    desc = re.sub(r"^[^\s:]+:\s+", "", desc)   # "Builder: Lumenly, ..." -> "Lumenly, ..."
+    desc = re.sub(r"^[^\s:]+:\s+", "", desc)
     desc = desc.replace("|", "/")
     return desc[:1].upper() + desc[1:] if desc else bot.role
 
@@ -823,7 +810,6 @@ def sync_souls() -> list[str]:
                     changed.append(b.id)
                 text = text_named
         if SOUL_START in text and SOUL_END in text and text.index(SOUL_START) < text.rindex(SOUL_END):
-            # From the first start marker to the last end marker, so a damaged or doubled block heals.
             new = text[:text.index(SOUL_START)] + block + text[text.rindex(SOUL_END) + len(SOUL_END):]
         else:
             stripped = text.replace(SOUL_START, "").replace(SOUL_END, "")
@@ -881,7 +867,7 @@ async def keep_souls_current() -> None:
             await asyncio.to_thread(sync_user_notes)
         except Exception:
             log.warning("USER.md sync failed", exc_info=True)
-        try:   # ongoing chats follow SOUL.md changes, made here or by hand (freshness.py)
+        try:
             from . import freshness
             await asyncio.to_thread(freshness.check)
         except Exception:

@@ -54,7 +54,7 @@ struct ConnectAccountsView: View {
             .frame(maxWidth: .infinity)
         }
         #if DEBUG
-        .task {   // -scrollto steps | disconnect, for screenshots
+        .task {
             let a = CommandLine.arguments
             if let i = a.firstIndex(of: "-scrollto"), i + 1 < a.count {
                 try? await Task.sleep(for: .milliseconds(900))
@@ -131,9 +131,7 @@ struct ConnectAccountsView: View {
 
     private var claudeProblem: (String, String)? {
         guard let s = status, s.claudeProblem else { return nil }
-        // Claude runs where the hub does: Colin's home computer, or the person's Mac (Oct 8 QA round 2, M6).
         let place = s.claudeComputer
-        // On a home server, signing Claude in is done at that computer, not from this screen (Oct 8 QA round 3, L3).
         let elsewhere = place != "your Mac"
         switch s.claude.state {
         case "signed_out":
@@ -277,7 +275,7 @@ struct ConnectAccountsView: View {
 
     private func openClaude() {
         #if DEBUG
-        if state.fixtureMode { model.simulateConnecting(group); return }   // screenshots: no browser
+        if state.fixtureMode { model.simulateConnecting(group); return }
         #endif
         if let u = URL(string: status?.connectURL(for: group) ?? "https://claude.ai/customize/connectors") { openURL(u) }
     }
@@ -536,7 +534,6 @@ struct AccountAskCard: View {
             Spacer(minLength: gap)
         }
         .sheet(isPresented: $connecting, onDismiss: { Task { await state.loadChat(botID) } }) {
-            // A home without connectors adds Gmail and calendars in Zero itself.
             NavigationStack {
                 if HomeModel.shared.nativeAccounts && group.id == "google" {
                     MailAndCalendarView(modal: true)
@@ -610,7 +607,7 @@ struct ConnectAppsView: View {
             .frame(maxWidth: .infinity)
         }
         #if DEBUG
-        .task {   // -appsScroll <section>: that section at the top, for screenshots
+        .task {
             let a = CommandLine.arguments
             if let i = a.firstIndex(of: "-appsScroll"), i + 1 < a.count {
                 try? await Task.sleep(for: .milliseconds(1200))
@@ -1059,7 +1056,7 @@ struct TrelloConnectView: View, ConnectWalkthrough {
     private func open() {
         problem = nil
         Task { @MainActor in
-            if let pageURL {   // the code page again: no new start needed
+            if let pageURL {
                 _ = await WebSheet().open(pageURL, scheme: "zero")
                 phase = .paste
                 return

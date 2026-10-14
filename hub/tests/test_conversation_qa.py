@@ -50,7 +50,7 @@ class Greeting(unittest.TestCase):
 
 class VoicePrompt(unittest.TestCase):
     def setUp(self):
-        home_fixture.use_in(self, None)   # Colin's home: US units, Eastern time
+        home_fixture.use_in(self, None)
         from taffy_hub import who
         self.first = who.first()
         self.prompt = voice.voice_prompt("default", "You are Zero, Colin's assistant.")
@@ -59,7 +59,7 @@ class VoicePrompt(unittest.TestCase):
         self.assertTrue(self.prompt.startswith("You are Zero, Colin's assistant."))
         self.assertIn("How to sound:", self.prompt)
         lead = config.BOTS_BY_ID["default"].name
-        self.assertIn(f"You are {lead};", self.prompt)   # the bot's name, not a placeholder
+        self.assertIn(f"You are {lead};", self.prompt)
         self.assertNotIn("{name}", self.prompt)
         self.assertNotIn("{rules}", self.prompt)
 
@@ -141,7 +141,7 @@ class StraySessionCards(AppCase):
 
     def test_stray_session_is_known_only_once_the_zip_has_a_chat(self):
         from taffy_hub import app as hub_app
-        self.assertFalse(hub_app.stray_session("career", "20261008_193832_dd7b37"))   # nothing to compare with yet
+        self.assertFalse(hub_app.stray_session("career", "20261008_193832_dd7b37"))
         store.set_session("career", "api_chat")
         store.set_session("career#team", "api_team")
         self.assertFalse(hub_app.stray_session("career", "api_chat"))
@@ -190,7 +190,7 @@ class ScheduledJobWords(unittest.TestCase):
         self.assertEqual(watcher.cron_words("0 19 * * 0"), "every Sunday at 7 p.m.")
         self.assertEqual(watcher.cron_words("15 8 * * 1,3,5"), "every Monday, Wednesday and Friday at 8:15 a.m.")
         self.assertEqual(watcher.cron_words("0 12 1 * *"), "on the 1st of every month at 12 p.m.")
-        self.assertEqual(watcher.cron_words("*/5 * * * *"), "*/5 * * * *")   # not a shape worth guessing at
+        self.assertEqual(watcher.cron_words("*/5 * * * *"), "*/5 * * * *")
         self.assertEqual(watcher.cron_words(""), "")
 
     def test_a_jobs_when_prefers_words(self):
@@ -277,8 +277,6 @@ class PushCardTitle(unittest.TestCase):
 
     def test_redirections_are_not_branches(self):
         tiers = tt.tiers
-        # No working folder: on alien the real builder-reset-test folder pushes to a local remote.git, which is
-        # rightly not publishing at all, so the shape is tested without the folder.
         cmd = "git push --force origin main 2>&1; echo done"
         found = tiers._git_pushes(cmd, None)
         self.assertEqual([(a.summary, a.target) for a in found], [("Push to main, which can publish it", "main")])
@@ -289,7 +287,6 @@ class PushCardTitle(unittest.TestCase):
 @unittest.skipUnless(SCRIPT.exists(), "repo-only check (alien runs the hub without the repo)")
 class SoulStyleLines(unittest.TestCase):
     def setUp(self):
-        # The script says its lines for the home it runs in (the plugin's reader); these tests check Colin's lines.
         pin = tt.home.pinned(None)
         pin.__enter__()
         self.addCleanup(pin.__exit__, None, None, None)
@@ -324,7 +321,7 @@ class SoulStyleLines(unittest.TestCase):
         self.assertEqual(lines[3 + len(s.STYLE_LINES)], "- Calls: short.")
         self.assertIn("<!-- team:start -->\n- Style for anything Colin reads: a copy inside the team block\n<!-- team:end -->",
                       new)
-        self.assertEqual(s.update_text(new), new)                     # idempotent
+        self.assertEqual(s.update_text(new), new)
         self.assertEqual(s.update_text("# Nothing to anchor on\n"), "# Nothing to anchor on\n")
         zero = "- Time zone is America/New_York. He sleeps 11 p.m. to 7 a.m.\n\n<!-- team:start -->\n"
         self.assertTrue(s.update_text(zero).startswith(zero.split("\n")[0] + "\n" + s.STYLE_LINES[0]))
@@ -344,7 +341,7 @@ class SoulStyleLines(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), original)
         s.main([str(path)])
-        self.assertEqual(len(list(folder.glob("SOUL.md.bak-style-*"))), 1)   # a second run changes nothing
+        self.assertEqual(len(list(folder.glob("SOUL.md.bak-style-*"))), 1)
 
 
 @unittest.skipUnless((REPO / "alien" / "profiles" / "taffy" / "SOUL.md").exists(),
@@ -370,8 +367,6 @@ class ZeroSoulRules(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

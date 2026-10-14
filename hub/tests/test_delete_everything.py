@@ -62,8 +62,8 @@ class Base(unittest.TestCase):
         store.set_setting("onboarding_ack", {"answer": "Teacher"})
         store.set_setting("muted_bots", ["money"])
         store.set_setting("held_pushes", [["Zero", "Dinner is at 6"]])
-        store.set_setting("save_call_transcripts", False)   # a preference, kept
-        store.set_setting("health", {"bots": True})          # hub state, kept
+        store.set_setting("save_call_transcripts", False)
+        store.set_setting("health", {"bots": True})
         store.set_cursor("consent_request", 7)
         team._db().execute("INSERT INTO team_notes (bot_id, text, created_at) VALUES ('money', 'Rent is due on the 1st', 1)")
         team._db().execute("INSERT INTO team_msgs (kind, from_bot, to_bot, text, created_at) "
@@ -73,7 +73,6 @@ class Base(unittest.TestCase):
         store.db().execute("INSERT INTO notices (subject, noticer, state, created, updated) VALUES ('s', 'renewal', 'open', 1, 1)")
         store.db().execute("INSERT INTO notice_log (at, kind) VALUES (1, 'push')")
         store.db().commit()
-        # The hub's own folders.
         (self.hub / "calls" / "2026-10-08").mkdir(parents=True)
         (self.hub / "calls" / "2026-10-08" / "c1.jsonl").write_text('{"event": "start"}\n')
         (self.hub / "media").mkdir()
@@ -84,7 +83,6 @@ class Base(unittest.TestCase):
         (self.hub / "calendar.json").write_text("[]")
         (self.hub / "internal-key").write_text("secret")
         (self.hub / "bot-names.json").write_text('{"default": "Pip"}')
-        # Hermes's files, and a USER.md with the hub's About entry after a Hermes entry.
         (self.hermes / "memories").mkdir()
         (self.hermes / "memories" / "USER.md").write_text(HERMES_ENTRY + DELIM + ABOUT + "\n")
         (self.hermes / "profiles" / "money" / "memories").mkdir(parents=True)
@@ -226,7 +224,6 @@ class Endpoint(Base):
         self.assertEqual(r.json()["removed"]["feed"], 3)
         self.assertEqual(self.count("feed"), 0)
         self.assertFalse((self.hub / "calls").exists())
-        # The app signs itself out next with /api/unpair, so the token still works for that.
         self.assertEqual(self.client.post("/api/unpair", headers=self.auth).status_code, 200)
 
     def test_says_so_when_a_zip_is_answering(self):

@@ -41,18 +41,14 @@ if not log.handlers:   # uvicorn configures only its own loggers; this one goes 
 
 app = FastAPI(title="Zero front door", docs_url=None, redoc_url=None, openapi_url=None)
 
-# Replaced in tests with a fake that runs no commands.
 HOMES = homes_mod.LiveHomes(prefix=os.environ.get("ZERO_FRONTDOOR_HOME_PREFIX", "u"))
-# Closed unless the unit says "open": strangers never make homes on this machine. While closed, only a username the
-# owner invited (`zero-account invite USERNAME`) can sign up; anyone can still sign in to an account that exists.
-SIGN_UP = os.environ.get("ZERO_FRONTDOOR_SIGN_UP", "closed")    # open or closed
+SIGN_UP = os.environ.get("ZERO_FRONTDOOR_SIGN_UP", "closed")
 
 TZ_RE = re.compile(r"^[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}$")
 
-# Rate limits, kept in memory (a restart forgets them, which is fine at this size).
-SIGN_IN_PER_USER = (5, 15 * 60)       # wrong passwords for one username, per window
-SIGN_IN_ALL = (40, 15 * 60)           # wrong passwords for every username together
-SIGN_UP_ALL = (5, 60 * 60)            # new accounts, per window
+SIGN_IN_PER_USER = (5, 15 * 60)
+SIGN_IN_ALL = (40, 15 * 60)
+SIGN_UP_ALL = (5, 60 * 60)
 _fails_user: dict[str, list[float]] = {}
 _fails_all: list[float] = []
 _sign_ups: list[float] = []
@@ -72,10 +68,6 @@ async def validation_error(_: Request, exc: RequestValidationError):
     fields = [".".join(str(p) for p in e.get("loc", [])[1:]) for e in exc.errors()]
     return JSONResponse(status_code=422, content={"detail": f"Check these fields: {', '.join(fields) or 'request'}."})
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Sign-up jobs
-# ---------------------------------------------------------------------------------------------------------
 
 class Job:
     def __init__(self, username: str, home_id: str, person: str, timezone: str):
@@ -162,7 +154,6 @@ def sign_up(body: SignUpBody):
 
     existing = store.get(username)
     if existing:
-        # The same person trying again after a build that did not finish: same username and password resume it.
         if existing["state"] == "failed" and store.check(username, body.password):
             job = Job(username, existing["home_id"], existing.get("person") or person, timezone)
             store.set_state(username, "creating")
@@ -207,10 +198,6 @@ def sign_up_status(job_id: str):
         msg = STEP_TEXT.get(job.step, STEP_TEXT[""])
     return {"state": job.state, "step": job.step, "message": msg, "seconds": int(time.time() - job.started)}
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Sign-in
-# ---------------------------------------------------------------------------------------------------------
 
 class SignInBody(BaseModel):
     username: str

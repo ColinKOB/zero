@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from taffy_hub import config, onboarding, store  # noqa: E402
 
-_real_reload = config.reload_bots   # test_team swaps this out when it is imported
+_real_reload = config.reload_bots
 
 GOOD = {"agent_name": "Pip", "person_name": " Colin  O'Brien ", "voice": "kore",
         "about": {"work": "I build apps", "home": "Ohio", "age": "", "family": "Riley and two kids"},
@@ -80,7 +80,7 @@ def _load_app():
     this repo's alien/ folder instead."""
     if "taffy_hub.app" in sys.modules:
         mod = sys.modules["taffy_hub.app"]
-        mod.BACKGROUND = False   # never the hub's loops in a test: they would work on the live home
+        mod.BACKGROUND = False
         return mod
     plugin = config.HOME / "taffy" / "plugins" / "taffy-tools" / "consent.py"
     repo_plugin = Path(__file__).resolve().parents[2] / "alien" / "plugins" / "taffy-tools" / "consent.py"
@@ -138,7 +138,7 @@ class Endpoint(unittest.TestCase):
         self.assertEqual(config.BOTS_BY_ID["default"].name, "Pip")
         self.assertEqual(json.loads(config.NAMES.read_text())["default"], "Pip")
         from taffy_hub import looks
-        self.assertEqual(looks.for_bot("default"), {"body": "o", "outfit": "classic"})   # the lead wears it
+        self.assertEqual(looks.for_bot("default"), {"body": "o", "outfit": "classic"})
         got = self.client.get("/api/onboarding").json()["onboarding"]
         self.assertEqual(got["person_name"], "Colin O'Brien")
         self.assertTrue(got["sources"]["calendar"])

@@ -68,7 +68,7 @@ class ZipsCannotReadSavedCalls(GateCase):
         self.assertIsNotNone(out, f"{tool} {args} was allowed")
         self.assertEqual(out["action"], "block")
         self.assertIn("protected location", out["message"])
-        self.assertEqual(self.cards(), [])   # blocked outright: no card a tap could approve
+        self.assertEqual(self.cards(), [])
 
     def test_terminal(self):
         for cmd in TERMINAL:
@@ -105,7 +105,6 @@ class ZipsCannotReadSavedCalls(GateCase):
         script = tmp / "taffy" / "bin" / "zero-calls"
         script.parent.mkdir(parents=True)
         script.write_text("#!/usr/bin/env python3\n")
-        # A link in a Zip's own folder to a saved call still names the call after links are followed.
         work = tmp / "taffy" / "work" / "builder"
         work.mkdir(parents=True)
         (work / "link.jsonl").symlink_to(calls / "abc.jsonl")
@@ -117,7 +116,6 @@ class ZipsCannotReadSavedCalls(GateCase):
                 with self.assertRaises(safe_files.Refused):
                     safe_files.open_file(str(path), roots)
                 self.assertIsNone(safe_files.card_text(str(path), 100))
-        # A link whose own name shows nothing, pointing at the folder.
         (work / "innocent").symlink_to(calls)
         with self.assertRaises(safe_files.Refused):
             safe_files.resolve(str(work / "innocent" / "abc.jsonl"), roots)

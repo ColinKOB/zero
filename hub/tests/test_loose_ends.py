@@ -53,7 +53,6 @@ def _load(name: str, path: Path):
     return mod
 
 
-# The home scripts live in the repo's alien/bin, which a deploy's hub-only copy does not carry.
 HAVE_SCRIPTS = (REPO / "alien" / "bin" / "zero-home-lib.py").exists()
 lib = _load("zero_home_lib_loose_ends", REPO / "alien" / "bin" / "zero-home-lib.py") if HAVE_SCRIPTS else None
 check = _load("zero_home_check_loose_ends", REPO / "alien" / "bin" / "zero-home-check") if HAVE_SCRIPTS else None
@@ -94,7 +93,7 @@ class SoulSync(unittest.TestCase):
                 self.home / "profiles" / "career" / "SOUL.md"]
 
     def test_two_syncs_with_no_change_write_nothing(self):
-        self.assertEqual(team.sync_souls(), ["default", "money", "career"])   # the block, and the lead's new name
+        self.assertEqual(team.sync_souls(), ["default", "money", "career"])
         money = (self.home / "profiles" / "money" / "SOUL.md").read_text()
         self.assertIn("You are one of Sunny's specialists", money)
         self.assertEqual(money.count(team.SOUL_START), 1)
@@ -146,7 +145,6 @@ class NoLoopsInTests(unittest.TestCase):
         """A test that built the app another way would run the loops again."""
         for f in sorted(TESTS.glob("test_*.py")):
             text = f.read_text()
-            # test_billing.py mounts billing's router on its own small FastAPI app, not the hub's, so no loops start.
             if "TestClient(" in text and f.name not in ("test_loose_ends.py", "test_billing.py"):
                 self.assertIn("_load_app", text, f"{f.name} makes a TestClient without _load_app")
 
@@ -225,7 +223,7 @@ class NoHomeId(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         self.file = self.dir / "home.json"
         self.file.write_text(json.dumps(NO_ID))
-        self.elsewhere = self.dir / "jdoe" / "taffy" / "home.json"   # never this machine's owner file
+        self.elsewhere = self.dir / "jdoe" / "taffy" / "home.json"
         saved_env, saved_file = os.environ.get("ZERO_HOME"), home.FILE
         self.addCleanup(self._restore, saved_env, saved_file)
         home.FILE = None
@@ -253,20 +251,17 @@ class NoHomeId(unittest.TestCase):
 
     def test_a_file_elsewhere_without_home_id_is_not_colins(self):
         self.owner_is(self.elsewhere)
-        # The hub's reader
         self.assertEqual(home.get("home_id"), home.NO_ID)
         self.assertEqual(home.person_name(), "Dana Park")
         self.assertIsNone(home.trello())
         self.assertIsNone(home.tally())
         self.assertEqual(home.mail_accounts(), [])
         self.assertFalse(home.is_owner_home())
-        # The plugin's reader
         self.assertFalse(tt.home.is_colin())
         self.assertEqual(tt.home.home_id(), "unnamed")
         self.assertIsNone(tt.home.trello())
         self.assertEqual(tt.home.mail_accounts(), [])
         self.assertEqual(tt.home.connectors(), "none")
-        # The home scripts' reader
         s = lib.load_home(self.file)
         self.assertEqual(s["home_id"], "unnamed")
         self.assertEqual(s["plan"]["connectors"], "none")
@@ -349,7 +344,7 @@ class BracesInNames(unittest.TestCase):
             self.assertEqual(tt.home.say("Colin asked for {site}; tell him.", site="x.com"),
                              "{Al} asked for x.com; tell {Al}.")
             self.assertEqual(tt.home.say("Colin O'Brien's {what}", what="list"), "{Al} Bo}'s list")
-            self.assertEqual(tt.home.personalize("Colin O'Brien"), self.NAME)   # one pass: nothing doubled
+            self.assertEqual(tt.home.personalize("Colin O'Brien"), self.NAME)
 
     def test_a_gate_message_with_the_name_still_blocks(self):
         with tt.home.pinned({"home_id": "al", "person": {"name": self.NAME, "first_name": "{Al}"}}):

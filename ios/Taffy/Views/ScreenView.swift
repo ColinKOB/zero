@@ -130,20 +130,17 @@ struct ScreenView: View {
             }
             .background(Color.black.ignoresSafeArea())
         }
-        // Docked under the screen. SwiftUI lifts it above the keyboard and the screen shrinks to the space left.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if typingBar { keyboardBar }
         }
         .onChange(of: status?.you_have_control) { _, mine in
             if mine != true { zoomed = false; moving = false; typing = false }
         }
-        // The keyboard opening zooms the screen in on the place Colin last tapped and keeps it above the bar.
         .onChange(of: typing) { _, on in web.run("window.taffyFocus && taffyFocus(\(on))") }
         .task { await begin() }
         .onAppear { if Self.onPhone { OrientationLock.allowLandscape(true) } }
         .onDisappear {
             if Self.onPhone { OrientationLock.allowLandscape(false) }
-            // Covers every way out of this screen, not just the back button.
             if status?.you_have_control == true {
                 let client = state.client, id = botID
                 Task { _ = try? await Self.post(client, "/api/bots/\(id)/screen/release") }
@@ -188,7 +185,6 @@ struct ScreenView: View {
         if state.fixtureMode {
             status = ScreenStatus(running: true, holder: "human",
                                   you_have_control: takeOver || CommandLine.arguments.contains("-screenControl"), reason: nil)
-            // `-screenViewer <address>` shows a real viewer page (a local test screen) instead of the drawing.
             let a = CommandLine.arguments
             if let i = a.firstIndex(of: "-screenViewer"), i + 1 < a.count { viewerURL = URL(string: a[i + 1]) }
             return
@@ -197,7 +193,6 @@ struct ScreenView: View {
         guard takeOver else { await refresh(connect: true); return }
         do {
             if let site {
-                // Wakes the computer if it sleeps, opens the page and gives Colin control.
                 _ = try await state.client.startSignIn(bot: botID, url: site.absoluteString)
             } else {
                 if (try? JSONDecoder().decode(ScreenStatus.self, from: try await call("/api/bots/\(botID)/screen", method: "GET")))?.running != true {
@@ -242,7 +237,6 @@ struct ScreenView: View {
                 Text("Tap the password box on the screen first. The password is typed there, and Return is up to you.")
                     .font(Theme.caption).foregroundStyle(.white.opacity(0.8)).frame(maxWidth: .infinity, alignment: .leading)
             }
-            // One row on its side, two upright. The same views either way, so the field keeps its focus on a turn.
             let rows = landscape ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
             rows {
                 HStack(spacing: 8) { field }
@@ -269,8 +263,6 @@ struct ScreenView: View {
             }
             .focused($typing)
             .submitLabel(secret ? .done : .send)
-            // A password is only typed, never followed by Return: if the wrong box was selected, it must
-            // not be submitted as a search or address.
             .onSubmit { sendTyped(pressReturn: !secret) }
             .font(Theme.text(16)).foregroundStyle(.white)
             .padding(.horizontal, 12).frame(height: 40)
@@ -483,7 +475,6 @@ struct ScreenView: View {
                 _ = try await call("/api/bots/\(botID)/screen/release")
                 status = nil
             } catch {
-                // The hub hands control back by itself two minutes after the viewer closes.
                 _ = ScreenTrouble.report(error, screen: "screen_leave", bot: botID, state: state)
                 self.error = "\(bot?.name ?? "The Zip") could not get its computer back yet. It gets it back by itself in two minutes."
                 try? await Task.sleep(for: .seconds(2))
@@ -551,11 +542,9 @@ struct ScreenWeb: UIViewRepresentable {
         if phone { v.scrollView.contentInsetAdjustmentBehavior = .never }
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.scrolled))
         if ProcessInfo.processInfo.isMacCatalystApp {
-            // Only scroll gestures; clicks and mouse drags still go to the screen as they are.
             pan.allowedScrollTypesMask = .all
             pan.allowedTouchTypes = []
         } else {
-            // A swipe scrolls, like any page on the phone; a tap still clicks.
             pan.maximumNumberOfTouches = 2
             pan.allowedScrollTypesMask = .all
         }

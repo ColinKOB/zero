@@ -57,8 +57,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         provider = CXProvider(configuration: config)
         super.init()
         provider.setDelegate(self, queue: nil)
-        // A phone call ringing while Zero talks: Zero goes quiet so it can be heard (#27). Answering it puts the
-        // Zero call on hold (CXSetHeldCallAction below); declining it lets Zero carry on.
         controller.callObserver.setDelegate(self, queue: nil)
         // WebRTC waits for CallKit to hand it an active audio session.
         RTCAudioSession.sharedInstance().useManualAudio = true
@@ -75,7 +73,7 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         ghostsClosed = 0
         retriedProvider = false
         let listed = controller.callObserver.calls
-        owned = owned.filter { listed.map(\.uuid).contains($0) || askedThisLaunch.contains($0) }   // forget calls gone
+        owned = owned.filter { listed.map(\.uuid).contains($0) || askedThisLaunch.contains($0) }
         for ghost in listed where !ghost.hasEnded && ghost.uuid != current && owned.contains(ghost.uuid) {
             provider.reportCall(with: ghost.uuid, endedAt: Date(), reason: .remoteEnded)
             ended.insert(ghost.uuid)
@@ -83,13 +81,12 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         }
         saveOwned()
         let id = UUID()
-        // The handle carries the bot's id, so Recents and Siri find the bot even after a rename.
         func startAction() -> CXStartCallAction {
             let action = CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: botID))
             action.contactIdentifier = botName
             return action
         }
-        current = id            // set first, so actions for this call are recognized from the start
+        current = id
         owned.insert(id)
         askedThisLaunch.insert(id)
         saveOwned()
@@ -134,7 +131,7 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
             return true
         } catch {
             if current == id { current = nil }
-            owned.remove(id)       // the system never took this call
+            owned.remove(id)
             saveOwned()
             let ns = error as NSError
             lastRefusal = ns
@@ -224,7 +221,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         let generation = sessionGeneration
         Task { @MainActor [weak self] in
             for attempt in 0..<5 {
-                // A newer call took the session: it is not ours to release any more.
                 guard let self, self.sessionGeneration == generation else { return }
                 do {
                     try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -257,7 +253,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
     /// call's audio first, so the audio session can be handed back at once.
     func end(failed: Bool = false) {
         guard let id = current else {
-            // A call run without CallKit (startWithoutSystemCall) hands the audio back itself.
             if activated && appOwnsSession { handBackAudioSession() }
             return
         }
@@ -308,7 +303,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         let id = action.callUUID
         Task { @MainActor in
-            // Only the call that is on now; a late end for a call the app already ended is just acknowledged.
             if self.current == id {
                 self.current = nil
                 self.engine?.endFromSystem(by: "system")
@@ -327,7 +321,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
-        // A phone call came in and Colin answered it: Taffy waits, then picks up where it left off.
         let held = action.isOnHold, id = action.callUUID
         Task { @MainActor in if self.current == id { self.engine?.setHeld(held) } }
         action.fulfill()

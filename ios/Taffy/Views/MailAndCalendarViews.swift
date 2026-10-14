@@ -1,13 +1,5 @@
 import SwiftUI
 
-// Email and calendars for a home without Claude or ChatGPT connectors (a plan shared with the person, or a home that
-// has none): Sign In with Google first, for Gmail and Google Calendar, and app passwords as the quieter path for iCloud
-// and any other mailbox or calendar (docs/plans/2026-10-09-zero-for-anyone-plan.md, section 4, "Her Mail, Calendar and
-// Board Without Connectors"). Settings shows the whole page; the onboarding uses the same pieces on white.
-//
-// DEBUG: `-fixture -plan shared | shared-google | shared-expired | shared-nogoogle` with `-open mail` (Settings page),
-// `-onboarding mail`, or `-sheet mailbox | calendar` to open a sheet on top.
-
 // MARK: Settings page
 
 struct MailAndCalendarView: View {
@@ -210,7 +202,6 @@ struct AccountsList: View {
                     .frame(width: 34, height: 34)
                     .background(plain ? Color(hex: "#F2F2F2") : Theme.bubble, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
-                    // The whole address, shrunk a little before it would be cut.
                     Text(row.title).font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
                         .lineLimit(1).minimumScaleFactor(0.7)
                     Text(row.subtitle).font(Theme.text(13)).foregroundStyle(Theme.inkSoft)

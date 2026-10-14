@@ -1,7 +1,5 @@
 import SwiftUI
 
-// The pieces for choosing how a Zip looks, shared by the onboarding's first screen and Change Look.
-
 /// The column of outfit boxes on the left: white, a faint gray border, each showing the outfit's pieces. Flat
 /// bodies wear no outfits, so on them the column is dimmed and does nothing.
 struct OutfitColumn: View {
@@ -112,7 +110,6 @@ struct BodyCarousel: View {
                 .scrollIndicators(.hidden)
                 .onAppear { proxy.scrollTo(selected, anchor: .center) }
                 .onChange(of: style) { _, _ in
-                    // Switching style shows that set's first body, so the agent matches the row.
                     if AgentBody.named(selected).isFlat != (style == .flat), let first = bodies.first {
                         selected = first.id
                         proxy.scrollTo(first.id, anchor: .center)

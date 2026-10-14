@@ -136,7 +136,6 @@ class SignUpTests(FrontDoorCase):
         r = wait_for(self.client, job, "failed")
         self.assertIn("same username and password", r["message"])
         self.assertEqual(store.get("sam.rivera")["state"], "failed")
-        # Someone else cannot take it over with another password.
         self.assertEqual(self.sign_up(password="not the same 9").status_code, 409)
         self.homes.fail_create = False
         r = self.sign_up()
@@ -174,9 +173,9 @@ class SignUpTests(FrontDoorCase):
         r = self.sign_up(username="riley.d")
         self.assertEqual(r.status_code, 202)
         wait_for(self.client, r.json()["job"], "ready")
-        self.assertFalse(store.invited("riley.d"))           # used once
+        self.assertFalse(store.invited("riley.d"))
         self.assertEqual(self.sign_up(username="stranger2").status_code, 403)
-        store.add_invite("late", hours=-1)                    # expired
+        store.add_invite("late", hours=-1)
         self.assertEqual(self.sign_up(username="late").status_code, 403)
 
     def test_unknown_job(self):
@@ -205,7 +204,6 @@ class SignInTests(FrontDoorCase):
             self.client.post("/api/sign-in", json={"username": "colin", "password": "wrong guess"})
         r = self.client.post("/api/sign-in", json={"username": "colin", "password": "his own choice 1"})
         self.assertEqual(r.status_code, 429)
-        # Another username is not locked by it.
         store.add("other", "other pass 22", "riley")
         r = self.client.post("/api/sign-in", json={"username": "other", "password": "other pass 22"})
         self.assertEqual(r.status_code, 200)

@@ -101,8 +101,6 @@ def handler(name: str):
     return run
 
 
-# Asked up front while Colin is still holding his phone, not discovered after minutes of work. Repeated every turn
-# because the SOUL only reaches new sessions.
 ASK_FIRST = {
     "api_server": ("Before anything that takes more than a minute, check in your first steps what it needs that you "
                    "don't have: a sign-in, access to an account or repo, a file, or a decision from Colin. If "
@@ -115,8 +113,6 @@ ASK_FIRST = {
             "few steps instead of working around it."),
 }
 
-# Long replies lead with the Zip's own short version for the phone (the hub's chatter.split_short and shortreply.offer;
-# Fable's usage review, Oct 11). The hub shows it when it holds up and otherwise asks Haiku for one, as before.
 SHORT_FIRST = ("When your reply to Colin will be longer than four sentences, start it with a short version for his "
                "phone between <short> and </short>: two or three plain sentences that lead with the answer or the "
                "result and end with the one thing you need from him, if there is one. Use only what your full reply "

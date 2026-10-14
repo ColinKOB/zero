@@ -1,9 +1,5 @@
 import SwiftUI
 
-// The agent on stage: a plush or flat body, the outfit it wears (plush only), and how it moves. Every screen draws the agent through
-// `AgentStage` only, so the still pictures used now can be swapped for the Blender video loops later without
-// touching the screens (see "Characters in Blender" in docs/specs/2026-10-08-zero-release-onboarding-design.md).
-
 /// One of the bodies. Plush bodies are rendered pictures with outfits and expressions (`<prefix>-<outfit><face>`,
 /// made by ios/scripts/make-agent-assets.py). Flat bodies ("flat-<shape>") are vector shapes with eyes drawn in code
 /// (FlatFigure.swift); they have no outfits.
@@ -195,7 +191,7 @@ struct AgentStage: View {
             Group {
                 if let art = flatArt {
                     FlatFigure(art: art, size: size, eyes: flatEyes)
-                        .transaction { $0.animation = nil }   // eye changes are cuts, like the plush frames
+                        .transaction { $0.animation = nil }
                 } else {
                     frames(look.picture)
                 }
@@ -232,7 +228,7 @@ struct AgentStage: View {
                     .interpolation(.high)
                     .frame(width: size, height: size)
                     .opacity(f.isEmpty || f == face ? 1 : 0)
-                    .animation(nil, value: face)   // a cut even when the screen changes the mood inside an animation
+                    .animation(nil, value: face)
             }
         }
     }
@@ -313,10 +309,9 @@ struct AgentStage: View {
     private func pose(at date: Date) -> Pose {
         var p = Pose()
         if let a = appearAt, date.timeIntervalSince(a) < Self.appear {
-            p.opacity = min(1, date.timeIntervalSince(a) / Self.appear)   // a plain soft fade, no scaling
+            p.opacity = min(1, date.timeIntervalSince(a) / Self.appear)
         }
-        if !breathes { return p }   // Reduce Motion: no breathing; the face still blinks
-        // Breathing, barely there: under 1% at a slow resting pace.
+        if !breathes { return p }
         let breath = sin(date.timeIntervalSince(start) * 2 * .pi * 0.25)
         p.sy = 1 + 0.008 * breath
         p.sx = 1 - 0.003 * breath

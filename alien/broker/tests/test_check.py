@@ -190,7 +190,7 @@ class AsHome(unittest.TestCase):
         self.assertIn("10.0.2.2:18300", t.values())
         self.assertIn("10.0.2.2:18200", t.values())
         self.assertIn("100.64.0.10:6445", t.values())
-        self.assertNotIn("10.0.2.2:18500", t.values())      # this home's own previews are its own
+        self.assertNotIn("10.0.2.2:18500", t.values())
 
 
 class AsOwner(unittest.TestCase):
@@ -216,7 +216,7 @@ class HomeId(unittest.TestCase):
     def test_the_file_must_name_this_home(self):
         import tempfile
         f = Path(tempfile.mkdtemp()) / "home.json"
-        self.assertEqual(check.home_id_check("test", f).status, "fail")            # no file
+        self.assertEqual(check.home_id_check("test", f).status, "fail")
         f.write_text(json.dumps({"version": 1, "person": {"name": "Tess"}}))
         r = check.home_id_check("test", f)
         self.assertEqual((r.status, r.detail), ("fail", f"{f} has no home_id"))

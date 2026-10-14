@@ -90,12 +90,10 @@ class SafeFiles(unittest.TestCase):
         self.refused(self.work / "notes", "not in the folders")
         (self.work / "elsewhere").symlink_to(self.home / "Projects")
         self.refused(self.work / "elsewhere" / "notes.txt", "not in the folders")
-        # A link to a link, and a link to the folder above.
         (self.work / "twice").symlink_to(self.work / "key")
         self.refused(self.work / "twice")
         (self.work / "up").symlink_to(self.home)
         self.refused(self.work / "up" / ".ssh" / "id_ed25519")
-        # A link that stays inside the Zip's folders names that file.
         (self.work / "essay.pdf").write_text("x")
         (self.work / "same").symlink_to(self.work / "essay.pdf")
         self.assertEqual(self.ok(self.work / "same"), os.path.realpath(self.work / "essay.pdf"))
@@ -105,7 +103,6 @@ class SafeFiles(unittest.TestCase):
         (self.home / "taffy" / "work" / "school" / "x.pdf").write_text("x")
         self.refused(f"{self.work}/../school/x.pdf", "not in the folders")
         self.refused(self.home / "taffy" / "work" / "school" / "x.pdf", "not in the folders")
-        # Zero, the lead, reviews every Zip's work.
         self.assertTrue(safe_files.resolve(str(self.home / "taffy" / "work" / "school" / "x.pdf"),
                                            safe_files.zip_roots(self.home, "default")))
 
@@ -253,7 +250,6 @@ class SharedPictures(ZipCase):
         pil = types.ModuleType("PIL")
         pil.Image = image
         out = Path(tempfile.mkdtemp())
-        # Hermes's screen lease is not consulted (None makes its import fail, as off alien).
         for p in (mock.patch.dict(sys.modules, {"PIL": pil, "PIL.Image": image, "tools.bot_desktop": None}),
                   mock.patch.object(share, "MEDIA", out / "media"), mock.patch.object(share, "OUTBOX", out / "outbox")):
             p.start()
@@ -279,7 +275,6 @@ class SharedPictures(ZipCase):
 class BrowserUploads(ZipCase):
     def setUp(self):
         super().setUp()
-        # Password fills other tests made in this process are remembered in memory; this browser has none.
         p = mock.patch.dict(gate._filled, clear=True)
         p.start()
         self.addCleanup(p.stop)

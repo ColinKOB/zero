@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-if "--home" in sys.argv:   # read before the hub is imported, so every path comes from that home
+if "--home" in sys.argv:
     import os
     os.environ["ZERO_HOME"] = sys.argv[sys.argv.index("--home") + 1]
 
@@ -133,7 +133,7 @@ async def main() -> int:
         db = store.db()
         s = notices.settings()
         s["enabled"] = True
-        s["noticers"].pop("conflict", None)        # the lead sets the clash noticer back on after deploy
+        s["noticers"].pop("conflict", None)
         if args.fresh:
             db.execute("DELETE FROM notices")
             db.execute("DELETE FROM notice_log")

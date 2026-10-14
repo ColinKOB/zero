@@ -154,7 +154,7 @@ final class HomeModel {
     var googleClientID: String? {
         if let id = settings?.google?.client_id?.trimmingCharacters(in: .whitespaces), !id.isEmpty { return id }
         #if DEBUG
-        if CommandLine.arguments.contains("-noGoogleClient") { return nil }   // screenshots of the not-set-up state
+        if CommandLine.arguments.contains("-noGoogleClient") { return nil }
         #endif
         let bundled = (Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String ?? "").trimmingCharacters(in: .whitespaces)
         return bundled.isEmpty ? nil : bundled
@@ -175,7 +175,6 @@ final class HomeModel {
         } catch HubClient.HubError.http(let code, _) where code == 404 || code == 405 {
             unsupported = true
         } catch {
-            // Kept as it was; screens that need it say so.
         }
     }
 
@@ -201,7 +200,7 @@ final class HomeModel {
             return nil
         } catch HubClient.HubError.http(let code, _) where code == 404 || code == 405 {
             unsupported = true
-            return nil   // an older hub: quiet hours and units stay as they were
+            return nil
         } catch {
             return HubClient.describe(error)
         }
@@ -279,7 +278,7 @@ extension HubClient {
 
     func addMailbox(_ body: MailboxBody) async throws -> AccountCheck {
         var r = try request("/api/accounts/mailboxes", method: "POST", body: body)
-        r.timeoutInterval = 60   // the hub signs in to the mailbox to check it
+        r.timeoutInterval = 60
         return try await send(r, as: AccountCheck.self)
     }
 
@@ -399,9 +398,8 @@ enum SleepAnswer {
             case "pm": return h == 12 ? 12 : (h + 12) % 24
             default:
                 if h > 12 || h == 0 { return h }
-                // Bedtime without am or pm: 7 to 11 is evening, 12 is midnight, 1 to 5 is after midnight.
                 if night { return h == 12 ? 0 : (h >= 6 ? h + 12 : h) }
-                return h == 12 ? 12 : h   // waking up: morning
+                return h == 12 ? 12 : h
             }
         }
         let start = clock(first, night: true)

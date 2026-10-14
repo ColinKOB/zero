@@ -1,9 +1,6 @@
 import CryptoKit
 import Foundation
 
-// A real signature round trip for allowing a Zip's Mac task from the iPhone, with no hub: Shared/MacGrant.swift is
-// the same code the phone signs with and the Mac checks with. A software P-256 key stands in for the Secure Enclave.
-
 var failures = 0
 func check(_ ok: Bool, _ name: String) {
     print((ok ? "ok   " : "FAIL ") + name)
@@ -34,7 +31,6 @@ check(!MacGrant.verify(key: key.publicKey, signature: sig, id: id, bot: bot, tas
 check(!MacGrant.verify(key: P256.Signing.PrivateKey().publicKey, signature: sig, id: id, bot: bot, task: task, said: said,
                        expires: expires, now: now),
       "another phone's key fails")
-// New lines cannot move words from one field to the next.
 let a = MacGrant.message(id: id, bot: bot, task: "Open Pages\nRead", said: "x", expires: expires)
 let b = MacGrant.message(id: id, bot: bot, task: "Open Pages", said: "Read\nx", expires: expires)
 check(a != b, "fields with new lines stay apart")

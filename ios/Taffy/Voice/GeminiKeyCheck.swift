@@ -8,7 +8,6 @@ enum GeminiKeyCheck {
     static let model = "gemini-3.8-live"
     static var endpoint: URL {
         #if DEBUG
-        // -voiceSetupCheckURL ws://127.0.0.1:<port>: a local stand-in for Google, for testing every answer offline.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "-voiceSetupCheckURL"), i + 1 < args.count, let url = URL(string: args[i + 1]) { return url }
         #endif
@@ -35,8 +34,6 @@ enum GeminiKeyCheck {
         task.resume()
         defer { session.invalidateAndCancel() }
 
-        // The whole handshake races the clock, connecting included: a stalled network must not leave the person
-        // watching a spinner for a minute. Cancelling the socket ends whichever side is still waiting.
         let result = await withTaskGroup(of: Result?.self) { group in
             group.addTask { await handshake(task) }
             group.addTask {

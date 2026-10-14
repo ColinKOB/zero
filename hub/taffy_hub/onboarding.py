@@ -55,7 +55,7 @@ def clean(body: dict) -> dict:
         "about": {k: _text(about.get(k), 300, k) for k in ABOUT if _text(about.get(k), 300, k)},
         "sources": {k: bool(sources.get(k, False)) for k in SOURCES},
         "voice": _text(body.get("voice"), 40, "voice"),
-        "no_computer": body.get("no_computer", False),   # chose "I Don't Have a Computer"
+        "no_computer": body.get("no_computer", False),
         "look": {"body": _text(look.get("body"), 40, "body"), "outfit": _text(look.get("outfit"), 40, "outfit")},
     }
 
@@ -70,10 +70,8 @@ def load() -> dict | None:
     return store.get_setting(SETTING)
 
 
-# ── Where the answers go (Oct 8 QA, H4: they were saved and nothing ever read them) ────────────────────────
-
-PERSON_FILE = config.HUB_DIR / "person.json"    # read by the taffy-tools plugin for the connector prompt
-ACK_SETTING = "onboarding_ack"                  # the lead's first chat turn after onboarding mentions an answer
+PERSON_FILE = config.HUB_DIR / "person.json"
+ACK_SETTING = "onboarding_ack"
 ABOUT_START, ABOUT_END = "<!-- onboarding:start -->", "<!-- onboarding:end -->"
 LABELS = {"work": "Work", "home": "Home", "age": "Age", "family": "Family"}
 # Hermes refuses to add notes about the person once USER.md passes its user_char_limit (1,375 by default).
@@ -88,7 +86,7 @@ def person_name(full: bool = True) -> str:
     """The person's name from onboarding, or the home's settings (home.json `person`) when nobody has onboarded."""
     try:
         name = ((load() or {}).get("person_name") or "").strip()
-    except Exception:   # the store is not reachable (a command line helper, a broken disk): the settings still are
+    except Exception:
         name = ""
     if not name:
         return home.person_name(full)

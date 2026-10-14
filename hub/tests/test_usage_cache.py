@@ -65,7 +65,6 @@ class Isolated(unittest.TestCase):
         _session(self.zero, "chat-3", parent="chat-2")
         _session(self.zero, "team", end_reason="compression")
         _session(self.zero, "team-2", parent="team")
-        # Children that are their own conversation: a branch, and a tool's session.
         _session(self.zero, "branch", parent="chat", model_config=json.dumps({"_branched_from": "chat"}))
         _session(self.zero, "tool-run", parent="chat", source="tool")
 
@@ -82,7 +81,7 @@ class Rotation(Isolated):
         self.assertEqual(lineage.root("default", "chat-3"), "chat")
         self.assertEqual(lineage.root("default", "chat-2"), "chat")
         self.assertEqual(lineage.root("default", "chat"), "chat")
-        self.assertEqual(lineage.root(None, "team-2"), "team")       # without the bot, every Zip's store is read
+        self.assertEqual(lineage.root(None, "team-2"), "team")
         self.assertTrue(lineage.same("default", "chat", "chat-3"))
         self.assertFalse(lineage.same("default", "chat-3", "team-2"))
 
@@ -102,7 +101,6 @@ class Rotation(Isolated):
         with mock.patch.object(hub_consent, "get_request", lambda req: card.get(req)):
             shown = history.visible(hub_hermes._shown(raw, "default", "chat-3"))
             self.assertEqual([m["display"] for m in shown].count("Waiting for your okay on the card."), 1)
-            # A card of another conversation still doesn't count.
             shown = history.visible(hub_hermes._shown(raw, "default", "team-2"))
             self.assertEqual([m["display"] for m in shown].count("Waiting for your okay on the card."), 2)
 
@@ -114,7 +112,6 @@ class Rotation(Isolated):
         self.assertEqual(hub_app.MacBody(bot_id="default", session_id="chat-3").session_id, "chat")
         self.assertEqual(hub_app.MacBody(bot_id="nobody", session_id="team-2").session_id, "team")
         self.assertEqual(hub_app.MacBody(bot_id="default", session_id="").session_id, "")
-        # A teammate's question in the moved team session is still a teammate's question.
         store.set_session("default#team", "team")
         from taffy_hub import team
         self.assertTrue(team.in_team_session(hub_app.MacBody(bot_id="default", session_id="team-2").session_id))
@@ -164,7 +161,6 @@ class InPlace(Isolated):
         self.assertEqual([m["id"] for m in first], [1, 2, 4])
         self.assertEqual([m["display"] for m in history.visible(first)].count("Waiting for your okay on the card."), 1)
         store.set_reaction("default", "4", "colin", "like")
-        # After compaction: new ids, the tool result shortened to a pointer, and the hidden summary row.
         after, _ = self.read(self.raw([416, 417, 418, 419], "[terminal] command=send (736 chars result)", True))
         self.assertEqual([m["id"] for m in after], [1, 2, 4])
         visible = [m["display"] for m in history.visible(after)]
@@ -232,14 +228,12 @@ class PluginLineage(unittest.TestCase):
         with mock.patch.object(tt.gate, "_hub_state", lambda: hub):
             self.assertEqual(tt.gate._lane("team-2"), "team")
             self.assertTrue(tt.gate._in_team_session("team-2"))
-        self.assertEqual(tt.gate._fill_key("team-2", ""), "team")   # the password-fill lock holds across the move
+        self.assertEqual(tt.gate._fill_key("team-2", ""), "team")
 
 
 if __name__ == "__main__":
     unittest.main()
 
-
-# ── The usage log, plan readings and keep-warm pings ──────────────────────────────────────────────────────────────
 
 import importlib.util  # noqa: E402
 import os  # noqa: E402
@@ -292,10 +286,10 @@ class KeepWarm(unittest.TestCase):
                 times.append(round((t - start) / 60))
                 usage._last_ping["default"] = t
             t += 60
-        self.assertEqual(times, [55, 110, 165])           # three pings, then the window has passed
+        self.assertEqual(times, [55, 110, 165])
 
     def test_never_in_quiet_hours_during_a_turn_or_when_off(self):
-        late = _noon(22) + 50 * 60                        # 10:50 p.m.: the ping would fall at 11:45 p.m.
+        late = _noon(22) + 50 * 60
         usage.turn_ended("default", late)
         self.assertEqual(usage.due(late + 55 * 60), [])
         usage.turn_ended("default", _noon())
@@ -303,7 +297,7 @@ class KeepWarm(unittest.TestCase):
             self.assertEqual(usage.due(_noon() + 56 * 60), [])
         usage.activity._live["default"] = {"waiting": True}
         try:
-            self.assertEqual(usage.due(_noon() + 56 * 60), [])   # a run held on a card is still a running turn
+            self.assertEqual(usage.due(_noon() + 56 * 60), [])
         finally:
             usage.activity._live.pop("default", None)
         with mock.patch.object(usage, "on", lambda: False):
@@ -394,7 +388,7 @@ class KeepWarm(unittest.TestCase):
         with mock.patch.object(usage, "_credentials", lambda: creds), \
                 mock.patch.object(usage.urllib.request, "urlopen", fake_open), \
                 mock.patch.object(home, "get", lambda k, d=None: "own" if k == "plan.claude.mode" else d):
-            self.assertIsNone(usage.read_plan())             # expired: Claude Code refreshes it, never the hub
+            self.assertIsNone(usage.read_plan())
             self.assertEqual(called, [])
             creds.write_text(json.dumps({"claudeAiOauth": {"accessToken": "t", "expiresAt": (time.time() + 3600) * 1000}}))
             self.assertEqual(usage.read_plan(), {"kind": "plan", "weekly": 4.0, "weekly_resets": "x", "five_hour": 20.0,
@@ -402,7 +396,7 @@ class KeepWarm(unittest.TestCase):
         with mock.patch.object(usage, "_credentials", lambda: creds), \
                 mock.patch.object(usage.urllib.request, "urlopen", fake_open), \
                 mock.patch.object(home, "get", lambda k, d=None: "broker" if k == "plan.claude.mode" else d):
-            self.assertIsNone(usage.read_plan())             # a shared plan is the owner's to read
+            self.assertIsNone(usage.read_plan())
         self.assertEqual(len(called), 1)
 
 
@@ -478,7 +472,7 @@ class Summarizer(unittest.TestCase):
         self.assertAlmostEqual(self.mod.weighted(warm), 139036 * 0.1 + 930 * 2 + 743 + 201 * 5)
         self.assertFalse(self.mod.cold(warm))
         self.assertTrue(self.mod.cold(coldcall))
-        self.assertFalse(self.mod.cold({"read": 0, "write": 5000, "uncached": 100, "out": 10}))   # a small prompt
+        self.assertFalse(self.mod.cold({"read": 0, "write": 5000, "uncached": 100, "out": 10}))
 
     def test_per_zip_per_day_with_origins_and_plan_lines(self):
         d = Path(tempfile.mkdtemp())

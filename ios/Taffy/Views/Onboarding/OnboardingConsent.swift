@@ -1,9 +1,5 @@
 import SwiftUI
 
-// The AI data screen: before any of the person's words go to an AI company, Zero names the company their own plan
-// uses and what is sent. Agree or Not Now (App Review guideline 5.1.2(i)). Not Now keeps the app usable and Zero asks
-// again where it needs to send something.
-
 struct ConsentScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -26,7 +22,7 @@ struct ConsentScreen: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 12)
             }
-            .scrollIndicators(.visible)   // the closing lines run under the buttons on small phones; show there's more
+            .scrollIndicators(.visible)
         } footer: {
             OnboardingButton("Agree") { choose(.agreed) }
             OnboardingSecondaryButton("Not Now") { choose(.declined) }
@@ -39,10 +35,8 @@ struct ConsentScreen: View {
     }
 
     private func choose(_ choice: AIConsentChoice) {
-        // A rehearsal on a device that is already set up keeps its own answer and changes nothing real.
         if !model.rehearsal { state.setAIConsent(choice) }
         model.draft.consent = choice.rawValue
-        // Looking around the computer waits for a yes, so Not Now skips it.
         model.go(model.afterConsent(agreed: choice == .agreed))
     }
 }

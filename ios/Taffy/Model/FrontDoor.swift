@@ -41,7 +41,7 @@ enum FrontDoor {
 
     struct SignIn: Decodable { let server: String; let token: String; let username: String; let plan: String? }
     struct Job: Decodable {
-        let state: String          // waiting, creating, ready or failed
+        let state: String
         let message: String
         var job: String? = nil
         var step: String? = nil
@@ -167,7 +167,7 @@ extension AppState {
         MacLink.shared.stop()
         if paired && !demoMode && !fixtureMode { await client.unpair() }
         wipeThisDevice()
-        AccountsModel.shared.status = nil   // the next account's plan is its own
-        onboarding = false   // the sign-in screen, not a stranger's onboarding
+        AccountsModel.shared.status = nil
+        onboarding = false
     }
 }

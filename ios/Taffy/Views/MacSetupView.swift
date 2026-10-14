@@ -70,7 +70,6 @@ struct MacSetupView: View {
                 return
             }
             #endif
-            // Set up already (the window was closed before the sign-in): go on to the sign-in.
             if screen == .welcome, let s = await engine.status(), s.installed, s.running {
                 engine.phase = .done
                 screen = .ai
@@ -146,12 +145,12 @@ struct MacSetupView: View {
                 }
                 Button("Connect to Another Home") {
                     UserDefaults.standard.set(true, forKey: MacEngine.otherHomeKey)
-                    state.onboarding = false   // the sign-in screen: an account or a pairing code
+                    state.onboarding = false
                     engine.setupShowing = false
                 }
                 .font(Theme.text(15, .medium)).foregroundStyle(Theme.inkSoft)
                 .frame(minHeight: 40)
-                .buttonStyle(.plain)   // a text link, not the Mac's gray bordered button
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("macOtherHome")
             }
         case .installing:
@@ -279,7 +278,6 @@ struct MacAIStep: View {
             }
         }
         .task { if !engine.debugSample { _ = await engine.checkAI() } }
-        // Signed in: go on without another click.
         .onChange(of: ready) { _, now in if now, !connecting { onReady() } }
     }
 

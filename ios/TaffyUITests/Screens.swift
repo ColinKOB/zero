@@ -58,7 +58,7 @@ struct NameScreen: OnboardingScreen {
         run.require(field.waitForExistence(timeout: 10), "Name It: no name field")
         field.replaceText(run.persona.agent_name)
         run.shots.take("name-typed")
-        app.typeText("\n")   // onSubmit finishes, like Done
+        app.typeText("\n")
         _ = app.anyLabel(containing: " says: ").waitForExistence(timeout: 8)
     }
 }
@@ -78,8 +78,8 @@ struct TalkScreen: OnboardingScreen {
         if p.contains("city") || l.contains("where are you living") { return persona.about["home"] }
         if p.contains("age") || l.contains("how old") { return persona.about["age"] }
         if p.contains("wife") || l.contains("who are your people") { return persona.about["family"] }
-        if l.contains("sleep") || p.contains("sleep") { return persona.extra_answers?["sleep"] }      // plan wording
-        if l.contains("email") || p.contains("email") { return persona.extra_answers?["email"] }      // plan wording
+        if l.contains("sleep") || p.contains("sleep") { return persona.extra_answers?["sleep"] }
+        if l.contains("email") || p.contains("email") { return persona.extra_answers?["email"] }
         return nil
     }
 
@@ -94,7 +94,7 @@ struct TalkScreen: OnboardingScreen {
             guard field.waitForExistence(timeout: 8) else { continue }
             let bubble = app.anyLabel(containing: " says: ")
             let line = bubble.exists ? bubble.label : ""
-            if bubble.exists && bubble.isHittable { bubble.tap() }   // finishes the typewriter line
+            if bubble.exists && bubble.isHittable { bubble.tap() }
             guard let text = answer(placeholder: field.placeholderValue ?? "", line: line, persona: run.persona) else {
                 run.note("Talk: no answer for \"\(line)\"; skipping it")
                 if app.labeledButton("Skip").waitEnabled() { app.labeledButton("Skip").tap() }
@@ -106,7 +106,6 @@ struct TalkScreen: OnboardingScreen {
             let send = app.labeledButton("Send")
             run.require(send.waitEnabled(15), "Talk: Send never enabled for \"\(line)\"")
             send.tap()
-            // The next line starts typing; wait for the bubble to change before reading it again.
             let deadline = Date().addingTimeInterval(8)
             while Date() < deadline && app.anyLabel(containing: " says: ").label == line { pause(0.2) }
         }
@@ -128,7 +127,6 @@ struct AccountScreen: OnboardingScreen {
             run.shots.take("account-typed")
             run.require(tapFirst(app, ["Create Account"]), "Create Your Account: Create Account never enabled")
         }
-        // The home takes a couple of minutes; one screenshot while it is made, then wait for the next screen.
         if app.anyLabel(containing: "Setting Up ").waitForExistence(timeout: 20) {
             pause(4)
             run.shots.take("account-building")
@@ -151,7 +149,6 @@ struct AccountScreen: OnboardingScreen {
 struct PlanScreen: OnboardingScreen {
     let name = "plan", step = "plan", headlines = ["Bring Your Own Claude", "Claude Is Connected"]
     func complete(_ app: XCUIApplication, _ run: OnboardingRun) {
-        // Signing in to Claude needs a real Claude account in a browser; the run checks the page opens, then skips.
         if app.anyIdentifier("claudeSignIn").waitForExistence(timeout: 20), run.config.mode == .account {
             app.anyIdentifier("claudeSignIn").tap()
             pause(6)
@@ -215,8 +212,6 @@ struct CodeScreen: OnboardingScreen {
         if (field.value as? String)?.filter({ $0.isLetter || $0.isNumber }).uppercased() != code.uppercased() {
             field.replaceText(code)
         }
-        // In hub mode the address is pre-filled from -server; type it only when the field is open and holds something
-        // else. Fixture mode needs some address too before Connect enables, though nothing is contacted.
         let address = app.textFields["Connection address"]
         if address.exists, address.isHittable, (address.value as? String) != run.config.server {
             address.replaceText(run.config.server)
@@ -224,7 +219,6 @@ struct CodeScreen: OnboardingScreen {
         }
         run.shots.take("code-typed")
         run.require(tapFirst(app, ["Connect"]), "Code: Connect never enabled")
-        // Connected, then the screen moves on by itself after a moment.
         let deadline = Date().addingTimeInterval(45)
         while Date() < deadline && field.exists {
             if app.staticTexts["We're connected."].exists { break }
@@ -266,7 +260,7 @@ struct MailboxScreen: OnboardingScreen {
     }
     func complete(_ app: XCUIApplication, _ run: OnboardingRun) {
         let onward = ["Continue", "Get Started"]
-        if tapFirst(app, onward, timeout: 1) { return }   // a mailbox is already there
+        if tapFirst(app, onward, timeout: 1) { return }
         guard run.config.addMailbox, let mb = run.persona.mailbox else {
             run.note("Email: this run adds no mailbox; skipping")
             run.require(tapFirst(app, ["Skip for Now"]), "Email: no Skip for Now")
@@ -344,7 +338,6 @@ struct VoiceScreen: OnboardingScreen {
 struct LookScreen: OnboardingScreen {
     let name = "look", step = "look", headlines = ["Let Me Take a Look at Your Mac"]
     func complete(_ app: XCUIApplication, _ run: OnboardingRun) {
-        // I'll Stay, so no notification prompt comes up; the placeholder look-around takes about four seconds.
         if app.labeledButton("I'll Stay").exists { app.labeledButton("I'll Stay").tap() }
         run.require(tapFirst(app, ["See What I Found"], timeout: 30), "Looking: never finished")
     }
@@ -365,14 +358,14 @@ struct FoundScreen: OnboardingScreen {
             }
             guard found else {
                 let shown = app.buttons.allElementsBoundByIndex.map(\.label).filter { $0.contains(".") }
-                if run.config.mode == .fixture {   // the app's own sample templates, not the home's
+                if run.config.mode == .fixture {
                     run.note("Where Should We Start: the fixture offers no \(Persona.templateName(id)) card")
                     continue
                 }
                 run.fail("Where Should We Start: no \(Persona.templateName(id)) card. Cards: \(shown.joined(separator: " | "))")
                 continue
             }
-            if !card.isSelected {   // a card is a toggle: never tap one that is already picked
+            if !card.isSelected {
                 card.tapScrolling(in: app)
                 pause(0.4)
             }
@@ -381,7 +374,6 @@ struct FoundScreen: OnboardingScreen {
         }
         run.picked = picked
         run.shots.take("found-picked")
-        // The footer button; tapped again (never the cards) if the screen is still up a few seconds later.
         let go = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add ' OR label == 'Get Started'")).firstMatch
         for attempt in 0..<3 {
             run.require(go.waitHittable(), "Where Should We Start: no Add or Get Started button")

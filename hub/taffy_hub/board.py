@@ -8,7 +8,6 @@ import time
 
 from . import config, who
 
-# Board statuses as the app groups them.
 WORKING = ("ready", "running", "todo", "triage", "scheduled")
 NEEDS_YOU = ("blocked", "review", "triage")
 FINISHED = ("done",)
@@ -50,7 +49,6 @@ def _task_row(c: sqlite3.Connection, r: sqlite3.Row) -> dict:
         "title": r["title"],
         "body": r["body"],
         "assignee": r["assignee"],
-        # A task that blocked on the same thing repeatedly waits in triage; to Colin it is just blocked.
         "status": "blocked" if r["status"] == "triage" else r["status"],
         "created_by": r["created_by"],
         "created_at": r["created_at"],
@@ -151,7 +149,7 @@ def long_running(min_age_sec: int) -> list[dict]:
 def bot_load() -> dict[str, dict]:
     """Per-assignee counts of open work, for the Team screen."""
     out: dict[str, dict] = {}
-    if not config.KANBAN_DB.exists():   # a new home before the gateway made its board: nothing is open yet
+    if not config.KANBAN_DB.exists():
         return out
     with _conn() as c:
         for r in c.execute("SELECT assignee, status, COUNT(*) AS n FROM tasks "
@@ -193,7 +191,6 @@ def request_changes(task_id: str, note: str) -> tuple[bool, str]:
 
 def mark_done(task_id: str, note: str | None) -> tuple[bool, str]:
     """Colin closes the task himself (for example, he will press the final button)."""
-    # The result is shown to Colin as the task's summary, so it speaks to him (Oct 8 QA, M8).
     return _cli("complete", "--force", f"--result={note or 'You closed this yourself.'}", "--", task_id)
 
 
@@ -239,8 +236,6 @@ def waiting_signins(site: str, bot_ids: list[str]) -> list[str]:
         text = "\n".join(x for x in (t.get("block_reason"), t.get("body")) if x)
         m = re.search(r"https?://[^\s)]+", text)
         host = (urlsplit(m.group(0)).hostname or "").lower().removeprefix("www.") if m else ""
-        # The same company rule as every other sign-in check: a login saved for crm.bloomerang.co answers a
-        # task waiting on identity.bloomerang.co (Oct 8 QA, L3).
         from . import consent
         if host and consent.base(host) == consent.base(site):
             out.append(t["id"])

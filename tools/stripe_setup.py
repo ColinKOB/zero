@@ -33,7 +33,6 @@ WEBHOOK_URL = "https://relay.example.com/stripe/webhook"
 EVENTS = ["checkout.session.completed", "customer.subscription.updated", "customer.subscription.deleted",
           "invoice.payment_failed"]
 
-# The three plans from docs/specs/zero-cloud-design.md and cloud/proxy/zero_proxy/plans.py (branch zero-cloud-v1).
 PLANS = [
     {"plan": "lite", "name": "Zero Cloud Lite", "cents": 500, "lookup": "zero_cloud_lite_monthly",
      "description": "Your own Zero, run for you without a Mac. Includes 30 agent minutes a month and 3 scheduled "

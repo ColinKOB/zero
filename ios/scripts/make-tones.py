@@ -67,23 +67,23 @@ GLASS = [(1, 1.0, 0.6), (2.32, 0.3, 0.3), (4.25, 0.12, 0.15)]
 SOFT = [(1, 1.0, 0.45), (2, 0.18, 0.2), (3, 0.06, 0.1)]
 
 
-def chime() -> np.ndarray:   # two soft bell notes, falling a fourth
+def chime() -> np.ndarray:
     return at(1.3, (0, note(1318.5, 1.0, BELL)), (0.16, note(987.8, 1.1, BELL)))
 
 
-def marimba() -> np.ndarray:   # a rising third on a wooden bar
+def marimba() -> np.ndarray:
     return at(0.9, (0, note(523.3, 0.6, MARIMBA)), (0.11, note(659.3, 0.7, MARIMBA)))
 
 
-def bell() -> np.ndarray:   # one clear bell
+def bell() -> np.ndarray:
     return at(1.4, (0, note(880.0, 1.4, BELL)))
 
 
-def pluckt() -> np.ndarray:   # a guitar-like pick, up a fifth
+def pluckt() -> np.ndarray:
     return at(1.0, (0, pluck(440.0, 0.7, 0.5, 3)), (0.12, pluck(659.3, 0.85, 0.5, 4)))
 
 
-def knock() -> np.ndarray:   # two light knocks on wood
+def knock() -> np.ndarray:
     def one():
         x = t(0.18)
         body = np.sin(2 * np.pi * 720 * x) * env(len(x), 0.0008, 0.035)
@@ -92,11 +92,11 @@ def knock() -> np.ndarray:   # two light knocks on wood
     return at(0.5, (0, one()), (0.14, one() * 0.8))
 
 
-def glass() -> np.ndarray:   # a high glass tap that rings
+def glass() -> np.ndarray:
     return at(1.3, (0, note(1760.0, 1.2, GLASS)), (0.09, note(2349.3, 1.1, GLASS) * 0.5))
 
 
-def bubble() -> np.ndarray:   # two rising blips
+def bubble() -> np.ndarray:
     def blip(f0, f1, sec=0.11):
         x = t(sec)
         f = np.linspace(f0, f1, len(x))
@@ -104,16 +104,16 @@ def bubble() -> np.ndarray:   # two rising blips
     return at(0.4, (0, blip(500, 1100)), (0.12, blip(700, 1500)))
 
 
-def harp() -> np.ndarray:   # a quick rising arpeggio
+def harp() -> np.ndarray:
     notes = [523.3, 659.3, 784.0, 1046.5]
     return at(1.3, *[(i * 0.07, pluck(f, 1.0, 0.55, 10 + i) * (1 - i * 0.1)) for i, f in enumerate(notes)])
 
 
-def pop() -> np.ndarray:   # one soft round note, the quietest
+def pop() -> np.ndarray:
     return at(0.6, (0, note(784.0, 0.5, SOFT, attack=0.006)))
 
 
-def ding() -> np.ndarray:   # a doorbell-like two tone, rising
+def ding() -> np.ndarray:
     return at(1.1, (0, note(659.3, 0.8, SOFT)), (0.18, note(830.6, 0.9, SOFT)))
 
 
@@ -125,7 +125,7 @@ def write(name: str, samples: np.ndarray) -> Path:
     fade = min(len(samples), int(0.03 * RATE))
     samples = samples.copy()
     samples[-fade:] *= np.linspace(1, 0, fade)
-    samples = samples / (np.max(np.abs(samples)) or 1) * 0.7   # about -3 dB, with room for the phone's mixer
+    samples = samples / (np.max(np.abs(samples)) or 1) * 0.7
     pcm = (samples * 32767).astype(np.int16)
     OUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as d:

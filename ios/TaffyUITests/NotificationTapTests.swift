@@ -81,8 +81,6 @@ final class NotificationTapTests: XCTestCase {
     // MARK: Helpers
 
     private func launch(notification kind: String, in seconds: Int) {
-        // TEST_RUNNER_ZERO_EXTERNAL_PUSH=1: the push comes from `xcrun simctl push` instead (for builds without the
-        // -testNotification hook, such as build 328).
         if ProcessInfo.processInfo.environment["ZERO_EXTERNAL_PUSH"] != "1" {
             app.launchArguments += ["-testNotification", "\(kind):\(seconds)"]
         }
@@ -129,11 +127,10 @@ final class NotificationTapTests: XCTestCase {
         let app = XCUIApplication()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "the app is not running after the tap",
                       file: file, line: line)
-        // A chat has a Back button; the home screen does not.
         XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 20), "no chat opened", file: file, line: line)
         let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
         XCTAssertTrue(shown.waitForExistence(timeout: 10), "the chat with \"\(text)\" did not open", file: file, line: line)
-        Thread.sleep(forTimeInterval: 3)   // a crash after the chat appears still fails the test
+        Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(app.state, .runningForeground, "the app stopped after opening the chat", file: file, line: line)
     }
 }

@@ -45,14 +45,12 @@ def srgb(h):
 
 YELLOW = srgb("#FFC400")
 FUR_HEX = tuple(argv[3].split(",")) if len(argv) > 3 else ("#FAC800", "#FFE15A")
-# A rig root at the floor, so squash and stretch happen from the feet.
 root = bpy.data.objects.new("Rig", None); scene.collection.objects.link(root)
 
-# Body: a thick upright O.
 bpy.ops.mesh.primitive_torus_add(major_radius=0.66, minor_radius=0.34, major_segments=96, minor_segments=40,
                                  location=(0, 0, 1.0), rotation=(math.pi / 2, 0, 0))
 body = bpy.context.object; body.name = "Body"
-body.scale = (0.92, 1.25, 1.0)    # local axes after rotation: x width, y height on screen
+body.scale = (0.92, 1.25, 1.0)
 body.modifiers.new("Smooth", "SUBSURF").levels = 2
 felt = mat("Felt", YELLOW, rough=0.9)
 fb = felt.node_tree.nodes["Principled BSDF"]
@@ -64,7 +62,6 @@ if "Subsurface Weight" in fb.inputs:
 body.data.materials.append(felt)
 body.parent = root
 
-# Fur: short, dense, soft hair in the body color, a little lighter at the tips.
 ps_mod = body.modifiers.new("Fur", "PARTICLE_SYSTEM")
 ps = ps_mod.particle_system.settings
 ps.type = "HAIR"; ps.count = 30000; ps.hair_length = 0.085
@@ -86,7 +83,6 @@ nt.links.new(info.outputs["Intercept"], ramp.inputs["Fac"])
 nt.links.new(ramp.outputs["Color"], hb.inputs["Base Color"])
 body.data.materials.append(fur); ps.material = 2
 
-# Face: glossy bead eyes and a small smile, on the upper front of the O.
 eye_mat = mat("Bead", (0.01, 0.01, 0.012), rough=0.06, coat=1.0)
 eyes = []
 for x in (-0.26, 0.26):
@@ -116,7 +112,6 @@ bpy.ops.mesh.primitive_uv_sphere_add(radius=0.07, location=(0, -0.5, 1.6), segme
 mouth = bpy.context.object; mouth.data.materials.append(mat("MouthIn", (0.12, 0.02, 0.03), rough=0.5))
 bpy.ops.object.shade_smooth(); mouth.parent = root; mouth.scale = (1, 0.4, 0.001)
 
-# Round glasses: two thin rings and a bridge, in front of the eyes.
 glass = mat("Frames", (0.02, 0.02, 0.02), rough=0.2)
 for x in (-0.26, 0.26):
     bpy.ops.mesh.primitive_torus_add(major_radius=0.19, minor_radius=0.016, location=(x, -0.6, 1.80),
@@ -125,7 +120,6 @@ for x in (-0.26, 0.26):
 bpy.ops.mesh.primitive_cylinder_add(radius=0.014, depth=0.16, location=(0, -0.61, 1.86), rotation=(0, math.pi / 2, 0))
 br = bpy.context.object; br.data.materials.append(glass); br.parent = root
 
-# Studio: white sweep, soft key from the upper left, fill and rim.
 import bmesh
 prof = [(y, 0.0) for y in (-30, -10, 0, 18)] + [(18 + 6 * math.sin(a), 6 - 6 * math.cos(a)) for a in [i * math.pi / 24 for i in range(1, 13)]] + [(24, 20), (24, 40)]
 bm = bmesh.new()
@@ -137,7 +131,6 @@ floor = bpy.data.objects.new("Sweep", me); scene.collection.objects.link(floor)
 for poly in me.polygons: poly.use_smooth = True
 sweep = mat("Sweep", (0.92, 0.92, 0.92), rough=0.95)
 sb = sweep.node_tree.nodes["Principled BSDF"]
-# A little self-light keeps the far backdrop as white as the floor while shadows still land on it.
 sb.inputs["Emission Color"].default_value = (1, 1, 1, 1); sb.inputs["Emission Strength"].default_value = 0.85
 floor.data.materials.append(sweep)
 world = bpy.data.worlds.new("W"); scene.world = world; world.use_nodes = True
@@ -151,7 +144,6 @@ cam = bpy.data.cameras.new("Cam"); cam.lens = 85
 co = bpy.data.objects.new("Cam", cam); co.location = (0, -7.4, 1.2); co.rotation_euler = (math.radians(89), 0, 0)
 scene.collection.objects.link(co); scene.camera = co
 
-# Motion, by mode. Times in seconds at 24 fps.
 def key(obj, *paths, f):
     for pth in paths: obj.keyframe_insert(pth, frame=f)
 
@@ -163,13 +155,13 @@ for f in range(1, FRAMES + 1):
     eyes_open, glance, talk = 1.0, 0.0, 0.0
     if MODE == "idle":
         if 1.2 <= t < 1.33: eyes_open = 0.1
-        def look(t0, t1, amount):   # quick move (0.12 s), hold, quick move back
+        def look(t0, t1, amount):
             if t0 <= t < t1:
                 return amount * min(1, (t - t0) / 0.12, (t1 - t) / 0.12)
             return 0.0
         glance = look(0.4, 1.0, 0.03) + look(2.0, 2.9, -0.035) + look(3.3, 3.8, 0.02)
     elif MODE == "happy":
-        if t >= 0.25: eyes_open = 0.5      # the happy squint; no hop (Colin removed bounces, Oct 8)
+        if t >= 0.25: eyes_open = 0.5
     elif MODE == "talk":
         talk = max(0.0, math.sin(2 * math.pi * t * 3.1) * 0.6 + math.sin(2 * math.pi * t * 1.7) * 0.4) if 0.2 < t < 2.7 else 0.0
         sz *= 1 + 0.02 * talk
@@ -187,7 +179,7 @@ for f in range(1, FRAMES + 1):
             w = t - 2.4; k = math.exp(-7 * w) * math.sin(w * 26); sx, sz = 1 + 0.05 * k, 1 - 0.06 * k
         if 2.9 <= t < 3.02: eyes_open = 0.1
     root.scale = (sx, sx, sz); root.location = (0, y, lift)
-    root.rotation_euler = (0, 0, 0)   # no side-to-side sway (Colin, Oct 8)
+    root.rotation_euler = (0, 0, 0)
     key(root, "scale", "location", "rotation_euler", f=f)
     closed = eyes_open < 0.9
     for i, (e, a) in enumerate(zip(eyes, arcs)):
@@ -204,6 +196,6 @@ if STILLS:
         scene.frame_set(f); scene.render.filepath = f"{OUT}/still_{f:04d}.png"; bpy.ops.render.render(write_still=True)
 else:
     scene.render.filepath = OUT + "/f_"
-    scene.render.use_overwrite = False      # resume: frames already on disk are skipped
+    scene.render.use_overwrite = False
     bpy.ops.render.render(animation=True)
 print("rendered", FRAMES, "frames to", OUT)

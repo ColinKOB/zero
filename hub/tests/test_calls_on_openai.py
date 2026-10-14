@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from taffy_hub import accounts, voice  # noqa: E402
 from test_fixes_r1 import AppCase  # noqa: E402
 
-# What Codex said on alien on Oct 9 when the realtime voice was started without a ChatGPT sign-in.
 CODEX_SIGNED_OUT = ("unexpected status 401 Unauthorized: You didn't provide an API key. You need to provide your API "
                     "key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY)., url: "
                     "https://api.openai.com/v1/live, cf-ray: a47e0a79288fc8c6-EWR")
@@ -71,7 +70,6 @@ class PlainWords(unittest.TestCase):
         self.assertEqual(voice.start_error(RuntimeError("429 Too Many Requests")), voice.VOICE_LIMIT)
         self.assertIn("in a moment", voice.start_error(asyncio.TimeoutError()))
         self.assertIn("in a moment", voice.start_error(RuntimeError("websocket closed 1006")))
-        # Rate limits are still told apart from sign-ins, even though the message mentions tokens.
         self.assertEqual(voice.plain_error("429 rate_limit_exceeded: tokens per min"), voice.VOICE_LIMIT)
 
     def test_sentences_are_plain(self):
@@ -204,7 +202,7 @@ class CodexProcess(unittest.TestCase):
         async def go():
             voice.server.proc = None
             await voice.server._answer(Gone(), 7, "item/tool/call", {}, None, "ask_bot")
-        asyncio.run(go())   # no exception, nothing written
+        asyncio.run(go())
 
 
 class AccountsCheck(unittest.TestCase):
@@ -222,8 +220,6 @@ class AccountsCheck(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

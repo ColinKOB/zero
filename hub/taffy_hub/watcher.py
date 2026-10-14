@@ -19,8 +19,7 @@ from . import apns, board, chatter, config, consent, events, notices, notifypref
 log = logging.getLogger("taffy.watcher")
 
 POLL_SEC = 2
-BATCH_WINDOW_SEC = 60          # finished work is told as one story; anything that needs Colin goes out at once
-# The person's night (home.json `person.quiet_hours`, 11 p.m. to 7 a.m. by default): routine news waits for the morning.
+BATCH_WINDOW_SEC = 60
 MAX_UPDATE_TRIES = 3
 
 
@@ -174,8 +173,6 @@ def _cron_report(path: Path) -> tuple[str, str] | None:
             body = text.split(marker, 1)[1].strip()
             break
     else:
-        # Script-only jobs (the mail watches) write a short header, then "---" and the script's words.
-        # A failed script has no "---"; scan_jobs tells Colin in plain words once it keeps failing.
         if "\n---\n" in text:
             body = text.split("\n---\n", 1)[1].strip()
     if not body or body.startswith("[SILENT]"):
@@ -200,7 +197,7 @@ async def scan_cron() -> None:
             continue
         for f in d.glob("*/*.md"):
             try:
-                m = int(f.stat().st_mtime * 1000)   # whole milliseconds, the cursor's own unit
+                m = int(f.stat().st_mtime * 1000)
             except OSError:
                 continue
             if m < last or (m == last and str(f) in seen):
@@ -227,10 +224,10 @@ async def scan_cron() -> None:
         store.set_setting("cron_seen_at_cursor", sorted(seen))
     for bot_id, name, *_ in told:
         if notices.on_cron_report(bot_id, name):
-            await notices.post_brief()   # the open-questions paragraph, right under the 7:30 brief
+            await notices.post_brief()
     for bot_id, name, body, script, fid in told:
         if not notifyprefs.allows(bot_id, "needs") and not notifyprefs.allows(bot_id, "progress"):
-            continue   # nothing from this Zip may reach the phone: no need to ask Haiku
+            continue
         try:
             verdict = await notify.judge_report(bot_id, name, body, script=script)
         except Exception:
@@ -301,7 +298,7 @@ def _when(j: dict) -> str:
     return str(s.get("run_at") or "")
 
 
-FAILING_AFTER = 2   # failed runs in a row before Colin hears that a job is broken
+FAILING_AFTER = 2
 
 
 def scan_jobs() -> list[tuple[str, str, str]]:
@@ -331,9 +328,8 @@ def scan_jobs() -> list[tuple[str, str, str]]:
                 store.add_feed("checkin", j["bot"], None, *alert)
                 alerts.append((j["bot"], *alert))
             if old is None:
-                events.routine_created(j["bot"], j["name"], j["when"])   # "Created routine" in that Zip's chat
+                events.routine_created(j["bot"], j["name"], j["when"])
                 continue
-            # The schedule itself, not its wording: rewording "when" (Oct 9) made every job look changed.
             elif ((old.get("sched") != j["sched"] if "sched" in old else old.get("when") != j["when"])
                   or old.get("on") != j["on"] or old.get("name") != j["name"]):
                 title = "Changed a scheduled job" if j["on"] else "Paused a scheduled job"
@@ -428,7 +424,6 @@ async def scan_consent() -> None:
         name = bot.name if bot else r["bot_id"]
         notices.on_request(r)
         if (r.get("kind") or "signin") not in ("signin", "navigate"):
-            # An action card (send, publish, delete...): Colin's yes is the only way it happens.
             store.add_feed("signin_request", r["bot_id"], r["task_id"], f"{name} needs your okay", r["reason"])
             reason = " ".join(str(r["reason"] or "").split()).rstrip(".")
             await push(f"{name} needs your okay", f"I need your okay for this: {reason[:1].upper()}{reason[1:]}."[:300],
@@ -440,14 +435,12 @@ async def scan_consent() -> None:
         store.add_feed("signin_request", r["bot_id"], r["task_id"],
                        f"{name} wants to {'open a site' if verb == 'open' else 'sign in'}",
                        f"{name} wants to {verb} {r['site']}. {r['reason']}".strip())
-        # A card from something Colin just asked for is news he is waiting on, even at night. One from answering a
-        # teammate is not (Oct 9): the Zip already answered without the site.
         from . import team
         await push(f"{name} wants to {verb} {r['site']}", f"Can I {verb} {r['site']}?", r["bot_id"],
                    urgent=((r.get("why") or "") in ("mismatch", "ask", "sensitive")
                            or bool(r.get("session_id") and r["reason"]))
                    and not team.in_team_session(r.get("session_id")), kind="needs")
-        from . import voice   # on a call he may not see the card, so the voice says it
+        from . import voice
         for call in list(voice.calls.values()):
             if call.bot_id == r["bot_id"] and not call.closed:
                 voice.say(call, f"To keep going I need you to allow signing in to {r['site']} in the Zero app.",
@@ -460,7 +453,6 @@ async def scan_consent() -> None:
         store.set_cursor("consent_signin", sign_cursor)
     from . import team
     for s in consent.signins_after(sign_cursor):
-        # A sign-in made to answer a teammate is a step of that answer (gate.py's reason "Answering Zero's question").
         step = team.answering(s["bot_id"], float(s.get("at") or time.time())) \
             if str(s.get("reason") or "").startswith("Answering ") else None
         fid = store.add_feed("signin", s["bot_id"], None, f"Signed in to {s['site']}", s["reason"], step_of=step)
@@ -468,15 +460,12 @@ async def scan_consent() -> None:
             from . import teamvoice
             teamvoice.schedule_step(fid)
         store.set_cursor("consent_signin", s["id"])
-    # What the Zips did and mention (the "tell" tier), and actions Colin approved, one line each in that Zip's chat.
     act_cursor = store.get_cursor("consent_action", -1)
     if act_cursor < 0:
         with consent.db() as c:
             act_cursor = c.execute("SELECT COALESCE(MAX(id), 0) FROM actions").fetchone()[0]
         store.set_cursor("consent_action", act_cursor)
     for a in consent.actions_after(act_cursor):
-        # Done while the person was talking with that Zip: its own reply says what it did, so a second line in the
-        # chat only repeats it (Oct 10: "Add both to Trello" got a Done card quoting the request to Trello).
         in_chat = (turns.current(a["bot_id"]) is not None
                    or 0 <= float(a["at"] or 0) - store.said_at(a["bot_id"]) <= 600)
         if a["bot_id"] in config.BOTS_BY_ID and in_chat:
@@ -492,7 +481,6 @@ async def scan_consent() -> None:
                 teamvoice.schedule_step(fid)
             notices.on_action(a)
         store.set_cursor("consent_action", a["id"])
-    # Cards that ran out of time without an answer. The cursor is the latest expiry seen, in milliseconds.
     since = store.get_cursor("consent_expired_ms", -1)
     if since < 0:
         since = int(time.time() * 1000)
@@ -555,9 +543,6 @@ def _tell_creator(ev: dict, kind: str, body: str) -> None:
         log.warning("could not tell %s about task %s", creator, ev.get("task_id"), exc_info=True)
 
 
-# How the lead relays the team (#80-#82): the outcome in its own words with the thing itself, not the specialist's
-# summary again; who did it in a few words; a block with its cause and what would clear it. Nothing to add after
-# news that already reached the phone is a quiet [SILENT] (#75, #76), which the hub never posts or pushes.
 UPDATE_GUIDE = ("Tell {first} what changed in one to three plain sentences, in your own words: the result and the "
                 "thing itself (the answer, the draft, the link), and who did it in a few words. Do not repeat a "
                 "teammate's summary or list what they checked. If something is blocked, say the cause and exactly "
@@ -578,14 +563,12 @@ async def _team_update(batch: list[tuple[str, str]]) -> bool:
     reply = await turns.run_internal("default", note)
     news = any(not line.startswith("! ") for _, line in batch)
     if not reply or chatter.chatter(reply, chatter.team_names()):
-        return not news and bool(reply)   # quiet is fine only when everything already reached the phone
-    from . import shortreply   # a long relay shows short in the chat and the notification (shortreply.py)
+        return not news and bool(reply)
+    from . import shortreply
     reply = await shortreply.for_reply("default", "", reply) or reply
     store.add_feed("message", "default", None, config.BOTS_BY_ID["default"].name, reply)
-    # Things that need Colin were pushed the moment they happened; the story goes out only when there is news
-    # beyond them, and unless every bot in it is muted or snoozed.
     if news:
-        await push("Team update", reply, "default", bots=[b for b, _ in batch], kind="done")   # in the lead's words
+        await push("Team update", reply, "default", bots=[b for b, _ in batch], kind="done")
     return True
 
 
@@ -597,7 +580,6 @@ async def run() -> None:
         cursor = board.latest_event_id()
         store.set_cursor("kanban_event", cursor)
 
-    # Lines not yet told survive a hub restart.
     pending: list[tuple[str, str]] = [tuple(x) for x in (store.get_setting("pending_updates", []) or [])]
     in_flight: list[tuple[str, str]] = []
     pending_since: float | None = time.time() if pending else None
@@ -627,17 +609,15 @@ async def run() -> None:
                         who_local = ev["assignee"] or "default"
                         if kind == "task_failed":
                             from . import health
-                            health.turn_finished(body)   # a board task stopped by the Claude plan's limit
+                            health.turn_finished(body)
                         waiting_on_signin = kind == "task_blocked" and any(
                             r.get("task_id") == ev["task_id"] for r in consent.pending())
                         if kind in ("task_blocked", "task_review", "task_failed") and not waiting_on_signin:
-                            # Needs Colin: told now, plainly, without waiting for Taffy (her own tasks too). A task
-                            # blocked on a sign-in already sent its own "wants to sign in" card.
                             await notices.nudge(f"task:{ev['task_id']}:{kind.removeprefix('task_')}", title,
                                                 _first_person(kind, ev["title"], body), who_local, kind="needs")
                         _tell_creator(ev, kind, body)
                         if kind != "task_started" and who_local != "default":
-                            mark = "!" if kind != "task_done" else "-"   # ! = already pushed to Colin
+                            mark = "!" if kind != "task_done" else "-"
                             pending.append((who_local, f"{mark} {title}: \"{ev['title']}\" ({ev['task_id']}). {body}".strip()))
                             pending_since = pending_since or time.time()
                             store.set_setting("pending_updates", [list(p) for p in pending + in_flight])
@@ -648,7 +628,6 @@ async def run() -> None:
         except Exception:
             log.exception("board read failed")
 
-        # The team update runs in the background so board and cron scanning keep going.
         if update_task and update_task.done():
             ok = False
             try:
@@ -662,7 +641,6 @@ async def run() -> None:
             else:
                 tries += 1
                 if tries >= MAX_UPDATE_TRIES:
-                    # Taffy could not answer: still tell Colin what happened, plainly.
                     lines = "\n".join(line[2:] for _, line in in_flight)
                     store.add_feed("message", "default", None, "Team update", lines)
                     await push("Team update", lines, "default", bots=[b for b, _ in in_flight], kind="done")
@@ -684,8 +662,6 @@ async def run() -> None:
             log.exception("outbox scan failed")
 
         if tick % 5 == 0 and (cron_task is None or cron_task.done()):
-            # In the background: deciding whether a report is worth a buzz may take Haiku a few seconds, and sign-in
-            # cards and board news must not wait for it. One scan at a time.
             if cron_task is not None and not cron_task.cancelled() and cron_task.exception():
                 log.error("cron scan failed", exc_info=cron_task.exception())
             cron_task = asyncio.create_task(scan_cron())
@@ -713,7 +689,7 @@ async def run() -> None:
             except Exception:
                 log.exception("morning digest failed")
         try:
-            await notices.tick()   # proactive questions: off unless Colin turned them on (notices.py)
+            await notices.tick()
         except Exception:
             log.exception("proactivity tick failed")
         if tick % 15 == 0:

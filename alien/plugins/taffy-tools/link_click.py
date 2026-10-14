@@ -94,12 +94,12 @@ def click(ref: str, do_click, page, open_url, sleep=time.sleep, clock=time.monot
         except Exception:
             now = ""
         if now and now != here:
-            return out, None          # the click worked
+            return out, None
         if clock() >= deadline:
             break
         sleep(POLL_SEC)
     if now != here:
-        return out, None              # the address could not be read; never open a page on a guess
+        return out, None
     open_url(target)
     return out, target
 

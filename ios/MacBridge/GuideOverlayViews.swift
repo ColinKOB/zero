@@ -42,7 +42,6 @@ final class DimView: NSView {
 
     /// `hole` is in this view's coordinates with a top-left origin, like the accessibility frames. Nil dims everything.
     func show(hole topLeftHole: CGRect?) {
-        // Core Animation draws from the bottom left here, so turn the hole over.
         let hole = topLeftHole.map { CGRect(x: $0.minX, y: bounds.height - $0.maxY, width: $0.width, height: $0.height) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -132,7 +131,6 @@ final class PillButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Inset the title on list rows; AppKit centers it vertically for us.
         if kind == .row || kind == .stopRow {
             attributedTitle.draw(in: bounds.insetBy(dx: 10, dy: (bounds.height - attributedTitle.size().height) / 2))
         } else {
@@ -173,7 +171,7 @@ final class CalloutView: NSView {
         let s = NSShadow()
         s.shadowColor = NSColor.black.withAlphaComponent(0.22)
         s.shadowBlurRadius = 18
-        s.shadowOffset = NSSize(width: 0, height: 8)   // downward: the card view is flipped
+        s.shadowOffset = NSSize(width: 0, height: 8)
         card.shadow = s
         addSubview(card)
         addSubview(pointer)
@@ -271,7 +269,6 @@ final class CalloutView: NSView {
         }
         y += 32 + pad
 
-        // Card and pointer inside the shadow margin.
         let m = Self.shadowMargin, n = Self.notch
         var cardOrigin = NSPoint(x: m, y: m)
         var size = NSSize(width: Self.cardWidth + 2 * m, height: y + 2 * m)

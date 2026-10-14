@@ -168,7 +168,7 @@ class Specific(unittest.TestCase):
         hub = Path(notices.__file__).parent
         for f in hub.glob("*.py"):
             if f.name == "notify.py":
-                continue   # its notes quote what Colin saw on Oct 10
+                continue
             text = f.read_text()
             for vague in ("A bill is due soon.", "A money question for you.", "A health question for you.",
                           "A new charge for Money to sort.", "A regular charge went up."):
@@ -222,7 +222,7 @@ class Reports(StoreCase):
         fake = self.haiku({"buzz": False, "reason": "routine", "key": "", "line": ""})
         self.report("Dining is at $40 of the $60 cap, so $20 is left. Tally last synced at 7:00 p.m.")
         self.assertEqual(self.pushes, [])
-        self.assertEqual(self.chat()[0][0], "Daily spending update")   # in the chat all the same
+        self.assertEqual(self.chat()[0][0], "Daily spending update")
         self.assertEqual(len(fake.prompts), 1)
 
     def test_a_threshold_buzzes_once_a_week_from_the_zip(self):
@@ -234,8 +234,8 @@ class Reports(StoreCase):
         [p] = self.pushes
         self.assertEqual((p["title"], p["body"], p["bot"], p["kind"]), ("Daily spending update", GOOD_BUZZ, "money",
                                                                          "needs"))
-        self.assertTrue(p["extra"]["item_id"])                      # Reply on it quotes the whole report
-        self.report(SPENDING)                                        # still over the next day: quiet
+        self.assertTrue(p["extra"]["item_id"])
+        self.report(SPENDING)
         self.assertEqual(len(self.pushes), 1)
         self.report(SPENDING + "\n\nBilt reversed a $2,000 payment and charged a $30 returned-payment fee.")
         self.assertEqual(len(self.pushes), 2)
@@ -315,10 +315,10 @@ class Payload(unittest.TestCase):
         bot = next(iter(config.BOTS_BY_ID.values()))
         p = apns.payload_for(bot.name, SPENDING, bot.id, relevance=0.9, extra={"item_id": 7})
         aps = p["aps"]
-        self.assertEqual(aps["mutable-content"], 1)                 # the extension adds the Zip's avatar
-        self.assertEqual(aps["thread-id"], bot.id)                  # grouped by Zip
+        self.assertEqual(aps["mutable-content"], 1)
+        self.assertEqual(aps["thread-id"], bot.id)
         self.assertEqual(aps["relevance-score"], 0.9)
-        self.assertEqual(aps["category"], f"zero.msg.{bot.id}")     # Reply on any Zip's message
+        self.assertEqual(aps["category"], f"zero.msg.{bot.id}")
         self.assertEqual(p["sender"], {"id": bot.id, "name": bot.name})
         self.assertEqual(aps["alert"]["title"], bot.name)
         self.assertLessEqual(len(aps["alert"]["body"]), notify.LIMIT)
@@ -328,7 +328,7 @@ class Payload(unittest.TestCase):
         actions = [{"id": "option:0", "title": "It's on autopay", "mode": "auth"}]
         p = apns.payload_for("Zero", "Riley's car payment of $292.00 is due Sunday.", "default",
                              category="zero.open", actions=actions, extra={"feed_id": 12})
-        self.assertEqual(p["aps"]["category"], "zero.open")          # the fallback when the extension can't
+        self.assertEqual(p["aps"]["category"], "zero.open")
         self.assertEqual(p["actions"], actions)
         self.assertEqual(p["feed_id"], 12)
 

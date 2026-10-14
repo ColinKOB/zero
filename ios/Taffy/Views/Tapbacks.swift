@@ -4,7 +4,6 @@ import UIKit
 /// Tapbacks drawn like Apple Messages: the six glyphs, the round badge on the
 /// message's corner (Colin's in blue, the bot's in gray), and the floating bar that picks one. Long-press
 /// opens the bar on the iPhone; double-click or right-click, Tapback, opens it on the Mac.
-
 /// One tapback symbol.
 struct TapbackGlyph: View {
     let kind: String
@@ -127,18 +126,15 @@ struct Tapbackable: ViewModifier {
                     .allowsHitTesting(false)
                 }
             }
-            // Swipe to reply on the iPhone; Tapback, Reply and More beside it on the Mac (Replies.swift).
             .modifier(Replyable(isMine: isMine, copyText: plainText(message.text), onReply: reply,
                                 onTapback: canReact ? openBar : nil, voiceOverAction: false, extra: extra))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
-            // VoiceOver: who said it, and Copy and React as actions instead of a long press.
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(isMine ? "You" : (state.bot(botID)?.name ?? "The Zip")): \(plainText(message.text))")
             .accessibilityAction(named: "Copy") { UIPasteboard.general.string = plainText(message.text) }
             .accessibilityAction(named: "React") { if canReact { openBar() } }
             .accessibilityAction(named: "Reply", reply)
             .modifier(ExtraAction(extra: extra))
-            // Long press always opens Reply and Copy; the tapback bar only on messages that can take one yet.
             .modifier(OpenGesture(enabled: !message.id.hasPrefix("local-"), canReact: canReact, text: plainText(message.text),
                                   reply: reply, extra: extra) {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -146,7 +142,6 @@ struct Tapbackable: ViewModifier {
             })
             .padding(.top, message.reactions.isEmpty ? 0 : 20)
             #if DEBUG
-            // Simulator check of where the bar opens: -tapback <message id>.
             .task {
                 let args = ProcessInfo.processInfo.arguments
                 if let i = args.firstIndex(of: "-tapback"), i + 1 < args.count, args[i + 1] == message.id {
@@ -178,8 +173,6 @@ struct TapbackLayer: View {
             let barH: CGFloat = 50, copyH: CGFloat = target.extra == nil ? 88 : 132, gap: CGFloat = 8
             let top = topInset, bottom = box.height - bottomInset
             let above = f.minY - gap - barH
-            // Above the message; for a message whose top is scrolled away, at the top of what is visible; for a
-            // short message just under the top bar, below it.
             let barY: CGFloat = above >= top ? above
                 : (f.minY < top ? top : (f.maxY + gap + barH + gap + copyH <= bottom ? f.maxY + gap : top))
             let copyY: CGFloat = (barY == above && f.maxY + gap + copyH <= bottom) ? f.maxY + gap : barY + barH + gap

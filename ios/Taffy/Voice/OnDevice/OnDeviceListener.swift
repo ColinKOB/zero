@@ -27,7 +27,6 @@ final class CallListener: @unchecked Sendable {
     // SpeechAnalyzer (iOS 26 and later), kept type-erased so the app still runs on iOS 17.
     private var analyzerBox: AnyObject?
 
-    // SFSpeechRecognizer
     private var sfRec: SFSpeechRecognizer?
     private var sfReq: SFSpeechAudioBufferRecognitionRequest?
     private var sfTask: SFSpeechRecognitionTask?
@@ -269,7 +268,7 @@ final class SmartTurn: @unchecked Sendable {
             let t = hostNow()
             do {
                 self.model = try MLModel(contentsOf: url, configuration: cfg)
-                _ = self.run([Float](repeating: 0, count: 16000))   // warm
+                _ = self.run([Float](repeating: 0, count: 16000))
                 onDeviceNote("smart_turn_loaded", ["load_ms": Int((hostNow() - t) * 1000)])
             } catch {
                 onDeviceNote("smart_turn_failed", ["error": "\(error)"])

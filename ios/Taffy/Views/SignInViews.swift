@@ -6,7 +6,7 @@ import SwiftUI
 enum ScreenTrouble {
     static func sentence(_ error: Error, name: String) -> String {
         if let e = error as? HubClient.HubError {
-            if case .http(_, let msg) = e, !msg.isEmpty { return msg }   // the hub's own sentence
+            if case .http(_, let msg) = e, !msg.isEmpty { return msg }
             if case .notPaired = e { return e.localizedDescription }
             return "\(name.possessive) computer had a problem. Try again in a moment."
         }
@@ -148,12 +148,9 @@ struct SaveLoginSheet: View {
                 bots = [botID]
             }
             .task {
-                // Start in the username field so the keyboard and its Passwords key are already up.
                 try? await Task.sleep(for: .milliseconds(500))
-                if siteURL.isEmpty { field = .website }   // otherwise the username field focuses itself
+                if siteURL.isEmpty { field = .website }
                 #if DEBUG
-                // -fillLogin: writes into the fields the way a silent AutoFill does (no edit events), to check Save
-                // still turns on.
                 if CommandLine.arguments.contains("-fillLogin") {
                     url = "elearning.lakeview.test"
                     try? await Task.sleep(for: .seconds(1))
@@ -172,8 +169,6 @@ struct SaveLoginSheet: View {
         // What is really in the fields, in case AutoFill filled them without telling SwiftUI.
         if !userField.text.isEmpty { username = userField.text }
         if !passField.text.isEmpty { password = passField.text }
-        // Every failure is shown here and logged on the hub, including the ones the phone catches itself (Oct 9: a
-        // failed Save Login left no trace anywhere).
         func refuse(_ text: String, _ why: String) {
             error = ScreenTrouble.report(text, detail: "checked on the \(Theme.device): \(why)", screen: "save_login",
                                          bot: botID, state: state)
@@ -272,7 +267,6 @@ struct SignInScreen: View {
         }
         .task { await open() }
         .onDisappear {
-            // Swiped away or closed some other way: still hand the computer back.
             if !finished {
                 let client = state.client, id = botID, host = site.host(), task = taskID, req = requestID
                 Task { try? await client.finishSignIn(bot: id, taskID: task, site: host, declined: true, requestID: req) }
@@ -432,7 +426,6 @@ struct SignInPermissionsView: View {
                 Text(error).foregroundStyle(Theme.danger)
             }
             Section {
-                // The Always Allow rules live on Custom Rules with the Ask First rules, so each is listed once.
                 NavigationLink { CustomRulesView() } label: {
                     Label("Custom Rules", systemImage: "checklist")
                 }
@@ -519,7 +512,7 @@ struct SignInPermissionsView: View {
 
     private func load() async {
         #if DEBUG
-        if state.fixtureMode {   // sample rules and activity, so the screen can be checked without a hub (L5)
+        if state.fixtureMode {
             let page = Self.fixture
             permissions = page.permissions
             history = page.signins

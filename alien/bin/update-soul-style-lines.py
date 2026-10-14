@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# The lines, in the specialists' bullet form. Zero's SOUL uses the same bullets in its "Voice and style" section.
 STYLE_LINES = [
     "- Units and spelling: American spelling, and Colin's units: Fahrenheit, miles, feet and inches, pounds, "
     "dollars, 12-hour times.",
@@ -34,7 +33,6 @@ STYLE_LINES = [
     "you decided was needed), your first line says what you are doing and why, in one plain sentence.",
 ]
 MARKER = "- Units and spelling:"
-# The line each block goes after: the specialists' style line, or Zero's time zone line.
 ANCHORS = ("- Style for anything Colin reads:", "- Time zone is America/New_York.")
 TEAM_START, TEAM_END = "<!-- team:start -->", "<!-- team:end -->"
 

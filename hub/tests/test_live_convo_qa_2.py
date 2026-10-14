@@ -43,7 +43,6 @@ class NoticersFitThePerson(ProCase):
 
     def setUp(self):
         super().setUp()
-        # A home like Sam's: the lead, Inbox and To-Do, no keywords of Colin's.
         only = {b.id: b for b in config.BUILTIN}
         real_get = home.get
         for p in (mock.patch.dict(config.BOTS_BY_ID, only, clear=True),
@@ -69,7 +68,6 @@ class NoticersFitThePerson(ProCase):
         self.assertNotIn("window", listed)
         for kind in ("unreplied", "renewal", "conflict", "form", "quiet"):
             self.assertIn(kind, listed)
-        # No Money Zip and no Tally: nothing could ever raise a bill or a charge.
         self.assertNotIn("bill", listed)
         self.assertNotIn("charge", listed)
 
@@ -147,11 +145,9 @@ class DismissedQuestionsStayDismissed(ProCase):
         self.dismiss()
         note = team.context_for("money", "chat-1", first=True)
         self.assertIn("dismissed these questions in the app", note)
-        # The card's own words, as Haiku wrote them (FakeHaiku here).
         self.assertIn('- "Haiku question?" (Haiku evidence.)', note)
         self.assertIn("Don't raise them again on your own", note)
         self.assertNotIn("dismissed these questions", team.context_for("money", "chat-1", first=False))
-        # Another conversation, and the lead's own, hear it too.
         self.assertIn("Haiku question?", team.context_for("default", "chat-2", first=True))
 
     def test_a_later_dismissal_reaches_an_ongoing_conversation(self):
@@ -190,8 +186,6 @@ class NoMissingIntegrations(unittest.TestCase):
         cls.home = sys.modules["taffy_tools.home"]
 
     def setUp(self):
-        # On alien, deploy.sh's hub-only copy has no repo files, and its tests load the installed plugin, which may
-        # be older than this branch's (as in test_live_convo_qa).
         if not TEMPLATES.exists():
             self.skipTest("no repo files in a hub-only deploy copy")
         if not hasattr(self.team, "without_missing_integrations") or not hasattr(self.email, "_is_gmail"):
@@ -349,7 +343,7 @@ class ZipClosesItsOwnWrongCard(AppCase):
         self.assertFalse(self.close(theirs)["ok"])
         self.assertFalse(self.close(board)["ok"])
         consent_plugin.decide(mine, True)
-        self.assertFalse(self.close(mine)["ok"])           # already answered: nothing to take back
+        self.assertFalse(self.close(mine)["ok"])
         self.assertFalse(self.close("x")["ok"])
         with mock.patch.object(self.app.team, "in_team_session", lambda sid: True):
             self.assertIn("teammate", self.close(theirs, bot="money")["error"])
@@ -389,13 +383,12 @@ class TypedAnswerClosesChoiceCard(ProCase):
     def test_typing_closes_the_zips_open_choice_cards_but_not_proactive_questions(self):
         from taffy_hub import choices
         choices.offer("money", "Which Jordan?", ["Jordan Lee", "Jordan Park"], during_turn=False)
-        self.raise_(self.cand("renewal:x", deadline=self.soon(72)))   # Zero's own question, with its own answers
+        self.raise_(self.cand("renewal:x", deadline=self.soon(72)))
         self.assertEqual(choices.close_open("money"), 1)
         rows = {r["title"]: json.loads(r["body"]) for r in store.db().execute("SELECT * FROM feed WHERE kind='choices'")}
         self.assertEqual(rows["Which Jordan?"]["state"], "dismissed")
         self.assertTrue(rows["Which Jordan?"]["typed"])
         self.assertEqual([c["state"] for t, c in rows.items() if c.get("notice")], ["open"])
-        # A tap that lands just after the message still counts.
         fid = store.db().execute("SELECT id FROM feed WHERE title='Which Jordan?'").fetchone()[0]
         self.assertEqual(choices.answer("money", fid, "Jordan Park")["state"], "picked")
 

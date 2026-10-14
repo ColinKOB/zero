@@ -39,7 +39,7 @@ class FakeHermes:
         self.state = self.home / "taffy" / "hub-state"
         self.log = self.home / "fake-hermes" / "turns.jsonl"
         self.log.parent.mkdir(parents=True, exist_ok=True)
-        self.sessions: dict[str, dict] = {}     # sid -> {"bot": id, "title": str, "messages": [...]}
+        self.sessions: dict[str, dict] = {}
         self.lock = threading.Lock()
 
     # MARK: Keys and profiles
@@ -141,7 +141,7 @@ def make_handler(fake: FakeHermes):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, fmt, *args):   # quiet; the hub's log is the one that matters
+        def log_message(self, fmt, *args):
             pass
 
         def _json(self, code: int, body) -> None:

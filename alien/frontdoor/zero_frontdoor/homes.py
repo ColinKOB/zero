@@ -22,7 +22,6 @@ from pathlib import Path
 
 BIN = Path(os.environ.get("ZERO_HOME_BIN", "/srv/zero/bin"))
 OWNER_HUB_CLI = Path(os.environ.get("ZERO_OWNER_HUB_CLI", Path.home() / "taffy" / "bin" / "taffy-hub"))
-# One home build takes a few minutes (a venv, rootless Docker and the Zip image); a stuck one is stopped.
 CREATE_TIMEOUT = int(os.environ.get("ZERO_FRONTDOOR_CREATE_TIMEOUT", "1500"))
 
 
@@ -113,8 +112,6 @@ class LiveHomes:
         except subprocess.TimeoutExpired as e:
             raise HomeError(f"{Path(cmd[0]).name if cmd[0] != 'sudo' else cmd[2]} took longer than {timeout}s") from e
         if p.returncode != 0:
-            # The last lines of stderr only; the tooling never prints secrets there (backup passwords go to stdout
-            # on request only).
             raise HomeError(f"{' '.join(Path(c).name for c in cmd[:3])} exited {p.returncode}: "
                             f"{(p.stderr or '').strip()[-400:]}")
         return p.stdout

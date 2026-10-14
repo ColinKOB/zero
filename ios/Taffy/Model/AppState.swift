@@ -16,8 +16,6 @@ final class AppState {
     var computers: [String: String] = [:]
     /// Zips waiting on a teammate's answer, for the "Pinging" chip in their chats.
     var pinging: [PingInfo] = []
-    // The fluid app (Model/Fluid.swift): what each Zip is doing in plain words, the person's messages waiting behind
-    // a working Zip, a failed reply to retry, and the While You Were Away lines.
     var activity: [String: LiveActivity] = [:]
     var queuedIDs: Set<String> = []
     var problems: [String: TurnProblem] = [:]
@@ -142,14 +140,11 @@ final class AppState {
     private var pollTask: Task<Void, Never>?
 
     init() {
-        let server = HubClient.savedServer   // "" until a home is paired; installs from before keep the address they saved
+        let server = HubClient.savedServer
         let token = Keychain.read("hubToken")
-        // Re-save so a token from an older build gets the this-device-only keychain class.
         if let token { Keychain.write("hubToken", token) }
         client = HubClient(server: server, token: token)
         paired = token != nil && !server.isEmpty
-        // First launch: the onboarding, which ends by connecting to the Mac. It stays up after the code connects
-        // until the person finishes it, and comes back where it was if the app is closed partway.
         var onboarding = !UserDefaults.standard.bool(forKey: "onboarded_v1")
             && (token == nil || UserDefaults.standard.data(forKey: "onboardingDraft") != nil)
         #if DEBUG
@@ -159,14 +154,13 @@ final class AppState {
         #endif
         self.onboarding = onboarding
         if paired { loadSaved() }
-        // Text that was on its way when the app was closed goes back in the box.
         for (bot, text) in (UserDefaults.standard.dictionary(forKey: "unsent") as? [String: String]) ?? [:]
             where (drafts[bot] ?? "").isEmpty {
             drafts[bot] = text
         }
         UserDefaults.standard.removeObject(forKey: "unsent")
         #if DEBUG
-        if CommandLine.arguments.contains("-demo") { enterDemo() }   // the sample home, for screenshots
+        if CommandLine.arguments.contains("-demo") { enterDemo() }
         #endif
     }
 
@@ -238,7 +232,7 @@ final class AppState {
     func decide(_ request: SignInRequest, _ decision: String) async -> String? {
         if demoMode { demoDecide(request, decision); return nil }
         #if DEBUG
-        if fixtureMode {   // no hub: the card goes, and Always Allow shows its confirmation
+        if fixtureMode {
             board.requests = (board.requests ?? []).filter { $0.id != request.id }
             if decision == "always", let scope = request.scope, !scope.isEmpty {
                 let name = bot(request.bot_id)?.name ?? "The Zip"
@@ -270,8 +264,6 @@ final class AppState {
             lastError = "Type the connection address that Zero showed on your computer."
             return
         }
-        // Plain http only to loopback (the Mac app and its own engine); a home whose link carried a fingerprint is
-        // trusted with it for this request only, and pinned once the pairing works; a pinned home is never re-pinned.
         guard let url = URL(string: client.server) else {
             lastError = "Type the connection address that Zero showed on your computer."
             return
@@ -336,7 +328,7 @@ final class AppState {
         if fixtureMode { return }
         do {
             bots = try await client.bots(); updatedAt = Date(); saveSoon()
-            NotificationZips.update(bots)   // each Zip's name and avatar for its notifications
+            NotificationZips.update(bots)
         } catch { handle(error) }
     }
 
@@ -362,7 +354,6 @@ final class AppState {
                 let id = m.id?.value ?? "\(bot)-\(i)"
                 let date = m.ts.map { Date(timeIntervalSince1970: $0) }
                 if let cls = m.cls {
-                    // The hub's classes: the same rule as the home list, the call briefing and the Mac check.
                     let text = m.display ?? m.text
                     switch cls {
                     case "colin":
@@ -377,7 +368,7 @@ final class AppState {
                     case "call_reply":
                         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { callReplies.append((text, date)) }
                     default:
-                        break   // board updates, hub notes, wrap-ups, call requests and teammates' words stay hidden
+                        break
                     }
                     continue
                 }
@@ -386,8 +377,7 @@ final class AppState {
                         pendingBoardUpdate = true
                         continue
                     }
-                    if m.text.hasPrefix("[Hub note") { continue }   // the bot picking up after a sign-in answer
-                    // What the call voice handed the bot, and the after-call note: the call's own bubble covers them.
+                    if m.text.hasPrefix("[Hub note") { continue }
                     let bare = Self.withoutReactionsNote(m.text)
                     if bare.hasPrefix("[Voice call ended") || bare.hasPrefix("[From a voice call]") {
                         skipNextReply = true
@@ -402,7 +392,6 @@ final class AppState {
                     pendingBoardUpdate = false
                 }
             }
-            // Each timeline also carries that bot's own results and check-ins, in time order.
             if let items = try? await client.activity(bot: bot) {
                 let extra = items.map { item -> ChatMessage in
                     if item.kind == "call", let data = item.body?.data(using: .utf8),
@@ -412,7 +401,6 @@ final class AppState {
                                             label: s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
                                                              : String(format: "%d:%02d", s / 60, s % 60),
                                             botID: item.bot_id)
-                        // What the bot found during this call, word for word, under the call's summary.
                         let end = item.date
                         let start = end.addingTimeInterval(-Double(s) - 90)
                         m.details = callReplies.filter { r in
@@ -423,7 +411,6 @@ final class AppState {
                     }
                     if item.kind == "choices", let data = item.body?.data(using: .utf8),
                        let card = try? JSONDecoder().decode(ChoiceCard.self, from: data), let notice = card.notice {
-                        // A question Zero raised on its own stays after it is answered, with the answer checked.
                         var m = ChatMessage(id: "feed-\(item.id)", kind: .choices, text: card.question, date: item.date,
                                             botID: item.bot_id)
                         m.details = card.options
@@ -436,8 +423,6 @@ final class AppState {
                     }
                     if item.kind == "choices", let data = item.body?.data(using: .utf8),
                        let card = try? JSONDecoder().decode(ChoiceCard.self, from: data) {
-                        // An open card, or an answered one shown as his answer (Oct 10). A dismissed card, or one
-                        // the person wrote past instead of answering, leaves the chat.
                         let answer = card.answer(lead: "")
                         let shows = card.state == "open" || answer != nil
                         var m = ChatMessage(id: "feed-\(item.id)", kind: shows ? .choices : .status,
@@ -450,7 +435,6 @@ final class AppState {
                     }
                     if item.kind == "login", let data = item.body?.data(using: .utf8),
                        let ask = try? JSONDecoder().decode(SignInAsk.self, from: data) {
-                        // Only an open card shows; once he signs in, the bot's own reply carries on.
                         var m = ChatMessage(id: "feed-\(item.id)", kind: ask.state == "open" ? .login : .status,
                                             text: ask.state == "open" ? (ask.why ?? "") : "", date: item.date,
                                             label: ask.site, botID: item.bot_id)
@@ -461,7 +445,6 @@ final class AppState {
                     }
                     if item.kind == "account", let data = item.body?.data(using: .utf8),
                        let ask = try? JSONDecoder().decode(AccountAsk.self, from: data) {
-                        // Only an open card shows; once the account is connected, the Zip's own reply carries on.
                         var m = ChatMessage(id: "feed-\(item.id)", kind: ask.state == "open" ? .account : .status,
                                             text: ask.state == "open" ? (ask.why ?? "") : "", date: item.date,
                                             label: ask.name, botID: item.bot_id)
@@ -472,7 +455,6 @@ final class AppState {
                     }
                     if item.kind == "mac_ask", let data = item.body?.data(using: .utf8),
                        let ask = try? JSONDecoder().decode(MacRequest.self, from: data) {
-                        // A Zip asking to use the Mac: Allow and Not Now while it is open, then one quiet line.
                         var m = ChatMessage(id: "feed-\(item.id)", kind: .macAsk, text: ask.task, date: item.date,
                                             label: item.title, botID: item.bot_id)
                         m.feedID = item.id
@@ -481,7 +463,6 @@ final class AppState {
                     }
                     if item.kind == "mac", let data = item.body?.data(using: .utf8),
                        let use = try? JSONDecoder().decode(MacUse.self, from: data) {
-                        // One quiet line per task, like Grok Bot's computer-use captions.
                         var m = ChatMessage(id: "feed-\(item.id)", kind: .note,
                                             text: "\(item.title ?? "Used your Mac")\(use.minutes > 0 ? " for \(use.minutes) min" : ""): \(use.summary)",
                                             date: item.date, label: "desktopcomputer", botID: item.bot_id)
@@ -490,7 +471,6 @@ final class AppState {
                     }
                     if item.kind == "event", let data = item.body?.data(using: .utf8),
                        let e = try? JSONDecoder().decode(ChatEvent.self, from: data) {
-                        // One small centered line, like Grok Bot's "Created routine" and "Updated memory for".
                         return ChatMessage(id: "feed-\(item.id)", kind: .event, text: e.name ?? "", date: item.date,
                                            label: e.event, botID: item.bot_id)
                     }
@@ -511,7 +491,6 @@ final class AppState {
                     }
                     var text = item.body ?? ""
                     if let of = item.step_of, ["signin", "action"].contains(item.kind) {
-                        // Work done to answer a teammate: a row in the work log, not a message (ChatTimeline).
                         var m = ChatMessage(id: "feed-\(item.id)", kind: .step, text: text, date: item.date,
                                             label: item.title, botID: item.bot_id)
                         m.stepOf = of
@@ -522,7 +501,7 @@ final class AppState {
                     return ChatMessage(id: "feed-\(item.id)", kind: .checkin, text: text, date: item.date,
                                        label: Self.activityLabel(item), botID: item.bot_id)
                 }
-                let shown = extra.filter { !($0.kind == .status && $0.text.isEmpty) }   // answered choice cards
+                let shown = extra.filter { !($0.kind == .status && $0.text.isEmpty) }
                 out = (out + shown).sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
             }
             chats[bot] = merged(history: out, bot: bot)
@@ -541,8 +520,6 @@ final class AppState {
     /// The history, plus what the phone shows that the history does not have yet: the person's unconfirmed messages
     /// and, while a send is in flight, the streamed reply. Messages the history now shows are confirmed.
     private func merged(history: [ChatMessage], bot: String) -> [ChatMessage] {
-        // A card answered here that the history still shows open keeps its answer; one the history shows answered
-        // needs nothing more from this device.
         var history = history
         for (i, m) in history.enumerated() where localAnswers[m.id] != nil {
             if m.answer != nil || m.kind != .choices {
@@ -628,7 +605,6 @@ final class AppState {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if demoMode { return await demoSend(trimmed, to: bot, replyTo: target?.quote) }
-        // Nothing is sent to an AI company until the person has agreed. If they say Not Now, the words go back in the box.
         guard await ensureAIConsent() else {
             putBack(trimmed, to: bot)
             restoreReply(target, to: bot)
@@ -637,13 +613,13 @@ final class AppState {
         inFlight[bot, default: 0] += 1
         idleLooks[bot] = 0
         awaitingReply[bot] = nil
-        Self.markUnsent(bot, trimmed)   // kept until the hub has it, in case the app is closed mid-send
+        Self.markUnsent(bot, trimmed)
         let localID = "local-\(UUID().uuidString)"
         let sentAt = Date()
         unconfirmed[localID] = (bot, trimmed, sentAt)
         chats[bot, default: []].append(ChatMessage(id: localID, kind: .colin, text: trimmed, date: sentAt,
                                                    replyTo: target?.quote))
-        problems[bot] = nil   // a new message moves on from a failed reply
+        problems[bot] = nil
         if working[bot] == nil { working[bot] = "Thinking" }
         var turnID: String?
         var outcome = await consume(client.stream(bot: bot, text: trimmed, replyTo: target?.quote), bot: bot,
@@ -652,7 +628,6 @@ final class AppState {
             working[bot] = "Lost connection. Checking for the reply."
             for attempt in 0..<4 {
                 try? await Task.sleep(for: .seconds(attempt == 0 ? 1 : 3))
-                // This message's own turn, so two messages in flight never swap replies.
                 outcome = await consume(client.followTurn(bot: bot, id: turnID), bot: bot, localID: localID) { turnID = $0 }
                 if case .dropped = outcome { continue }
                 break
@@ -664,7 +639,6 @@ final class AppState {
         var reply: String?
         switch outcome {
         case .stopped(let returned):
-            // Stop: the running reply ended on purpose, and a message still waiting goes back in the box unsent.
             if returned {
                 unconfirmed[localID] = nil
                 chats[bot]?.removeAll { $0.id == localID }
@@ -676,7 +650,6 @@ final class AppState {
             }
             return nil
         case .failed(let message) where turnID != nil:
-            // The hub had the message and the reply failed: it stays sent, with a plain failure and Retry (#52).
             confirm(localID)
             let name = self.bot(bot)?.name ?? "The Zip"
             problems[bot] = TurnProblem(kind: .failed, line: "\(name) couldn't finish that reply.", detail: message,
@@ -684,8 +657,6 @@ final class AppState {
         case .reply(let r):
             reply = r
             confirm(localID)
-            // A placeholder id until the saved history replaces it, so a tapback lands on the real message. A history
-            // load during the send may already have brought the saved reply.
             let have = (chats[bot] ?? []).contains { $0.kind == .bot && !$0.id.hasPrefix("pending-")
                 && ChatSync.normalized($0.text) == ChatSync.normalized(r)
                 && ($0.date ?? .distantFuture) >= sentAt.addingTimeInterval(-ChatSync.slack) }
@@ -698,18 +669,14 @@ final class AppState {
             restore(trimmed, to: bot, localID: localID, why: message)
             restoreReply(target, to: bot)
         case .finishedElsewhere, .dropped:
-            // The turn ended while we were away, the stream went quiet, or we never got back: the saved history
-            // decides. A history that shows the message confirms it (loadChat).
             let loaded = await loadChat(bot)
             if loaded && unconfirmed[localID] != nil && !isBusyOnHub(bot) {
-                // The hub can be read and never got it (it restarted while the message waited): back in the box.
                 unconfirmed[localID] = nil
                 restore(trimmed, to: bot, localID: localID, why: "")
                 restoreReply(target, to: bot)
                 return nil
             }
             if chats[bot]?.last?.kind == .colin || unconfirmed[localID] != nil {
-                // Delivered (or not known yet) with no reply so far: the chat keeps looking for a few minutes.
                 awaitingReply[bot] = Date()
                 if case .dropped = outcome, !loaded {
                     chats[bot, default: []].append(ChatMessage(id: UUID().uuidString, kind: .error,
@@ -761,7 +728,6 @@ final class AppState {
         do {
             try await client.answerChoice(bot: bot, feedID: id, picked: picked, custom: custom)
         } catch {
-            // Answered somewhere else (the Mac) or gone: never send a second answer.
             unmarkAnswered(before, bot: bot)
             await loadChat(bot)
             chats[bot, default: []].append(ChatMessage(id: UUID().uuidString, kind: .error,
@@ -793,7 +759,6 @@ final class AppState {
             chats[bot]?[i].question?.state = answered?.state ?? (picked == nil ? "dismissed" : "picked")
             chats[bot]?[i].question?.picked = answered?.picked ?? picked
             chats[bot]?[i].question?.follow = answered?.follow
-            // The words that go to Zero for this answer, so the message carrying them shows once, as this answer.
             if let words = answered?.send, !words.isEmpty, picked != nil {
                 chats[bot]?[i].answer?.sent = words
                 localAnswers[message.id]?.sent = words
@@ -827,7 +792,6 @@ final class AppState {
     }
 
     func setProactivity(enabled: Bool? = nil, mode: (id: String, mode: String)? = nil) async {
-        // Zero's questions read your mail and send it to your AI company to think, so turning them on needs a yes.
         if enabled == true, !(await ensureAIConsent()) { return }
         if fixtureMode {
             if let enabled { proactivity?.enabled = enabled }
@@ -841,7 +805,7 @@ final class AppState {
                                                           noticers: mode.map { [$0.id: $0.mode] })
         } catch {
             lastError = "That change didn't save. Try again."
-            await loadProactivity()   // the switch shows what the hub actually has
+            await loadProactivity()
         }
     }
 
@@ -891,17 +855,14 @@ final class AppState {
                 switch ev.type {
                 case "turn":
                     if let id = ev.id { onTurn(id) }
-                    Self.markUnsent(bot, nil)   // the hub has it now
+                    Self.markUnsent(bot, nil)
                 case "queued":
-                    // Sent while the Zip works: it waits its turn, and the chat says so (#57).
                     if let localID { queuedIDs.insert(localID) }
                 case "started", "run", "delta", "yielded":
-                    if let localID { queuedIDs.remove(localID) }   // its turn is running: no longer queued
+                    if let localID { queuedIDs.remove(localID) }
                 case "status" where (ev.text ?? "").hasPrefix("Waiting for ") && (ev.text ?? "").hasSuffix(" to finish"):
-                    if let localID { queuedIDs.insert(localID) }   // an older hub's way of saying the same
+                    if let localID { queuedIDs.insert(localID) }
                 case "commentary":
-                    // What the Zip says between steps ("Opening eLearning now.") stays in the chat as its own small
-                    // message, like Grok Bot's, until the saved history brings the same words (Colin, Oct 10).
                     if let localID { queuedIDs.remove(localID) }
                     if let t = ev.text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
                         let shown = (chats[bot] ?? []).suffix(12).contains {
@@ -924,7 +885,7 @@ final class AppState {
                 }
             }
         } catch HubClient.HubError.http(404, _) {
-            return reply.map { .reply($0) } ?? .finishedElsewhere   // nothing running any more
+            return reply.map { .reply($0) } ?? .finishedElsewhere
         } catch HubClient.HubError.http(let code, let msg) {
             return .failed(code == 409 ? msg : HubClient.describe(HubClient.HubError.http(code, msg)))
         } catch HubClient.HubError.notPaired {
@@ -932,7 +893,7 @@ final class AppState {
             return .failed("This \(Theme.device) is no longer paired.")
         } catch {
             if let reply { return .reply(reply) }
-            if Task.isCancelled { return .finishedElsewhere }   // let go on purpose (pollOnce): the history decides
+            if Task.isCancelled { return .finishedElsewhere }
             return .dropped
         }
         if let stopped { return .stopped(returned: stopped) }
@@ -1029,7 +990,7 @@ final class AppState {
         let ids = Array(mutedBots)
         Task {
             do { try await client.setMutedBots(ids) } catch {
-                mutedBots = before   // the switch shows what the hub actually has
+                mutedBots = before
                 lastError = "That change didn't save. Try again."
             }
         }
@@ -1055,7 +1016,7 @@ final class AppState {
         if demoMode { return }
         Task {
             do { saveCallTranscripts = try await client.setSaveCallTranscripts(on) } catch {
-                saveCallTranscripts = before   // the switch shows what the hub actually has
+                saveCallTranscripts = before
                 lastError = "That change didn't save. Try again."
             }
         }
@@ -1106,7 +1067,7 @@ final class AppState {
 
     /// What a bot is doing right now: a reply in its chat, or a board task it is running. nil when idle.
     func workingText(for id: String) -> String? {
-        if working[id] != nil, let step = activity[id]?.steps.last { return step }   // plain words (Fluid.swift)
+        if working[id] != nil, let step = activity[id]?.steps.last { return step }
         if let s = working[id] { return s }
         guard let b = bot(id), b.working > 0 || b.busy else { return nil }
         if let t = board.working.first(where: { ($0.assignee ?? "default") == id && $0.status == "running" }) {
@@ -1157,7 +1118,6 @@ final class AppState {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.pollOnce()
-                // Gentler in Low Power Mode or on an expensive or limited connection.
                 let slow = ProcessInfo.processInfo.isLowPowerModeEnabled || NetworkWatch.shared.constrained
                 try? await Task.sleep(for: .seconds(slow ? 10 : 4))
             }
@@ -1180,8 +1140,8 @@ final class AppState {
             failures = 0
             offline = false
             lastError = nil
-            client.flushErrorReports()   // error reports kept while the hub could not be reached
-            if let maxID = page.max_id, maxID < feedCursor {   // the hub's feed was reset
+            client.flushErrorReports()
+            if let maxID = page.max_id, maxID < feedCursor {
                 feedCursor = maxID
                 UserDefaults.standard.set(maxID, forKey: "feedCursor")
             }
@@ -1192,14 +1152,11 @@ final class AppState {
             for b in working.keys where !busy.contains(b) && !isSending(b) { working[b] = nil }
             if computers != (page.computers ?? [:]) { computers = page.computers ?? [:] }
             if pinging != (page.pinging ?? []) { pinging = page.pinging ?? [] }
-            // What each working Zip is doing, in plain words, and whether it has gone quiet too long (Fluid.swift).
             if let live = page.activity {
                 for (b, a) in live where activity[b] != a { activity[b] = a }
                 for b in activity.keys where live[b] == nil && !isSending(b) { activity[b] = nil }
             }
-            // A turn that ended away from this screen may have failed: the rows get the hub's word on it.
             if !finished.isEmpty && page.items.isEmpty { await refreshBots() }
-            // Items edited in place (the live "is using your Mac" line) refresh the chats that show them.
             for bot in Set(page.changed ?? []) where chats[bot] != nil && !page.items.contains(where: { ($0.bot_id ?? "default") == bot }) {
                 await loadChat(bot)
             }
@@ -1213,7 +1170,6 @@ final class AppState {
             }
         } catch {
             failures += 1
-            // With nothing on screen yet, say so at once; otherwise after a few misses in a row.
             if failures >= 3 || bots.isEmpty { offline = true }
             handle(error)
         }
@@ -1223,7 +1179,7 @@ final class AppState {
         if fixtureMode { return }
         if case HubClient.HubError.notPaired = error { clearSaved(); paired = false; return }
         if (error as? URLError)?.code == .cancelled || error is CancellationError { return }
-        if error is URLError { return }   // shown as the offline banner instead
+        if error is URLError { return }
         lastError = HubClient.describe(error)
     }
 }
@@ -1346,7 +1302,6 @@ extension AppState {
                 bot("career", "Career", "#EC4899", "briefcase", "triangle", "Waiting to hear back from Harbor Homes.", 7200),
                 bot("builder", "Builder", "#8B5CF6", "hammer", "squircle", "TrailNote crash-free rate is 83%.", 86400),
                 bot("clients", "Clients", "#10B981", "person.2", "cloud", "Priya hasn't replied yet.", 90000)]
-        // One flat Zip on the sample team, to see the flat style in lists.
         if let i = bots.firstIndex(where: { $0.id == "clients" }) { bots[i].look = ZipLook(body: "flat-leaf", outfit: "none") }
         let now = Date()
         func at(_ minutesAgo: Double) -> Date { now.addingTimeInterval(-minutesAgo * 60) }
@@ -1362,7 +1317,6 @@ extension AppState {
         var choices = ChatMessage(id: "feed-4", kind: .choices, text: "Want me to check pickup times?", date: at(1), botID: "default")
         choices.details = ["Yes, tonight", "Tomorrow morning", "Not now"]
         choices.feedID = 4
-        // The Work screen and cards: a review, a block, a sign-in, a mismatch sign-in, and finished work.
         let t = now.timeIntervalSince1970
         func task(_ id: String, _ title: String, _ who: String, _ status: String, summary: String? = nil,
                   reason: String? = nil, body: String? = nil, ago: Double) -> TaskItem {
@@ -1376,7 +1330,6 @@ extension AppState {
                         task("t_aa02", "Sign in to Lakeside eLearning", "school", "blocked",
                              reason: "I need you to sign in once. URL: https://elearning.lakeside.example.edu", ago: 1800)],
             working: [task("t_aa03", "Check the TrailNote crash report", "builder", "running", ago: 120)],
-            // Enough finished work to fill Done's folded stack and its full list.
             done: [task("t_aa04", "Spending snapshot vs caps", "money", "done", summary: "Dining is $16 over the cap.", ago: 7200),
                    task("t_aa05", "Renew the library books", "school", "done",
                         summary: "All three books are renewed until October 30.", ago: 10800),
@@ -1389,13 +1342,8 @@ extension AppState {
                    task("t_aa09", "Update the resume with the Harbor Homes role", "career", "done", ago: 172800)],
             requests: [SignInRequest(id: 1, bot_id: "money", site: "chase.com", reason: "check my balance",
                                      created_at: t - 300, sensitive: true, why: "background"),
-                       // A sign-in the Zip wanted while working on its own. With paid checks off, an ordinary site
-                       // never gets the "doesn't look needed" wording, so the fixture does not show it (round 4, L6).
                        SignInRequest(id: 2, bot_id: "builder", site: "netlify.com", reason: "",
                                      created_at: t - 200, sensitive: false, why: "background"),
-                       // Action cards (L5): a send with Always Allow, one after reading a page, one from a
-                       // scheduled job, a production deploy with its command under Details, and a command the
-                       // Zip is paused on (round 4, L6).
                        SignInRequest(id: 3, bot_id: "clients", site: "dana@northwind-studio.example", reason: "Email dana@northwind-studio.example about \"Repo access\"",
                                      created_at: t - 150, sensitive: false, why: "asked", kind: "send",
                                      target: "dana@northwind-studio.example",
@@ -1417,12 +1365,10 @@ extension AppState {
                        SignInRequest(id: 7, bot_id: "builder", site: "", reason: "Run a command that stops or restarts a service",
                                      created_at: t - 30, sensitive: false, why: "asked", kind: "command",
                                      details: "npm run build && sudo systemctl restart nginx"),
-                       // A push Builder would normally just do, paused by one of the person's Ask First rules.
                        SignInRequest(id: 8, bot_id: "builder", site: "", reason: "Push to the branch fix-flaky-test",
                                      created_at: t - 20, sensitive: false, why: "asked", kind: "write",
                                      target: "fix-flaky-test", details: "git push origin fix-flaky-test",
                                      paused_by: "Builder asks before pushing code to any repo.")])
-        // -threadShots: School's chat without its open cards, so the Zip-to-Zip thread is what shows (screenshots).
         if CommandLine.arguments.contains("-threadShots") {
             board.needs_you = board.needs_you.filter { $0.assignee != "school" }
             board.requests = (board.requests ?? []).filter { $0.bot_id != "school" }
@@ -1444,12 +1390,11 @@ extension AppState {
             choices,
         ]
         #if DEBUG
-        // Replies, for screenshots: -replyDemo shows a sent reply with its quote and the reply header in the box.
         if CommandLine.arguments.contains("-replyDemo") {
             let quote = ReplyQuote(text: "The cart is ready now at https://www.walmart.com/cart. Pickup is free after 2 hours.",
                                    who: "bot")
             chats["default"]?.removeAll { $0.kind == .choices }
-            board.requests = []          // the chat's own messages in view, not the cards below them
+            board.requests = []
             board.needs_you = []
             chats["default"]?.append(ChatMessage(id: "5", kind: .colin, text: "Can I pick it up tonight instead?",
                                                  date: at(1), replyTo: quote))
@@ -1458,7 +1403,6 @@ extension AppState {
             if let original = chats["default"]?.first(where: { $0.id == "2" }) { startReply(to: original, bot: "default") }
         }
         #endif
-        // Money needed Gmail before it was connected: the Connect Google card (accounts.py on the hub).
         var accountCard = ChatMessage(id: "feed-5", kind: .account, text: "find this month's Walmart and Target receipts",
                                       date: at(6), label: "Gmail", botID: "money")
         accountCard.details = ["gmail"]
@@ -1468,7 +1412,6 @@ extension AppState {
             ChatMessage(id: "m2", kind: .bot, text: "I need your Gmail for that, and it isn't connected yet. Once it is, I'll add up this month's receipts from both stores.", date: at(7)),
             accountCard,
         ]
-        // Questions From Zero, as a new install has it: off, every kind of question ready.
         func noticer(_ id: String, _ name: String, _ detail: String, mode: String = "on", why: String = "",
                      asked: Int = 0, answered: Int = 0) -> ProactivityStatus.Noticer {
             ProactivityStatus.Noticer(id: id, name: name, detail: detail, mode: mode, why: why, asked: asked,
@@ -1484,8 +1427,6 @@ extension AppState {
             stopped: [],
             limits: .init(daily: 3, weekly: 12, spacing_hours: 2, quiet_start: 23, quiet_end: 7),
             today: .init(pushed: 0, checks: 0, checks_cap: 20), halved: false)
-        // Variants: -fixture offline (the hub can't be reached), -fixture error (Home's error state), and Zero's own
-        // questions: -fixture question-open, question-chosen, question-expired (add -showDraft to open the draft).
         let a = CommandLine.arguments
         if let k = a.firstIndex(of: "-fixture"), k + 1 < a.count {
             switch a[k + 1] {
@@ -1525,8 +1466,8 @@ extension AppState {
             chat.append(ask)
             pinging = [PingInfo(from: "clients", to: ["money", "career"])]
         }
-        if variant != "computer" { chat.removeFirst() }   // a shorter chat leaves room for the chip under the card
-        let before = chat.count - (variant == "computer" ? 1 : 0)   // the events come before the sign-in card
+        if variant != "computer" { chat.removeFirst() }
+        let before = chat.count - (variant == "computer" ? 1 : 0)
         chat.insert(contentsOf: [event(42, "memory", ago: 9), event(43, "routine", "Overnight outbound", ago: 6)], at: before)
         chats["clients"] = chat
     }
@@ -1557,7 +1498,6 @@ extension AppState {
         }
         switch variant {
         case "card-answer":
-            // Zero's own question the hub closed itself: the answer, its quiet line and Zero's short reply.
             chat.insert(contentsOf: [
                 question(72, "Keep it, or should I find the cancel page for you?",
                          options: ["Keep it", "Find the cancel page", "Already canceled"], picked: "Already canceled",
@@ -1597,7 +1537,7 @@ extension AppState {
             return m
         }
         let draft = QuestionDetail(label: "the draft", text: "From: sam.rivera@gmail.com\nTo: Dana Reyes <dana@northwind-studio.example>\nSubject: Re: Northwind handoff\n\nHi Dana,\n\nI wanted to check in on the Northwind handoff from my Sep 30 email. Is there anything you need from me to get the repo access set up?\n\nThanks,\nSam")
-        board = .empty   // the main fixture's cards and reviews would sit under the questions
+        board = .empty
         let brief = ChatMessage(id: "feed-90", kind: .checkin, text: "You have 2 open questions from me. Dana hasn't answered your Sep 30 email about the Northwind handoff. photobox.app renews Saturday, Oct 10, and you hadn't decided. The cards are below.",
                                 date: at(50), label: "Open Questions", botID: "default")
         let recap = QuestionDetail(label: "what will be sent", text: "From: sam.rivera@gmail.com\nTo: Priya Shah <priya@bluefernbakery.example>\nSubject: Following up on Banner review\n\nHi Priya,\n\nThanks for the time this morning. I'll have the smaller pumpkin banner to you by Friday, and I'll send a quote for the holiday page with it.\n\nSam")

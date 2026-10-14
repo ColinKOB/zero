@@ -7,8 +7,6 @@ enum Keychain {
     static func read(_ key: String) -> String? {
         if let v = keychainRead(key) { return v }
         #if targetEnvironment(macCatalyst)
-        // Older Mac builds kept these in a file. Move each value into the keychain the first time it is
-        // read, and take it out of the file once the keychain holds it.
         if let v = LegacyFile.read(key) {
             keychainWrite(key, v)
             if keychainRead(key) == v { LegacyFile.delete(key) }
@@ -21,7 +19,6 @@ enum Keychain {
     static func write(_ key: String, _ value: String) {
         keychainWrite(key, value)
         #if targetEnvironment(macCatalyst)
-        // Only if the keychain refused it (an unsigned build): never leave Colin unable to stay paired.
         if keychainRead(key) == value { LegacyFile.delete(key) } else { LegacyFile.write(key, value) }
         #endif
     }

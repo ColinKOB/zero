@@ -76,11 +76,11 @@ class Freshness(unittest.TestCase):
         (config.HERMES_HOME / "profiles" / "school" / "SOUL.md").write_text(SOUL.replace("Zero", "School"))
         self.calls = []
         self.fail = set()
-        if "school" not in config.BOTS_BY_ID:   # a team with School in it, in any home
+        if "school" not in config.BOTS_BY_ID:
             config.BOTS_BY_ID["school"] = next(b for b in config.OWNER_ZIPS if b.id == "school")
             self.addCleanup(config.BOTS_BY_ID.pop, "school", None)
 
-        def fake_run(cmd, **kw):   # Hermes's repair command: clears the stored prompt of the session it names
+        def fake_run(cmd, **kw):
             self.calls.append(cmd)
             sid = cmd[cmd.index("repair-prompts") + 1]
             if sid in self.fail:
@@ -111,7 +111,7 @@ class Freshness(unittest.TestCase):
         self.assertIsNone(self.stored(self.zero, "api_zero"))
         cmd = self.calls[0]
         self.assertEqual(cmd[0], str(config.HERMES_BIN))
-        self.assertNotIn("-p", cmd)                                    # the lead's own profile
+        self.assertNotIn("-p", cmd)
         self.assertEqual(cmd[1:], ["sessions", "repair-prompts", "api_zero", "--apply", "--json"])
         # Hermes rebuilds it from the current SOUL.md on the next turn and stores it; nothing more to do after that.
         self.zero.execute("UPDATE sessions SET system_prompt_hash = ? WHERE id = 'api_zero'",
@@ -119,7 +119,7 @@ class Freshness(unittest.TestCase):
         self.zero.commit()
         self.assertEqual(freshness.check(), [])
         self.assertEqual(freshness.check(recheck=True), [])
-        self.assertEqual(len(self.calls), 1)                            # the cache breaks once per change
+        self.assertEqual(len(self.calls), 1)
 
     def _store(self, conn, prompt):
         h = hashlib.sha256(prompt.encode()).hexdigest()
@@ -142,7 +142,6 @@ class Freshness(unittest.TestCase):
         self.zero.commit()
         self.assertEqual(freshness.check(), [])
         self.assertEqual(len(self.calls), 1)
-        # A later SOUL.md edit is a new version: one more refresh.
         (config.HERMES_HOME / "SOUL.md").write_text(SOUL + "- Just do it: look things up without asking.\n")
         self.assertEqual(freshness.check(), ["default"])
         self.assertEqual(len(self.calls), 2)
@@ -151,12 +150,12 @@ class Freshness(unittest.TestCase):
         _add_session(self.zero, "api_zero", OLD_PROMPT)
         _add_session(self.school, "api_school", OLD_PROMPT)
         _add_session(self.school, "api_school_team", OLD_PROMPT)
-        _add_session(self.school, "api_school_prep", "x\n" + SOUL.replace("Zero", "School"))   # already current
+        _add_session(self.school, "api_school_prep", "x\n" + SOUL.replace("Zero", "School"))
         store.set_session("default", "api_zero")
         store.set_session("school", "api_school")
         store.set_session("school#team", "api_school_team")
         store.set_session("school#prep", "api_school_prep")
-        store.set_session("ghost", "api_ghost")                       # a Zip no longer on the team
+        store.set_session("ghost", "api_ghost")
         self.assertEqual(sorted(freshness.check()), ["default", "school", "school#team"])
         school_calls = [c for c in self.calls if "-p" in c]
         self.assertEqual(len(school_calls), 2)
@@ -239,10 +238,10 @@ class SignInCardMoves(unittest.TestCase):
         store.db().commit()
         before = self.row(fid)["created_at"]
         again, said2 = signin.ask("default", "https://www.1800contacts.com/signin", "see the last order", "s1")
-        self.assertEqual(again, fid)                         # the same card, due a new notification
+        self.assertEqual(again, fid)
         row = self.row(fid)
-        self.assertGreaterEqual(row["created_at"], before + 3800)   # now: the bottom of the chat
-        self.assertIsNotNone(row["changed_at"])                     # the app reloads the chat
+        self.assertGreaterEqual(row["created_at"], before + 3800)
+        self.assertIsNotNone(row["changed_at"])
         card = json.loads(row["body"])
         self.assertEqual(card["state"], "open")
         self.assertEqual(card["url"], "https://www.1800contacts.com/signin")
@@ -264,12 +263,12 @@ class SignInCardMoves(unittest.TestCase):
         for i in range(45):
             store.add_feed("checkin" if i % 2 else "event", "default", None, f"item {i}", "not json" if i % 2 else "{}")
         ids = [i["id"] for i in store.activity_for("default")]
-        self.assertEqual(ids[0], fid)                              # first, as the oldest
-        self.assertNotIn(done, ids)                                # an answered card is not brought back
+        self.assertEqual(ids[0], fid)
+        self.assertNotIn(done, ids)
         self.assertEqual(len(ids), 41)
 
     def test_the_tool_tells_the_zip_to_keep_it_to_one_line(self):
-        import plugin_loader   # the repo's plugin, or the installed one on alien
+        import plugin_loader
         text = (plugin_loader.PLUGIN_DIR / "asksignin.py").read_text()
         self.assertIn("one short line", text)
         self.assertNotIn("sentence or two", text)
@@ -302,7 +301,7 @@ class SignInEndpoints(AppCase):
         self.assertEqual(len(self.pushed), 1)
         r = self.client.post("/internal/chat/ask_sign_in", json=body)
         self.assertIn("bottom of your chat", r.json()["result"])
-        self.assertEqual(len(self.pushed), 1)                    # asked again at once: moved, no second buzz
+        self.assertEqual(len(self.pushed), 1)
         store.db().execute("UPDATE feed SET body = json_set(body, '$.pushed_at', 0)")
         store.db().commit()
         self.client.post("/internal/chat/ask_sign_in", json=body)
@@ -373,8 +372,6 @@ class ScreenCheck(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

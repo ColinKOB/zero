@@ -38,7 +38,6 @@ class StandInHome:
     def make_home(self) -> str:
         home = tempfile.mkdtemp(dir="/tmp", prefix="zero-r8-")
         self.addCleanup(shutil.rmtree, home, True)
-        # The usual ~/taffy layout under this stand-in home, whatever the matrix shape's paths say.
         pin = tt.home.pinned(tt.home.colin_settings())
         pin.__enter__()
         self.addCleanup(pin.__exit__, None, None, None)
@@ -55,13 +54,9 @@ class StandInHome:
         return folder
 
 
-# ── M1: git's own options before the subcommand ─────────────────────────────────────────────────────────────
-
-
 class GitOptions(StandInHome, GateCase):
     """`git -c k=v push`, `git --no-pager push`, `git -C dir push` and the rest are the commands they look like."""
 
-    # Each plain command, and forms of it with git's own options in front (the report's G11 to G14 and X01 to X24).
     FORMS = {
         "git push origin main": [
             "git -c core.askPass=true push origin main", "git --no-pager push origin main", "git -P push origin main",
@@ -91,8 +86,6 @@ class GitOptions(StandInHome, GateCase):
         "git push origin feat": ["git -c a=b push origin feat", "git -C . push origin feat"],
         "git push origin HEAD": ["git -c a=b push origin HEAD"],
     }
-    # Rules for a repository outside the work folder: the plain form asks through Hermes's check (or the gate's own
-    # card), and the forms with options must ask with the same title (X15 to X20).
     OUTSIDE = {
         "git reset --hard": ["git -c a=b reset --hard", "git --no-pager reset --hard HEAD~1", "git -c a=b reset --hard origin/main"],
         "git clean -fdx": ["git -c a=b clean -fdx", "git --no-pager clean -f -d"],
@@ -104,7 +97,6 @@ class GitOptions(StandInHome, GateCase):
     def setUp(self):
         super().setUp()
         self.home = self.make_home()
-        # Commands name the folders in full; the folder a command runs in is given as the gate gets it ("~/...").
         self.site = self.repo(os.path.join(self.home, "Projects", "site"), f'[remote "origin"]\n\turl = {GITHUB}\n')
         self.work = self.repo(os.path.join(self.home, "taffy", "work", "builder", "site"),
                               f'[remote "origin"]\n\turl = {GITHUB}\n')
@@ -173,8 +165,6 @@ class GitOptions(StandInHome, GateCase):
                          (f"GIT_DIR={work}/.git git branch -D old", in_work)):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.asks_for(cmd, cwd), [])
-        # Asked by the gate, or by Hermes's check when it can read the command (`.git branch -D` reads as `git branch
-        # -D`), and then not cleared by the gate.
         for cmd, cwd in ((f"git -C {site} -c a=b reset --hard", in_work), (f"git -C {site} reset --hard", in_work),
                          (f"git --work-tree={self.home}/Documents reset --hard", in_work),
                          ("git --work-tree=~/Documents checkout . && git --work-tree ~/Documents reset --hard", in_work),
@@ -201,7 +191,6 @@ class GitOptions(StandInHome, GateCase):
                                  "Push to main, which can publish it")
 
     def test_hermes_is_not_asked_twice(self):
-        # The gate raised the card for these; once Colin allows it, the hub has nothing left to ask about.
         for forms in self.OUTSIDE.values():
             for form in forms:
                 with self.subTest(form=form):
@@ -270,9 +259,6 @@ class GitOptions(StandInHome, GateCase):
         self.assertIsNone(tiers._git_call(["git", "-c", "a=b"], None))
         self.assertIsNone(tiers._git_call(["gitk", "push"], None))
         self.assertEqual(tiers._git_call(["git", "-C", "rel", "push"], None).folders, [None])
-
-
-# ── L2: where git really sends a push ───────────────────────────────────────────────────────────────────────
 
 
 class EffectivePushUrl(StandInHome, unittest.TestCase):
@@ -357,7 +343,7 @@ class EffectivePushUrl(StandInHome, unittest.TestCase):
         self.assertIsNone(self.push(config, user='[user]\n\tname = Colin\n[url "https://github.com/"]\n\tinsteadOf = gh:\n'))
 
     def test_a_settings_file_the_gate_cannot_read_counts_as_a_real_remote(self):
-        os.makedirs(os.path.join(self.home, ".gitconfig"))   # a folder where the file should be
+        os.makedirs(os.path.join(self.home, ".gitconfig"))
         self.assertEqual(tiers.classify_command(f"git push {self.scratch} main").summary, self.PUBLISH)
         os.rmdir(os.path.join(self.home, ".gitconfig"))
         self.assertIsNone(tiers.classify_command(f"git push {self.scratch} main"))
@@ -378,7 +364,6 @@ class EffectivePushUrl(StandInHome, unittest.TestCase):
                                     f'[url "https://github.com/"]\n\tinsteadOf = gh:\n'))
         self.assertEqual(self.push(f'[remote "origin"]\n\turl = gh:colin/site\n[url "https://github.com/"]\n\tinsteadOf = gh:\n')
                          .summary, self.PUBLISH)
-        # A scratch push mapped onto main by a `push =` line is still scratch; on GitHub it names main.
         a = self.push(f'[remote "origin"]\n\turl = {GITHUB}\n\tpush = refs/heads/feat:refs/heads/main\n', "git push origin feat")
         self.assertEqual(a.target, "main")
         self.assertEqual(self.push(f'[remote "origin"]\n\turl = {GITHUB}\n\tpush = refs/heads/feat:refs/heads/main\n',
@@ -399,15 +384,11 @@ class EffectivePushUrl(StandInHome, unittest.TestCase):
         self.assertEqual(tiers._git_key("Remote.Origin.PushURL"), "remote.Origin.pushurl")
 
 
-# ── L1: the note beside a carded call ───────────────────────────────────────────────────────────────────────
-
-
 class CardNotes(unittest.TestCase):
     """Hidden only when the turn's later reply already says all of it; keyed to the card the call raised."""
 
     BLOCK = ("Not done yet: send this needs Colin's yes for this exact action. A card showing it is now in his app "
              "(request 5). Reply to Colin with only one short plain line.")
-    # The report's H03 to H08 and H15: real answers that use everyday words.
     ANSWERS = [
         "Theo said he can do Thursday or Friday and asked whether the budget is final. Replying that Thursday works; "
         "that needs your okay.",
@@ -446,7 +427,6 @@ class CardNotes(unittest.TestCase):
             with self.subTest(note=note):
                 self.assertEqual(self.shown(self.raw(note)), ["What did Theo say? Tell him Thursday works.",
                                                               "Waiting for your okay on the card."])
-        # Hermes giving up on its own prompt while the hub's card waited counts as a card.
         timeout = json.dumps({"output": "", "error": "BLOCKED: Command timed out without user response. The user has NOT consented."})
         self.assertEqual(self.shown(self.raw("Waiting for your okay on the card.", timeout)),
                          ["What did Theo say? Tell him Thursday works.", "Waiting for your okay on the card."])
@@ -461,12 +441,10 @@ class CardNotes(unittest.TestCase):
         cards = {5: {"id": 5, "bot_id": "builder", "session_id": "s1"}, 6: {"id": 6, "bot_id": "career", "session_id": "s1"}}
         with mock.patch.object(hub_consent, "get_request", lambda req: cards.get(req)):
             self.assertEqual(self.shown(self.raw(note), "builder", "s1").count(note), 1)
-            # A card of another Zip, of another conversation, or none at all.
             self.assertEqual(self.shown(self.raw(note), "career", "s1").count(note), 2)
             self.assertEqual(self.shown(self.raw(note), "builder", "s2").count(note), 2)
             other = json.dumps({"error": self.BLOCK.replace("request 5", "request 9")})
             self.assertEqual(self.shown(self.raw(note, other), "builder", "s1").count(note), 2)
-            # A file the Zip read that quotes a block message is not a card.
             quoted = json.dumps({"content": "notes.md: " + self.BLOCK})
             self.assertEqual(self.shown(self.raw(note, quoted), "builder", "s1").count(note), 2)
 

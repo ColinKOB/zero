@@ -171,7 +171,6 @@ def _screenshot_result(result: dict):
     """Attach the screenshot as an image the model can see, like the browser tools do."""
     data = base64.b64decode(result.pop("jpeg_base64", "") or b"")
     summary = json.dumps({"screenshot": "attached", **result})
-    # A picture of Colin's screen: written only long enough to resize, readable only by us, then deleted.
     with tempfile.TemporaryDirectory(prefix="mac-screen-") as tmp:
         path = Path(tmp) / "screen.jpg"
         path.touch(mode=0o600)

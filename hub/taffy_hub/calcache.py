@@ -40,7 +40,7 @@ TRELLO_FILE = config.HUB_DIR / "trello.json"
 STATUS = "proactivity_cache"
 DAYS_BACK, DAYS_AHEAD = 1, 8
 TIMEOUT_SEC = 240
-MODEL = "claude-haiku-5-5"   # the connectors tool's model (taffy-tools tools.CONNECTOR_MODEL)
+MODEL = "claude-haiku-5-5"
 
 # Claude Code's tool prefix for each connector, and every tool that could change something. The runs allow the
 # connector as a server minus these (allowing tools one by one stops ToolSearch from loading them; see tools.py).
@@ -418,7 +418,7 @@ def busy_kind(e: dict, extra_words: list[str] | None = None) -> str | None:
     if outside_people(e) or re.search(r"\bclient\b", title, re.I):
         return "meeting"
     for w in extra_words or []:
-        if w and re.search(rf"\b{re.escape(w.lower())}\b", title.lower()):   # whole words: not "Upset", "Classical"
+        if w and re.search(rf"\b{re.escape(w.lower())}\b", title.lower()):
             return "busy"
     return None
 

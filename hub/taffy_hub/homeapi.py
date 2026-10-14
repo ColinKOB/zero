@@ -230,14 +230,14 @@ def install(app, require_device, require_internal) -> None:
         try:
             tok = await asyncio.to_thread(google.access_token, address)
         except google.GoogleError as e:
-            if e.state == google.CONNECTED:   # Google could not be reached; the sign-in itself is fine
+            if e.state == google.CONNECTED:
                 return {"ok": False, "error": str(e)}
             return {"ok": True, "result": {"connected": False, "state": e.state, "message": str(e)}}
         return {"ok": True, "result": {"access_token": tok["access_token"], "expires_at": tok["expires_at"],
                                        "expires_in": max(0, int(tok["expires_at"] - time.time())),
                                        "token_type": "Bearer", "address": address, "scopes": tok["scopes"]}}
 
-    @app.get("/api/pair/qr")      # the plan's name for it; loopback scripts only, like /internal/*
+    @app.get("/api/pair/qr")
     @app.get("/internal/pair/qr")
     def internal_pair_qr(code: str = "", _: None = Depends(require_internal)):
         code = re.sub(r"[^A-Za-z0-9]", "", code)

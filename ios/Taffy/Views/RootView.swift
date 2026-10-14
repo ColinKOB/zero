@@ -7,25 +7,20 @@ struct RootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // A sample home says so on every screen.
             if state.demoMode { DemoBanner() }
             if state.paired && !state.onboarding && !state.demoMode { NeedsPlanBanner() }
             content
-                // Text grows with the reader's setting, up to a size every card and bubble still lays out at.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         }
-        // "Allowed from now on: ..." after Always Allow on a card, wherever the card was.
         .confirmationBanner(Binding(get: { state.confirmation }, set: { state.confirmation = $0 }))
-        // Asked when something needs to be sent and the person has not agreed (Model/AIConsent.swift).
         .sheet(isPresented: Binding(get: { state.aiConsentSheet }, set: { state.aiConsentSheet = $0 })) {
             AIConsentSheet().environment(state)
         }
-        // A pairing link on a Mac that has no home yet: connect to that home instead of setting one up here.
         .onChange(of: state.pendingPair) { _, link in if link != nil { connectToLinkedHome() } }
         .task { if state.pendingPair != nil { connectToLinkedHome() } }
         #if DEBUG
-        .task { await Push.shared.runLaunchHooks() }   // -askNotifications, -testNotification (Push.swift)
-        .task {   // -openURL zero://pair?...: the same path a tapped link takes, for the simulator
+        .task { await Push.shared.runLaunchHooks() }
+        .task {
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-openURL"), i + 1 < args.count, let url = URL(string: args[i + 1]) {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -43,10 +38,8 @@ struct RootView: View {
 
     /// The same as Connect to Another Home on the Mac welcome: the sign-in screen, which fills in the link's code.
     private func connectToLinkedHome() {
-        // Not while this Mac is already being set up: that would leave the install or a sign-in half done.
         let engine = MacEngine.shared
         guard Theme.onMac, !state.paired, engine.setupShowing else { return }
-        // Mid-setup, the link is let go, so it cannot fill the code screen later (after a Log Out, say).
         guard engine.phase != .working, engine.phase != .done, engine.signingIn == nil else {
             state.pendingPair = nil
             return
@@ -73,10 +66,9 @@ struct RootView: View {
         if state.rehearsingOnboarding {
             OnboardingView(rehearsal: true)
         } else if MacSetupView.debugScreen != nil {
-            MacSetupView()   // DEBUG: -macsetup <screen>, on any device, for screenshots
+            MacSetupView()
         } else if Theme.onMac && !state.paired && !state.demoMode && MacEngine.shared.setupShowing
                     && !fixtureRequested {
-            // A Mac with no home yet: set Zero up on this Mac first (Views/MacSetupView.swift).
             MacSetupView()
         } else if state.onboarding && !macJoiningAnotherHome {
             OnboardingView()
@@ -95,7 +87,6 @@ struct RootView: View {
             SignInView()
                 #if DEBUG
                 .task {
-                    // -autopair <code> -pairServer <address>, for the simulator; the address falls back to the saved one.
                     let args = CommandLine.arguments
                     if let i = args.firstIndex(of: "-autopair"), i + 1 < args.count {
                         let host = args.firstIndex(of: "-pairServer").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
@@ -213,12 +204,10 @@ struct HomeView: View {
                         Button { path.append(.bot(bot.id)) } label: { BotRow(bot: bot) }
                             .buttonStyle(PressStyle(scale: 0.98))
                             .overlay(alignment: .bottomTrailing) {
-                                // Ask Again or Retry, right from the list (FluidViews.swift).
                                 if let action = RowAction.for(bot, in: state) {
                                     RowActionButton(action: action).padding(.trailing, 20).padding(.bottom, 2)
                                 }
                             }
-                            // Swipe from right to left: Snooze, and Delete for every bot but Taffy.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if !bot.isLead {
                                     Button { deleting = bot } label: { Label("Delete", systemImage: "trash") }
@@ -227,7 +216,6 @@ struct HomeView: View {
                                 Button { snoozing = bot } label: { Label("Snooze", systemImage: "moon.zzz") }
                                     .tint(Color(hex: "#5856D6"))
                             }
-                            // Swipe from left to right: pin to the top row.
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 Button { pin(bot) } label: { Label("Pin", systemImage: "pin.fill") }
                                     .tint(Color(hex: "#F2A100"))
@@ -317,7 +305,6 @@ struct HomeView: View {
             pendingCall = intent?.contacts?.first?.personHandle?.value ?? intent?.contacts?.first?.displayName
             callPending()
         }
-        // On a cold launch the bots aren't loaded yet when the request arrives; it waits for them.
         .onChange(of: state.bots.count) { _, _ in callPending(); openRequestedChat() }
         // A notification tapped before this screen was up (a cold launch) set the request before .onChange could see it.
         .onAppear { openRequestedChat() }
@@ -344,7 +331,7 @@ struct HomeView: View {
                 }
             }
             #endif
-            if FirstTasks.openChatOnce {   // just finished the onboarding: Zero introduces itself in its chat
+            if FirstTasks.openChatOnce {
                 FirstTasks.openChatOnce = false
                 path = [.bot("default")]
             }
@@ -369,12 +356,12 @@ struct HomeView: View {
                 Task { await state.refreshAll(); await state.checkAway() }
             } else if phase == .background {
                 state.stopPolling()
-                state.noteLeaving()   // for While You Were Away
-                OnDeviceVoice.shared.unloadIfIdle()   // about 780 MB of memory; it loads again in a few seconds
+                state.noteLeaving()
+                OnDeviceVoice.shared.unloadIfIdle()
             }
             if phase == .active, state.callEngine == AppState.onDeviceEngine, OnDeviceVoice.supported,
                OnDeviceVoice.shared.engine.isDownloaded {
-                Task { await OnDeviceVoice.shared.prepare() }   // ready before the next call, not at its start
+                Task { await OnDeviceVoice.shared.prepare() }
             }
         }
     }
@@ -430,7 +417,7 @@ struct HomeView: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.ink)
                     .frame(width: 44, height: 44)
-                    .background(Theme.bubble, in: Circle())   // flat, like the other top bar circles
+                    .background(Theme.bubble, in: Circle())
             }
             .accessibilityLabel("New Zip")
         }
@@ -495,7 +482,6 @@ struct BotRow: View {
                         Text(d.listStamp).font(Theme.caption).foregroundStyle(Theme.inkSoft)
                     }
                 }
-                // Paused, stuck, working, blocked or a card that closed, else the latest line (FluidViews.swift).
                 RowStatusLine(bot: bot)
                     .padding(.trailing, RowAction.for(bot, in: state) == nil ? 0 : 96)
             }
@@ -803,7 +789,6 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .task {
-                // All chats at once, not one after another (slow on cellular).
                 await withTaskGroup(of: Void.self) { group in
                     for b in state.bots where state.chats[b.id] == nil {
                         group.addTask { await state.loadChat(b.id) }
@@ -860,7 +845,6 @@ struct SettingsView: View {
         @Bindable var s = state
         ScrollViewReader { scroller in
         List {
-            // First on a Mac home: Pair a Phone or Mac is how every other device joins it.
             if Theme.onMac && MacEngine.shared.isLocalHome && !state.demoMode {
                 MacHomeSection()
             }
@@ -935,7 +919,6 @@ struct SettingsView: View {
                 }
                 .id("home")
             }
-            // Connectors come from the person's own Claude or ChatGPT plan; a home without them adds email above.
             if !state.demoMode && !HomeModel.shared.nativeAccounts {
                 ConnectedAccountsSection()
                     .id("accounts")
@@ -990,7 +973,6 @@ struct SettingsView: View {
                     OnDeviceVoiceRow()
                 }
             } header: { Text("Voice Chat") } footer: {
-                // The same first sentence as Pick My Voice and Set Up Voice (voice setup QA, L2).
                 if OnDeviceVoice.supported && !state.demoMode {
                     Text((HomeModel.shared.isShared
                           ? "ChatGPT Voice uses the plan shared with you, and what you say on those calls is sent to ChatGPT."
@@ -1067,8 +1049,6 @@ struct SettingsView: View {
                     Button("Try Onboarding") { state.rehearsingOnboarding = true }
                         .foregroundStyle(Theme.ink)
                 }
-                // On a Mac home this app reaches Zero at an address only this Mac can use, so its links would not
-                // work elsewhere; Pair a Phone or Mac above makes one with the Wi-Fi address.
                 if !(Theme.onMac && MacEngine.shared.isLocalHome) {
                     Section {
                         AddDeviceRow()
@@ -1094,8 +1074,6 @@ struct SettingsView: View {
                 Section("Connection") {
                     NavigationLink { DevicesView() } label: { Label("Paired Devices", systemImage: Theme.onMac ? "laptopcomputer" : "iphone") }
                     if !Theme.onMac, let code = macApprovalCode {
-                        // The key this iPhone allows Mac use with. The Mac shows the same code once, on its trust card,
-                        // so Colin can see the request really came from this phone (MacApprover, MacGrant.fingerprint).
                         VStack(alignment: .leading, spacing: 4) {
                             Label("Allow Mac Use From This iPhone", systemImage: "lock.laptopcomputer").foregroundStyle(Theme.ink)
                             Text("When your Mac asks whether to trust this iPhone, check that it shows this code.")
@@ -1106,7 +1084,6 @@ struct SettingsView: View {
                         .padding(.vertical, 4)
                     }
                     if Theme.onMac {
-                        // The guided setup for Accessibility, Screen Recording and Full Disk Access (PermissionGuide.swift).
                         Button { MacLink.shared.permissionGuide(["op": "start"]) { macPermissions = $0["status"] as? [String: Bool] ?? macPermissions } } label: {
                             HStack {
                                 Label("Let Zips Use This Mac", systemImage: "lock.open.laptopcomputer").foregroundStyle(Theme.ink)
@@ -1126,7 +1103,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         #if DEBUG
-        .task {   // -open settings voice (or accounts): that section in the middle of the screen, for screenshots
+        .task {
             let args = CommandLine.arguments
             if args.contains("-confirmDelete") { try? await Task.sleep(for: .milliseconds(900)); confirmDelete = true }
             if let i = args.firstIndex(of: "-open"), i + 2 < args.count, ["voice", "accounts", "privacy"].contains(args[i + 2]) {
@@ -1139,7 +1116,7 @@ struct SettingsView: View {
         .background(Theme.canvas)
         .navigationTitle("Settings")
         .task { await HomeModel.shared.load(state) }
-        .task { await AccountsModel.shared.refresh(state) }   // Account: Sign In to Claude when it is needed
+        .task { await AccountsModel.shared.refresh(state) }
         .task(id: scenePhase) { previews = await LockScreenPrivacySection.previewsSetting() }
         .sheet(isPresented: $settingUpVoice) { VoiceSetupView() }
         .confirmationDialog("Delete everything?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -1422,7 +1399,7 @@ struct NoticesView: View {
 /// Choose the home screen icon: Taffy (light and dark), Clay Face or The Twist.
 struct AppIconPicker: View {
     private struct Choice: Identifiable {
-        let id: String?       // alternate icon name; nil is the main icon
+        let id: String?
         let title: String
         let detail: String
         let preview: String
@@ -1484,7 +1461,6 @@ private struct AddDeviceRow: View {
                                   : "This code expired.")
                         .font(Theme.caption).foregroundStyle(Theme.inkSoft)
                 }
-                // The code alone is not enough on a new device: the link carries the home's address too.
                 if let url = PairLink(server: state.client.server, code: code).url {
                     ShareLink(item: url, subject: Text("Sign in to Zero"),
                               message: Text("Open this on your other device to sign in to Zero.")) {

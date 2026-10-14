@@ -48,16 +48,15 @@ class SignInCards(unittest.TestCase):
     def test_one_card_per_site_and_signing_in_resumes_the_bot(self):
         fid, said = signin.ask("clients", "https://app.netlify.com/login", "publish the Halloween update", "s1")
         self.assertIsNotNone(fid)
-        # Fluid chat (#46): the Zip leaves the site alone but keeps doing the rest of what was asked.
         self.assertIn("finish any part of the request that does not need it", said)
         self.assertNotIn("Stop working on this now", said)
         again, said2 = signin.ask("clients", "https://app.netlify.com/login", "publish", "s1")
-        self.assertIsNone(again)                                   # already asked
+        self.assertIsNone(again)
         self.assertEqual(len(self.cards()), 1)
 
         async def go():
             signin.loop = asyncio.get_running_loop()
-            await asyncio.to_thread(signin.resolve, "clients", fid, "signed_in")   # from a worker thread, as in the app
+            await asyncio.to_thread(signin.resolve, "clients", fid, "signed_in")
             for _ in range(50):
                 if self.notes:
                     break
@@ -90,7 +89,7 @@ class SignInCards(unittest.TestCase):
         self.assertIn("Do not sign in there", self.notes[0][1])
         self.assertFalse(consent.db().execute("SELECT 1 FROM requests WHERE status='allowed'").fetchone())
         fid2, _ = signin.ask("clients", "https://app.netlify.com/login", "publish", "s1")
-        self.assertIsNotNone(fid2)                                 # a new ask is allowed after closing
+        self.assertIsNotNone(fid2)
 
     def test_resumed_reply_is_pushed_as_urgent(self):
         """H2: the answer after Save Login or Sign In Myself used to land in the chat without a notification."""
@@ -116,7 +115,7 @@ class FollowUpPass(unittest.TestCase):
 
     def test_follow_up_turn_reopens_and_recloses_the_request(self):
         self.plugin.open_pass("message", "what is due in School?", bot_id="school", session_id="chat-1")
-        consent.close_message_passes("chat-1")                     # his turn ended
+        consent.close_message_passes("chat-1")
         self.assertIsNone(self.plugin.live_pass(session_id="chat-1"))
         seen = {}
 
@@ -127,7 +126,7 @@ class FollowUpPass(unittest.TestCase):
         asyncio.run(turns.run_internal("school", "[Hub note] Colin allowed it.", continues="chat-1"))
         self.assertIsNotNone(seen["pass"])
         self.assertEqual(seen["pass"]["text"], "what is due in School?")
-        self.assertIsNone(self.plugin.live_pass(session_id="chat-1"))   # closed again afterwards
+        self.assertIsNone(self.plugin.live_pass(session_id="chat-1"))
         asyncio.run(turns.run_internal("school", "[Board update] something finished"))
         self.assertIsNone(self.plugin.live_pass(session_id="chat-1"))
 

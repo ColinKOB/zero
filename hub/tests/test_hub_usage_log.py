@@ -38,7 +38,7 @@ class HubCallsAreLogged(unittest.TestCase):
         usage.log_cli("hub-calcache-trello", None, "claude-haiku-5-5", time.monotonic())
         self.assertFalse(self.records[0]["ok"])
         with mock.patch.object(usage, "write", side_effect=OSError("disk full")):
-            usage.log_cli("hub-x", {}, "m", time.monotonic())   # no exception
+            usage.log_cli("hub-x", {}, "m", time.monotonic())
 
     def test_the_origin_is_the_module_that_asked_even_through_wait_for(self):
         async def ask():

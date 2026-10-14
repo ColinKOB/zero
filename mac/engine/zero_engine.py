@@ -30,19 +30,12 @@ from pathlib import Path
 
 HUB_PORT = 8650
 API_PORT = 8642
-LAN_PORT = 8653   # TLS on the Wi-Fi (tls_proxy.py); the hub itself stays on 127.0.0.1
+LAN_PORT = 8653
 HOME_ID = "mac"
-# Off on a Mac for this first version: the terminal and code runner have no sandbox here yet (Hermes's local
-# backend can reach the whole account), and the browser and screen tools need the per-Zip browser and desktop that
-# the packaging plan builds later. Everything else a Zip has on alien stays.
 MAC_OFF = {"terminal", "code_execution", "computer_use", "browser"}
 SEARCH_DIRS = ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin", "~/.npm-global/bin",
                "~/.bun/bin", "~/.volta/bin", "/usr/bin"]
 
-
-# ---------------------------------------------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------------------------------------------
 
 class Ctx:
     def __init__(self, a):
@@ -167,10 +160,6 @@ def full_name() -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# The AI sign-ins
-# ---------------------------------------------------------------------------------------------------------------
-
 def find_tool(name: str, home: Path) -> str | None:
     for d in SEARCH_DIRS:
         p = Path(d.replace("~", str(home), 1)) / name
@@ -250,10 +239,6 @@ def hermes_has_codex(ctx: Ctx) -> bool:
     return bool((data.get("providers") or {}).get("openai-codex") or (data.get("credential_pool") or {}).get("openai-codex"))
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Rendering the home
-# ---------------------------------------------------------------------------------------------------------------
-
 def settings_for(ctx: Ctx, ports: dict, ai: dict, existing: dict) -> dict:
     """home.json for this Mac. Paths, ports, host and plan are the engine's and are rewritten on every install; the
     person, locale, mail, calendars and anything the app or the hub saved are kept."""
@@ -285,7 +270,6 @@ def settings_for(ctx: Ctx, ports: dict, ai: dict, existing: dict) -> dict:
                  "frugal": True, "brain": which},
         "integrations": {"tally": None, "trello": None, "whisper_url": None},
         "judge": {"enabled": False},
-        # No Apple push key on a person's Mac: the phone reads its chats when it is open on the same Wi-Fi.
         "push": {"key_dir": str(ctx.root / "push"), "team_id": None, "topic": "com.example.Taffy"},
         "backup": {"repo": str(ctx.root / "backups"), "drop": None, "mac_copy_expected": False},
         "zips": {"max": 4, "container_memory_mb": None},
@@ -312,10 +296,8 @@ def render_config(ctx: Ctx, L, settings: dict, ai: dict) -> None:
     existing = L.load_yaml(path.read_text()) if path.exists() else None
     cfg = L.render_profile_config(settings, ctx.home, "default", None, False, existing or None)
     T = toolsets(ctx)
-    # The terminal block for a Mac: Hermes's local backend, started in the lead's work folder. The terminal
-    # toolset itself is off (MAC_OFF), so this only matters to tools that ask where they are.
     cfg["terminal"] = {"backend": "local", "home_mode": "real", "cwd": str(ctx.work / "default")}
-    cfg.pop("bot_desktop", None)          # the Linux desktop for a Zip's screen; not on a Mac
+    cfg.pop("bot_desktop", None)
     cfg["browser"] = {"headed": False, "restrict_evaluate": True, "allow_private_urls": False}
     lists = T.lists(True, "default")
     cfg["platform_toolsets"] = {k: [t for t in v if t not in MAC_OFF] for k, v in lists.items()}
@@ -384,8 +366,6 @@ def render_agents(ctx: Ctx, settings: dict, ai: dict) -> None:
            "PATH": agent_path(ctx, ai), "PYTHONUNBUFFERED": "1", "LANG": "en_US.UTF-8"}
     gw = plist(ctx, "gateway", [str(ctx.venv / "bin" / "hermes"), "gateway", "run"], env)
     hub_env = dict(env, PYTHONPATH=f"{ctx.hub_src}:{ctx.hermes_src}")
-    # The hub listens on 127.0.0.1 only, for the Mac app. The Wi-Fi reaches it through tls_proxy.py, which serves
-    # TLS with this home's own certificate (pinned by the phone), so nothing crosses the Wi-Fi in the clear.
     hub = plist(ctx, "hub", [str(ctx.venv / "bin" / "python"), "-m", "uvicorn", "taffy_hub.app:app",
                              "--host", "127.0.0.1", "--port", str(settings["ports"]["hub"]), "--no-access-log",
                              "--ws", "websockets"], hub_env)
@@ -422,7 +402,6 @@ def cmd_render(ctx: Ctx, shared_src: Path) -> int:
     write(ctx.settings_file, json.dumps(settings, indent=2) + "\n", 0o644)
     os.environ["ZERO_HOME"] = str(ctx.settings_file)
 
-    # The plugins Hermes loads: the taffy-tools plugin and the Claude plan plugin, linked from the engine folder.
     for name in ("taffy-tools", "claude-subscription-directsdk-experimental"):
         link = ctx.hermes_home / "plugins" / name
         target = ctx.engine / "plugins" / name

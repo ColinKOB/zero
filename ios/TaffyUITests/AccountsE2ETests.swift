@@ -35,7 +35,7 @@ final class AccountsE2ETests: XCTestCase {
 
     func testSignUpLogOutSignIn() {
         let config = E2EConfig.current
-        guard config.mode == .account else { return }   // needs a front door; skipped in the other modes
+        guard config.mode == .account else { return }
         run = OnboardingRun(app: app, config: config, test: self, shotsSubdir: "accounts")
         run.note("account \(config.username)")
         app.launch()
@@ -43,7 +43,6 @@ final class AccountsE2ETests: XCTestCase {
 
         logOut("first")
 
-        // Back in with the username and password.
         let signIn = app.buttons["signInWithPassword"]
         run.require(signIn.waitHittable(15), "the sign-in screen has no Sign In button after logging out")
         signIn.tap()
@@ -72,7 +71,6 @@ final class AccountsE2ETests: XCTestCase {
 
         logOut("second")
 
-        // The pairing code way in is still there.
         let code = app.buttons["signInWithCode"]
         run.require(code.waitHittable(10), "the sign-in screen has no pairing code option")
         code.tap()
@@ -85,7 +83,6 @@ final class AccountsE2ETests: XCTestCase {
 
     private func logOut(_ which: String) {
         dismissSystemAlerts(timeout: 2)
-        // The onboarding ends in the lead's chat; back to the home screen first.
         for _ in 0..<3 where !app.buttons["Settings"].exists && app.buttons["Back"].exists {
             app.buttons["Back"].firstMatch.tap()
             pause(1)
@@ -102,7 +99,6 @@ final class AccountsE2ETests: XCTestCase {
         run.require(logOut.isHittable, "Settings has no Log Out")
         run.shots.take("settings-log-out-\(which)")
         logOut.tap()
-        // The confirmation's own Log Out (not the Settings row, whose identifier is logOut).
         let confirm = app.buttons.matching(NSPredicate(format: "label == 'Log Out' AND identifier != 'logOut'")).firstMatch
         run.require(confirm.waitHittable(8), "Log Out: no confirmation")
         run.shots.take("log-out-confirm-\(which)")

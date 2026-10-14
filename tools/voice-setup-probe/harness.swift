@@ -22,7 +22,6 @@ let seconds = Double(opts["seconds"] ?? "90") ?? 90
 let autopilot = flags.contains("autopilot")
 let practiceKey = "AQ.Zero-Practice-Key-Not-Real-00000000000000000000000"
 
-// Keep whatever is on the clipboard and put it back at the end.
 let pb = NSPasteboard.general
 let savedClipboard: [[(NSPasteboard.PasteboardType, Data)]] = (pb.pasteboardItems ?? []).map { item in
     item.types.compactMap { t in item.data(forType: t).map { (t, $0) } }
@@ -42,7 +41,6 @@ var done = Set<String>()
 
 @MainActor func shoot(_ name: String) {
     let g = VoiceGuide.shared
-    // The browser window only, so nothing else on the screen ends up in the picture.
     guard let r = g.debugWindowFrame ?? cardWindow() else { return }
     shotCount += 1
     let file = shots.appendingPathComponent(String(format: "%02d-%@.png", shotCount, name)).path
@@ -111,7 +109,6 @@ MainActor.assumeIsolated {
         let type = event["type"] as? String ?? "?"
         if type == "key", let key = event["key"] as? String {
             print("key received,", GeminiKeyPattern.ending(key) + ",", "is the practice key:", key == practiceKey)
-            // One last picture: the overlay is gone and Zero would come forward.
             finish(key == practiceKey ? 0 : 3)
         }
         print("event", type, event["id"] as? String ?? "")

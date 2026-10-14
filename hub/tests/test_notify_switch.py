@@ -40,7 +40,7 @@ class Setting(unittest.TestCase):
         store.set_notify("builder", False)
         self.assertFalse(store.notify_on("builder"))
         self.assertTrue(store.notify_on("career"))
-        store.set_notify("builder", False)   # twice is the same as once
+        store.set_notify("builder", False)
         store.set_notify("money", False)
         self.assertEqual(store.get_setting("notify_off_bots"), ["builder", "money"])
         store.set_notify("builder", True)
@@ -58,7 +58,6 @@ class Setting(unittest.TestCase):
 
 class Pushes(unittest.TestCase):
     def setUp(self):
-        # Never the live calendar: a real shift on it held these test notifications (Oct 10, 9 a.m.).
         from taffy_hub import notices as _notices
         real_busy = _notices.busy_block
         _notices.busy_block = lambda t=None: None
@@ -93,7 +92,7 @@ class Pushes(unittest.TestCase):
     def test_off_wins_over_urgent_but_not_for_the_system(self):
         store.set_notify("default", False)
         self.assertFalse(self.push("Zero", "Here is what you asked for.", "default", urgent=True))
-        self.assertTrue(self.push("Zero", "Your Zips stopped answering.", urgent=True))   # health: no Zip named
+        self.assertTrue(self.push("Zero", "Your Zips stopped answering.", urgent=True))
         self.assertEqual(self.sent, ["Zero"])
 
     def test_a_group_goes_out_unless_every_zip_in_it_is_off(self):
@@ -118,7 +117,7 @@ class Pushes(unittest.TestCase):
         self.assertEqual([h["title"] for h in store.get_setting("held_pushes")], ["Career finished"])
         watcher._night = lambda: False
         asyncio.run(watcher.send_morning_digest())
-        self.assertEqual(self.sent, ["Career finished"])   # one held item goes out as itself (Oct 10)
+        self.assertEqual(self.sent, ["Career finished"])
 
     def test_mute_and_snooze_still_work_with_the_switch_on(self):
         store.set_setting("muted_bots", ["money"])
@@ -162,7 +161,7 @@ class Cards(unittest.TestCase):
         plugin.request("school", "elearning.lakeview.test", "what is due?", None, None, why="mismatch")
         plugin.request("career", "linkedin.com", "check messages", None, None, why="mismatch")
         asyncio.run(watcher.scan_consent())
-        self.assertEqual(len(self.titles()), 2)   # both cards are in the app
+        self.assertEqual(len(self.titles()), 2)
         self.assertEqual([t for t in self.sent if "linkedin" in t], self.sent)
         self.assertEqual(len(self.sent), 1)
 
@@ -189,12 +188,12 @@ class Endpoint(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         _fresh_store(tmp)
         config.HERMES_HOME = tmp / "hermes"
-        for b in (config.BUILTIN + config.OWNER_ZIPS):   # a bot whose profile is missing drops out of the team
+        for b in (config.BUILTIN + config.OWNER_ZIPS):
             (config.HERMES_HOME / "profiles" / b.id).mkdir(parents=True, exist_ok=True)
         config.NAMES = tmp / "bot-names.json"
         config.REGISTRY = tmp / "bots.json"
         config.LOOKS = tmp / "bot-looks.json"
-        config.migrate_registry()   # the team from the registry, as in any home (not only the owner's)
+        config.migrate_registry()
         config.reload_bots = _real_reload
         config._registry_mtime = None
         config.reload_bots()
@@ -239,7 +238,7 @@ class Endpoint(unittest.TestCase):
 
     def test_it_survives_a_restart_of_the_hub(self):
         self.client.put("/api/bots/money/notify", json={"on": False}, headers=self.phone)
-        store._local.conn = None   # a new connection to the same file, as after a restart
+        store._local.conn = None
         store._schema_ready = False
         self.assertFalse(self.listed(self.phone)["money"])
 

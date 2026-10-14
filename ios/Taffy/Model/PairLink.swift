@@ -12,7 +12,6 @@ struct PairLink: Equatable {
 
     static func parse(_ text: String) -> PairLink? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A link pasted with words around it.
         let candidate: String = {
             guard let r = trimmed.range(of: "zero://", options: .caseInsensitive) else { return trimmed }
             return String(trimmed[r.lowerBound...].prefix { !$0.isWhitespace })

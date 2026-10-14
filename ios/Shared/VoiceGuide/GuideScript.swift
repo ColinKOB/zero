@@ -1,12 +1,5 @@
 import Foundation
 
-// The guided setup's step script. Shared by the app (which shows the steps in its own window) and the Mac
-// bridge (which finds each target in the person's browser and draws the spotlight over it).
-//
-// Targets are found by what a person can see: the button's words, its accessible label, or a stable page id.
-// Every target lists several wordings, so a renamed button ("Get API key" to "API keys") still matches.
-// Nothing here clicks for the person. Zero only points.
-
 /// One thing on the page to point at.
 struct GuideTarget: Sendable {
     /// Words on the element or its accessible label, normalized and compared case-insensitively.
@@ -145,7 +138,6 @@ extension GuideScript {
                     targets: [createTarget],
                     pages: studioPages,
                     doneWhen: .any([.textPresent(["Name your key", "Create a new key", "Choose a project", "Choose an imported project"]), .keyFound]),
-                    // A key is already listed, so there is nothing to make.
                     skipWhen: .any([.present(copyTarget), .textPresent(["Default Gemini API Key"])])),
                 GuideStep(
                     id: "create-confirm",

@@ -35,10 +35,10 @@ from . import config, home, store
 log = logging.getLogger("taffy.notify")
 
 TARGET = 90    # what Haiku is asked for: an unlocked banner shows about two lines (95 characters), the lock screen more
-LIMIT = 120    # what any line may be; Colin's own example ran 117 characters
+LIMIT = 120
 
-HAIKU_DAILY = 40          # rewrites and buzz checks a day on the home's own plan
-HAIKU_DAILY_FRUGAL = 15   # a home on a shared plan spends someone else's limits (home.json `plan.frugal`)
+HAIKU_DAILY = 40
+HAIKU_DAILY_FRUGAL = 15
 _COUNT = "notify_haiku_count"
 _BUZZED = "notify_buzzed"
 
@@ -105,7 +105,6 @@ def plain(text: str) -> str:
         lines.append(line.replace(" | ", ", "))
     if items:
         lines.append("; ".join(items) + ".")
-    # A heading or a label line ("Spending:") runs into the next one as a sentence.
     out = ""
     for line in lines:
         if out and not out.endswith((".", "!", "?", ":", ";", ",")):
@@ -116,7 +115,6 @@ def plain(text: str) -> str:
     return re.sub(r"\s+", " ", out).strip()
 
 
-# Abbreviations that end with a period without ending the sentence.
 _ABBR = re.compile(r"(?:\b(?:a\.m|p\.m|e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr|St|Sr|Jr|Inc|Co|No|approx|U\.S|"
                    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)"
                    r"|(?:^|(?<=\s))[A-Z])\.$")
@@ -217,7 +215,7 @@ def _spend() -> None:
 def _haiku_ok() -> bool:
     from . import apns
     if ask_haiku is _REAL_ASK and apns._under_tests():
-        return False   # never a real model call from the test suite
+        return False
     try:
         from . import health
         if not health.status.get("claude", True):
@@ -384,7 +382,6 @@ def _remember_buzz(bot_id: str, job: str, key: str, line_: str) -> None:
     allv = store.get_setting(_BUZZED, {}) or {}
     items = _buzzed(bot_id, job) + [{"key": key, "line": line_[:200], "at": time.time()}]
     allv[f"{bot_id}:{job}"] = {"week": _week(), "items": items[-20:]}
-    # Only this week's entries are worth keeping.
     allv = {k: v for k, v in allv.items() if (v or {}).get("week") == _week()}
     store.set_setting(_BUZZED, allv)
 
@@ -467,7 +464,6 @@ async def judge_report(bot_id: str, job: str, text: str, script: bool = False) -
                 ln = fit(body)
             _remember_buzz(bot_id, job, key, ln)
             return {"buzz": True, "line": ln, "kind": "needs", "reason": out["reason"], "key": key}
-    # No Haiku: a script watch speaks only when it found something; an agent's report only for plain urgency.
     if script or URGENT.search(body):
         key = _key(body)
         if any(b["key"] == key for b in seen):

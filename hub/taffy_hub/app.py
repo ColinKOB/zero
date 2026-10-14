@@ -22,10 +22,6 @@ log = logging.getLogger("taffy.hub")
 logging.getLogger("httpx").setLevel(logging.WARNING)   # every poll was logged, session ids included
 
 
-# The hub's background loops: the board watcher, the SOUL.md and USER.md sync with the chat refresh, the health
-# and account checks and the call logs. Tests turn them off (tests/test_onboarding.py `_load_app`): a test that
-# entered the app's lifespan ran them against the live home with the test's settings, rewriting every Zip's SOUL.md
-# until the hub put it back (Oct 9, about 65 rewrites; docs/qa/2026-10-09-loose-ends.md).
 BACKGROUND = True
 
 
@@ -33,11 +29,11 @@ BACKGROUND = True
 async def lifespan(app: FastAPI):
     signin.loop = asyncio.get_running_loop()
     store.db()
-    if BACKGROUND:   # the running hub reads the Zips' chats and spends Haiku; a test never does (it turns them on)
+    if BACKGROUND:
         from . import extract
         extract.ENABLED = voice.CONTEXT_ON = True
         from . import teamvoice
-        teamvoice.ENABLED = True   # Zip-to-Zip messages get a plain version for the chat
+        teamvoice.ENABLED = True
     tasks = [asyncio.create_task(watcher.run()), asyncio.create_task(team.keep_souls_current()),
              asyncio.create_task(health.run()), asyncio.create_task(accounts.run()),
              asyncio.create_task(calllog.run()), asyncio.create_task(usage.run()),
@@ -53,7 +49,6 @@ async def _watch_orders():
     await extract.watch_orders()
 
 
-# No /docs, /redoc or /openapi.json: the hub's API listing stays off the Wi-Fi and the tailnet, like the front door's.
 app = FastAPI(title="Taffy hub", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -84,7 +79,7 @@ _pair_lock = __import__("threading").Lock()
 
 @app.post("/api/pair")
 def pair(body: PairBody):
-    with _pair_lock:   # requests run in parallel threads; the limit must hold for a burst too
+    with _pair_lock:
         now = time.time()
         _pair_failures[:] = [t for t in _pair_failures if now - t < 600]
         if len(_pair_failures) >= 10:
@@ -180,7 +175,6 @@ async def _last_message(bot_id: str) -> tuple[str | None, float | None]:
     except Exception:
         return (cached[1], cached[2]) if cached else (None, None)
     result: tuple[str | None, float | None] = (None, None)
-    # The same rule as the chat (history.py): hidden turns and their replies never become the preview.
     shown = [m for m in shortreply.apply(bot_id, history.visible(msgs)) if m["class"] in ("colin", "bot", "board_reply")]
     if shown:
         m = shown[-1]
@@ -205,7 +199,7 @@ async def bots(_: str = Depends(require_device)):
         l = load.get(b.id, {"working": 0, "needs_you": 0})
         f = await asyncio.to_thread(store.latest_feed_for, b.id)
         if f and f["kind"] in ("choices", "login", "account", "mac_ask") and '"state": "open"' not in (f["body"] or ""):
-            f = None   # an answered or dismissed card is not news
+            f = None
         if f and (ts is None or f["created_at"] > ts):
             if f["kind"] == "call":
                 try:
@@ -218,7 +212,6 @@ async def bots(_: str = Depends(require_device)):
             elif f["kind"] == "choices":
                 first = f["title"] or "Asked you to pick"
             elif f["kind"] == "login":
-                # Oct 8: the preview showed the card's raw JSON.
                 try:
                     site = json.loads(f["body"] or "{}").get("site") or ""
                 except ValueError:
@@ -235,8 +228,6 @@ async def bots(_: str = Depends(require_device)):
             else:
                 first = ("Sent a picture: " + (f["title"] or "")) if f["kind"] == "image" else \
                     ((f["body"] or "").split("\n\n")[-1].strip() or (f["title"] or ""))
-            # Bots talking to each other, or a bot's Mac line, can show as the preview but never move the bot
-            # up Colin's list: nothing happened for him.
             preview = " ".join(first.split())[:140]
             if f["kind"] not in ("team", "mac", "mac_ask"):
                 ts = f["created_at"]
@@ -260,8 +251,6 @@ async def bot_messages(bot_id: str, _: str = Depends(require_device)):
         msgs = await hermes.messages(bot_id)
     except Exception:
         raise HTTPException(503, "Could not load this conversation right now.")
-    # A reply shown short (shortreply.py) has `display` short and `full` as written; the app offers Show Full Reply.
-    # A reply the backup model gave has `backup` true (hermes.mark_backup); the app marks it quietly.
     return {"messages": hermes.mark_backup(bot_id, shortreply.apply(bot_id, history.classify(msgs))),
             "busy": turns.is_busy(bot_id),
             "reactions": store.reactions_for(bot_id)}
@@ -309,12 +298,12 @@ class ReplyTo(BaseModel):
 
 class SendBody(BaseModel):
     text: str
-    reply_to: ReplyTo | None = None   # the message the person swiped or chose Reply on (history.reply_line)
+    reply_to: ReplyTo | None = None
 
 
 def _sse(turn: turns.Turn):
     async def gen():
-        yield f"data: {json.dumps({'type': 'turn', 'id': turn.id})}\n\n"   # lets the app reattach to this one
+        yield f"data: {json.dumps({'type': 'turn', 'id': turn.id})}\n\n"
         async for ev in turn.follow():
             if ev is None:
                 yield ": keepalive\n\n"
@@ -340,8 +329,8 @@ async def send_message(bot_id: str, body: SendBody, authorization: str | None = 
             raise HTTPException(400, "That reply can't be sent.")
         reply_to = {"text": body.reply_to.text[:20000], "who": body.reply_to.who}
     device = looking.key(authorization)
-    looking.saw(device)   # it is on screen now; a reply after it leaves goes out as a notification (looking.py)
-    return _sse(turns.send(bot_id, text, reply_to=reply_to, device=device))   # waits its turn if the bot is busy
+    looking.saw(device)
+    return _sse(turns.send(bot_id, text, reply_to=reply_to, device=device))
 
 
 @app.get("/api/bots/{bot_id}/turn")
@@ -371,8 +360,6 @@ def bot_activity(bot_id: str, _: str = Depends(require_device)):
             continue
         if card.get("state") != "open":
             continue
-        # `waiting`: the Zip is paused on this card now (signin.waiting). An older card stays usable in the chat but
-        # never marks the Zip as paused. The reason speaks to the person, even on cards from before that rule.
         card["waiting"] = signin.waiting(it, said)
         if card.get("why"):
             card["why"] = who.to_you(card["why"])
@@ -502,8 +489,8 @@ def checkins(_: str = Depends(require_device)):
 
 class SettingsBody(BaseModel):
     muted_bots: list[str] | None = None
-    save_call_transcripts: bool | None = None     # calllog.py; on unless Colin turns it off
-    keep_replies_short: bool | None = None        # shortreply.py; on unless the person turns it off
+    save_call_transcripts: bool | None = None
+    keep_replies_short: bool | None = None
 
 
 def _settings() -> dict:
@@ -533,7 +520,7 @@ def feed(after: int = 0, changed_after: float = 0, authorization: str | None = H
          _: str = Depends(require_device)):
     """New feed items, plus the bots whose existing items changed since `changed_after` (the hub's own
     `time` from the previous poll), such as the live "is using your Mac" line."""
-    looking.saw(looking.key(authorization))   # the app is on screen (looking.py)
+    looking.saw(looking.key(authorization))
     items, more = store.feed_since(after)
     now = time.time()
     changed = store.feed_changed_bots(changed_after) if changed_after else []
@@ -639,8 +626,8 @@ class LoginBody(BaseModel):
     identifier_type: str = "email"
     password: str
     otp_secret: str | None = None
-    task_id: str | None = None   # the sign-in request this answers, if any
-    request_id: int | None = None   # a chat's sign-in card (signin.py)
+    task_id: str | None = None
+    request_id: int | None = None
 
 
 @app.get("/api/logins")
@@ -668,14 +655,12 @@ def save_login(body: LoginBody, _: str = Depends(require_device)):
     warning = None
     resumed: list[str] = []
     if body.request_id:
-        # The card belongs to one Zip; Colin may have ticked others too, in any order (the app sends a set).
         owner = signin.card_owner(body.request_id)
         try:
             signin.resolve(owner if owner in bots else bots[0], body.request_id, "saved")
         except signin.AskError:
             warning = "The login is saved, but that request had already moved on."
     if not body.task_id and not body.request_id:
-        # Saved from Settings: any bot already waiting to sign in to this site picks back up.
         site = consent.site_of(url)
         for tid in board.waiting_signins(site, bots):
             t = board.get_task(tid) or {}
@@ -685,7 +670,6 @@ def save_login(body: LoginBody, _: str = Depends(require_device)):
             if ok:
                 resumed.append(tid)
     if body.task_id:
-        # Save Login on a sign-in card is the go-ahead to use it for that request.
         for b in bots:
             consent.allow_now(b, url, "You saved a login for this request", task_id)
         ok, _ = board.answer_block(task_id,
@@ -710,7 +694,7 @@ class SignInBody(BaseModel):
 def start_signin(bot_id: str, body: SignInBody, _: str = Depends(require_device)):
     """One tap from the app: wake the bot's computer, open the site and hand Colin control."""
     _bot(bot_id)
-    url = validate.secure_url(body.url)   # Colin types a password on this page, so https only
+    url = validate.secure_url(body.url)
     if not screen.status(bot_id)["running"]:
         ok, out = screen.start(bot_id)
         if not ok:
@@ -728,7 +712,7 @@ def start_signin(bot_id: str, body: SignInBody, _: str = Depends(require_device)
 
 class SignedInBody(BaseModel):
     task_id: str | None = None
-    request_id: int | None = None   # a chat's sign-in card (signin.py)
+    request_id: int | None = None
     site: str | None = None
     declined: bool = False
 
@@ -738,8 +722,6 @@ def finish_signin(bot_id: str, body: SignedInBody, _: str = Depends(require_devi
     _bot(bot_id)
     screen.hand_back(bot_id)
     if not body.declined and body.site:
-        # The bot's browser now holds a session Colin signed in himself, so later visits are gated like a
-        # saved login: only on his request, his Allow, or the site's Anytime setting.
         site = consent.site_of(validate.short(body.site, 200, "site") or "")
         if site:
             consent.mark_signed_in(bot_id, site)
@@ -761,8 +743,8 @@ def finish_signin(bot_id: str, body: SignedInBody, _: str = Depends(require_devi
 
 class AppErrorBody(BaseModel):
     screen: str                 # "take_over", "save_login", "computer_card", "sign_in_screen"
-    message: str                # the sentence the app showed
-    detail: str = ""            # what failed underneath: an HTTP status or a network error code
+    message: str
+    detail: str = ""
     bot_id: str | None = None
 
 
@@ -779,7 +761,7 @@ def app_error(body: AppErrorBody, device: str = Depends(require_device)):
         return {"ok": False}
     _app_errors.append(now)
 
-    def clean(s, n):   # one line, no addresses with tickets or other query strings
+    def clean(s, n):
         return re.sub(r"\?\S*", "", " ".join(str(s or "").split()))[:n]
     log.warning("app error on %s for %s (%s): %s [%s]", clean(body.screen, 40), clean(body.bot_id, 40) or "-",
                 clean(device, 80), clean(body.message, 300), clean(body.detail, 300) or "no detail")
@@ -822,7 +804,7 @@ def card_origin(r: dict, why: str) -> str | None:
     if teammate:
         return f"This came up while {name} was answering a teammate's question."
     if why == "scheduled":
-        return None   # the app's own "during scheduled work"
+        return None
     if stray_session(r.get("bot_id") or "", r.get("session_id")):
         return f"This came up in a run outside the app, not in your chat with {name}."
     return f"This came up outside your chat with {name}."
@@ -839,13 +821,10 @@ def _signin_requests() -> list[dict]:
                     "kind": kind, "excerpt": r.get("excerpt") or None,
                     "sensitive": consent.is_sensitive(r["site"]) if kind in ("signin", "navigate") else False}
             if kind not in ("signin", "navigate"):
-                # An action card: exactly what will be sent, published or deleted, and whether a standing rule
-                # may cover it (one recipient, one routine).
                 item.update(target=r.get("target") or "", inputs=r.get("inputs") or "",
                             can_always=bool(r.get("scope")), scope=r.get("scope") or "",
                             details=r.get("details") or None, routine_name=r.get("routine_name") or None)
                 if r.get("ask_rule"):
-                    # Something the Zip would just do, paused by one of Colin's Ask First rules (Custom Rules).
                     rule = consent.get_rule(r["ask_rule"])
                     item["paused_by"] = rule_sentence(rule) if rule else "An Ask First rule you removed."
             out.append(item)
@@ -876,16 +855,12 @@ async def decide_signin(req_id: int, body: DecisionBody, _: str = Depends(requir
     kind = r.get("kind") or "signin"
     confirmation = None
     if allow and body.decision == "always" and not r.get("test"):
-        # The standing yes Colin just gave, in the words Custom Rules uses (Grok Bot's "Allowed from now on").
         if kind in ("signin", "navigate"):
             confirmation = f"{name} can sign in to {r['site']} without asking."
         elif r.get("scope") and kind in consent.RULE_KINDS:
             made = consent.rule_for(r["bot_id"], kind, r["scope"])
             confirmation = rule_sentence(made) if made else None
     if kind == "command":
-        # A command the Zip is waiting on right now: the answer goes straight to it (approvals.py, round 3 M6). If
-        # Hermes already stopped waiting, it told the Zip to stop and wait for Colin, so his answer picks the
-        # conversation back up, as sign-in cards do (round 4, L5).
         waiting = await approvals.decide(r, allow)
         later = ""
         if not waiting and r.get("session_id"):
@@ -924,21 +899,11 @@ async def decide_signin(req_id: int, body: DecisionBody, _: str = Depends(requir
         if not ok:
             board.comment(r["task_id"], note)
     elif not action and r.get("session_id") and team.in_team_session(r["session_id"]):
-        # A sign-in card from answering a teammate (Oct 9): the Zip already answered with what it had. On Allow it
-        # finishes in its team session, where Allow Once applies, and the asker gets the rest; resuming Colin's chat
-        # would sign in from the wrong conversation and raise the card again.
         if allow:
             asyncio.create_task(team.finish_after_signin(r["bot_id"], r["site"], r.get("created") or time.time()))
     elif stray_session(r["bot_id"], r.get("session_id")):
-        # A card from a conversation the hub does not run (a test run from Hermes's command line, a one-off
-        # session): the answer is recorded, and nothing is resumed. Resuming went into Colin's chat, where Career
-        # said "nothing will get pushed to main" about a push Colin had never heard of (Oct 8, 7:40 p.m.).
         pass
     elif why != "scheduled" and not r.get("routine"):
-        # A chat request: pick the conversation back up either way, so the answer (or what the bot could not
-        # check) arrives without Colin asking again. Scheduled work is not resumed in his chat: its card belongs to
-        # the job, whose next run uses the answer (Oct 8 QA round 2, M4). Only a card from something he asked for
-        # is pushed past quiet hours (L6): an action card says so in `why`; a sign-in card quotes his request.
         asked = why == "asked" or (not action and why in ("mismatch", "sensitive", "ask", "content")
                                    and bool(r.get("reason")))
         asyncio.create_task(turns.follow_up(r["bot_id"], f"{who.hub_note()} {note}",
@@ -968,7 +933,6 @@ def _permission_rows() -> list[dict]:
             seen.add(key)
             rows.append(key)
     with consent.db() as c:
-        # Sites Colin signed a Zip in to by hand (Sign In Myself) are listed too (Oct 8 QA, M5).
         for r in c.execute("SELECT bot_id, site FROM signed_in"):
             key = (r["bot_id"], r["site"])
             if key not in seen and not any(b == key[0] and consent.base(x) == key[1] for b, x in seen):
@@ -983,7 +947,7 @@ def _permission_rows() -> list[dict]:
             for b, site in rows if b in config.BOTS_BY_ID]
 
 
-RULE_STALE_SEC = 60 * 86400   # an Always Allow rule unused this long is shown as "still needed?"
+RULE_STALE_SEC = 60 * 86400
 
 
 def _routine_name(bot_id: str, job_id: str, source: str) -> str:
@@ -1052,7 +1016,6 @@ def _custom_rule_rows(bot_id: str | None = None) -> list[dict]:
                     "what": r["kind"].removeprefix(consent.ASK_RULE_PREFIX) if ask else None,
                     "where": r["scope"] if ask else None,
                     "created_at": r["created"], "last_used": r.get("last_used"), "uses": r.get("uses") or 0,
-                    # An Ask First rule never goes stale: it costs nothing until it pauses something.
                     "stale": not ask and now - (r.get("last_used") or r["created"]) > RULE_STALE_SEC})
     return out
 
@@ -1169,9 +1132,6 @@ def set_permission(body: PermissionBody, _: str = Depends(require_device)):
 # MARK: Zip templates (the New Zip gallery)
 
 TEMPLATES = config.SHARED_DIR / "zip-templates.json"
-# Which connected accounts each template's Zip uses (ids from accounts.SERVICES). Onboarding offers Connect Google
-# only when a picked Zip uses Gmail, Calendar or Drive (Colin, Oct 8 evening). A "services" list in
-# zip-templates.json wins over this one.
 TEMPLATE_SERVICES = {
     "inbox": ["gmail"],
     "calendar": ["calendar", "gmail"],
@@ -1194,7 +1154,6 @@ def template_services(t: dict) -> list[str]:
     return [str(s) for s in names if isinstance(s, str)][:10]
 
 
-# A service a template can do without (the Daily Brief still briefs with no board).
 TEMPLATE_OPTIONAL = {"brief": {"trello"}}
 
 
@@ -1312,7 +1271,7 @@ def rename_bot(bot_id: str, body: RenameBody, _: str = Depends(require_device)):
         try:
             lines = taffy_soul.read_text().split("\n")
             prefix = f"| `{bot_id}` | "
-            inside = False   # the hub's own team block is rewritten by team.sync_souls, not here
+            inside = False
             for i, l in enumerate(lines):
                 if l.startswith(team.SOUL_START):
                     inside = True
@@ -1335,7 +1294,7 @@ def rename_bot(bot_id: str, body: RenameBody, _: str = Depends(require_device)):
     tmp.replace(config.NAMES)
     config.reload_bots()
     try:
-        team.sync_souls()   # every bot's roster shows the new name right away
+        team.sync_souls()
     except Exception:
         log.warning("team roster sync after rename failed", exc_info=True)
     return {"ok": True, "name": name}
@@ -1371,7 +1330,7 @@ def remove_bot(bot_id: str, _: str = Depends(require_device)):
     try:
         lines = soul.read_text().split("\n")
         out, inside = [], False
-        for l in lines:   # Taffy's own team table; the hub's team block is rebuilt by team.sync_souls
+        for l in lines:
             inside = (inside or l.startswith(team.SOUL_START)) and not l.startswith(team.SOUL_END)
             if inside or not l.startswith(f"| `{bot_id}` |"):
                 out.append(l)
@@ -1454,7 +1413,6 @@ def get_media(media_id: str, _: str = Depends(require_device)):
     from . import safe_files
     media = config.HUB_DIR / "media"
     try:
-        # Only a regular file in the hub's own media folder, never a link to somewhere else (safe_files.py).
         f = safe_files.open_file(str(media / f"{media_id}.jpg"), (media,), protected=None)
     except safe_files.Refused:
         raise HTTPException(404, "That picture is gone.") from None
@@ -1468,7 +1426,7 @@ async def about_me(request: Request, _: str = Depends(require_device)):
     """What Taffy knows about the person and what is already set up, so the welcome never asks twice."""
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
     try:
-        await accounts.check()   # "Your Accounts" lists what really works, not a fixed list
+        await accounts.check()
     except Exception:
         log.warning("accounts check for /api/me failed", exc_info=True)
     return await asyncio.to_thread(profile.summary, host)
@@ -1529,7 +1487,7 @@ def save_onboarding(body: dict, device: str = Depends(require_device)):
         rename_bot("default", RenameBody(name=answers["agent_name"]), device)
         answers["agent_name"] = config.BOTS_BY_ID["default"].name
     if answers["look"]["body"]:
-        try:   # the look picked on the first screen becomes the lead Zip's look
+        try:
             looks.save("default", {"body": answers["look"]["body"], "outfit": answers["look"]["outfit"] or "none"})
         except looks.LookError:
             pass
@@ -1551,7 +1509,7 @@ def get_onboarding(_: str = Depends(require_device)):
 class VoiceStartBody(BaseModel):
     sdp: str
     voice: str | None = None
-    voice_chosen: bool | None = None   # the person just chose `voice` on this device (voice.pick_voice)
+    voice_chosen: bool | None = None
 
 
 @app.post("/api/bots/{bot_id}/voice")
@@ -1562,11 +1520,10 @@ async def voice_start(bot_id: str, body: VoiceStartBody, _: str = Depends(requir
     try:
         call, answer = await voice.start(bot_id, body.sdp, body.voice, chosen=body.voice_chosen)
     except voice.MinutesUsed:
-        raise HTTPException(503, voice.MINUTES_USED)   # not a broken sign-in: the app switches to On-Device Voice
+        raise HTTPException(503, voice.MINUTES_USED)
     except Exception as e:
         log.warning("voice start failed: %s", e)
         health.voice_failed()
-        # A missing Codex or ChatGPT sign-in says what to do; the app shows this sentence (CallEngine).
         raise HTTPException(503, voice.start_error(e))
     return {"call_id": call.id, "sdp": answer, "voice": call.voice}
 
@@ -1593,7 +1550,7 @@ async def voice_events(call_id: str, _: str = Depends(require_device)):
 
 
 class ReadyBody(BaseModel):
-    waited_ms: int | None = None     # from the tap on Call to connected; a long wait gets an honest hello
+    waited_ms: int | None = None
 
 
 @app.post("/api/voice/{call_id}/ready")
@@ -1631,7 +1588,7 @@ async def voice_stop(call_id: str, _: str = Depends(require_device)):
 
 
 class DiagnosticsBody(BaseModel):
-    events: list          # anything that is not an event object is skipped, not the whole batch
+    events: list
 
 
 @app.post("/api/voice/{call_id}/diagnostics")
@@ -1856,7 +1813,7 @@ async def internal_mac(op: str, body: MacBody, _: None = Depends(require_interna
         return {"ok": False, "error": str(e)}
 
 
-_internal_key()   # created at startup so the bots' tools can read it
+_internal_key()
 
 
 # MARK: Choice cards (see choices.py)
@@ -1888,7 +1845,7 @@ def _acknowledge(bot_id: str, card: dict, push: bool = False) -> None:
 class LockBody(BaseModel):
     action: str             # "option:N" (the card's own answer N), "yes", "not_now" or "reply"
     text: str | None = None
-    unlocked: bool = False  # the button asked for Face ID first (a money or health question's answers)
+    unlocked: bool = False
 
 
 @app.post("/api/bots/{bot_id}/choices/{feed_id}/lock")
@@ -1904,7 +1861,7 @@ async def lock_answer(bot_id: str, feed_id: int, body: LockBody, _: str = Depend
     words = card.pop("send", None)
     if words:
         turns.send("default", words)
-    _acknowledge(bot_id, card, push=True)   # answered from the lock screen: the reply comes as a notification
+    _acknowledge(bot_id, card, push=True)
     line = card.pop("open", None)
     if line:
         r = notices.by_feed(feed_id)
@@ -1915,8 +1872,8 @@ async def lock_answer(bot_id: str, feed_id: int, body: LockBody, _: str = Depend
 
 class NotificationReplyBody(BaseModel):
     text: str
-    line: str | None = None       # the notification's own text, which the words answer
-    item_id: int | None = None    # the chat item it came from (a scheduled report), for the whole of it
+    line: str | None = None
+    item_id: int | None = None
 
 
 @app.post("/api/bots/{bot_id}/notification-reply")
@@ -1948,7 +1905,7 @@ async def _tell_reply(turn: turns.Turn, name: str) -> None:
         log.warning("could not follow the reply to a notification", exc_info=True)
         return
     if reply.strip():
-        await watcher.push(name, reply, turn.bot_id, urgent=True, kind="done")   # he is waiting on it
+        await watcher.push(name, reply, turn.bot_id, urgent=True, kind="done")
 
 
 class StopBody(BaseModel):
@@ -2084,7 +2041,7 @@ async def internal_close_card(body: MacBody, _: None = Depends(require_internal)
         req = int(body.args.get("request"))
     except (TypeError, ValueError):
         return {"ok": False, "error": "Give the card's request number."}
-    withdraw = getattr(consent, "withdraw", None)   # the home's plugin may predate close_card
+    withdraw = getattr(consent, "withdraw", None)
     r = withdraw(bot.id, req) if withdraw else None
     if not r:
         return {"ok": False, "error": f"Request {req} is not one of your cards still waiting in this chat."}
@@ -2187,7 +2144,6 @@ async def internal_account_need(body: MacBody, _: None = Depends(require_interna
         return {"ok": True, "result": {"connected": False, "state": accounts.NEEDS_OWN_PLAN,
                                        "message": accounts.no_connectors_message()}}
     if team.in_team_session(body.session_id):
-        # A teammate's question gets no card; the asking Zip hears that the account is missing.
         result = await accounts.check()
         st = accounts.state_of(result, service)
         if not accounts.find(service):
@@ -2226,9 +2182,6 @@ appsapi.install(app, require_device, require_internal)
 
 
 # MARK: Fluid app (Oct 9): Stop, honest status, notification kinds, While You Were Away
-#
-# Evidence rows are from docs/research/2026-10-09-grokbot-dots-user-feedback.md; the app side and the field shapes
-# are in docs/qa/2026-10-09-fluid-app.md.
 
 @app.post("/api/bots/{bot_id}/stop")
 async def stop_turn(bot_id: str, _: str = Depends(require_device)):

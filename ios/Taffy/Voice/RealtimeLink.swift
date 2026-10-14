@@ -82,7 +82,6 @@ final class RealtimeLink: NSObject {
                 if let error { c.resume(throwing: error) } else { c.resume() }
             }
         }
-        // Wait for candidates so the offer can be sent once, but never longer than three seconds.
         if pc.iceGatheringState != .complete {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await withCheckedContinuation { self.gathered = $0 } }

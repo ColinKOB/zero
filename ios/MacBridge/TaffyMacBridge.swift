@@ -81,7 +81,6 @@ final class TaffyMacBridge: NSObject {
         let done: ([String: Any]) -> Void = { r in DispatchQueue.main.async { reply(r as NSDictionary) } }
         let ok: (Any) -> Void = { done(["ok": true, "result": $0]) }
         let fail: (String) -> Void = { done(["ok": false, "error": $0]) }
-        // Distinct code so the hub ends its own copy of the grant instead of telling the bot to carry on.
         let notGranted: () -> Void = {
             done(["ok": false, "code": "not_granted",
                   "error": "\(self.who)'s go-ahead on this Mac has ended (Stop, time, or a dropped connection). Ask again if there is more to do."])
@@ -110,8 +109,6 @@ final class TaffyMacBridge: NSObject {
                 ok(["allowed": allowed, "timed_out": timedOut, "via": self.answeredVia])
             }
         }
-        // Colin's answer from his phone (TaffyMacBridge+Phone.swift): Allow only with a signature from a phone he
-        // trusted on this Mac, over this very request; Not Now closes the card.
         case "grant": DispatchQueue.main.async { self.grantFromPhone(args, ok, fail) }
         case "dismiss": DispatchQueue.main.async {
             if (args["approval_id"] as? String) == self.pendingApproval?.id {
@@ -121,9 +118,9 @@ final class TaffyMacBridge: NSObject {
             ok(true)
         }
         case "approvers": DispatchQueue.main.async { self.phonesSeen(args["keys"] as? [[String: Any]] ?? []); ok(true) }
-        case "flow": DispatchQueue.main.async { self.flow(args, ok, fail) }   // Colin's own mic button, not a bot
-        case "in_use": DispatchQueue.main.async { ok(self.granted) }   // the bar shows when Colin presses Allow
-        case "person": DispatchQueue.main.async {   // the paired person's name, for wording only
+        case "flow": DispatchQueue.main.async { self.flow(args, ok, fail) }
+        case "in_use": DispatchQueue.main.async { ok(self.granted) }
+        case "person": DispatchQueue.main.async {
             self.person = String((args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
             ok(true)
         }
@@ -209,7 +206,7 @@ final class TaffyMacBridge: NSObject {
         if let url = URL(string: target), let scheme = url.scheme?.lowercased(), scheme.count > 1 {
             if scheme == "file" { return openRefusal(url.path) }
             // System Settings links only show a pane; changing anything there still takes a press the bot has to make.
-            if !["http", "https", "maps", "x-apple.systempreferences"].contains(scheme) {   // no mailto, tel or facetime: those reach people
+            if !["http", "https", "maps", "x-apple.systempreferences"].contains(scheme) {
                 return "Links that open other apps (\(scheme):) are not opened for bots."
             }
             return nil
@@ -224,7 +221,6 @@ final class TaffyMacBridge: NSObject {
             }
             return nil
         }
-        // An app by name or bundle id.
         let ws = NSWorkspace.shared
         let appURL = ws.urlForApplication(withBundleIdentifier: target)
             ?? ["/Applications", "/System/Applications", "/Applications/Utilities", "/System/Applications/Utilities"]
@@ -245,9 +241,6 @@ final class TaffyMacBridge: NSObject {
         guard !command.isEmpty else { return fail("No command.") }
         let timeout = min(max(args["timeout"] as? Double ?? 120, 1), 600)
         let p = Process()
-        // Commands run inside a sandbox: they can read and work in Colin's folders, but they cannot touch keys,
-        // passwords, browser data, messages or Taffy's own sign-in, and they can only change files in his work
-        // folders, temporary folders and caches. The hub's command guard is a first check; this is the wall.
         p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
         p.arguments = ["-p", Self.sandboxProfile, "/bin/zsh", "-lc", command]
         p.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -268,7 +261,7 @@ final class TaffyMacBridge: NSObject {
             Thread.sleep(forTimeInterval: 0.05)
             var live = true
             DispatchQueue.main.sync { live = self.grantUntil != nil && self.grantUntil! > Date() }
-            if !live { stopped = true; break }   // Stop or the end of the grant ends the command too
+            if !live { stopped = true; break }
         }
         let timedOut = p.isRunning && !stopped
         if p.isRunning { p.terminate(); Thread.sleep(forTimeInterval: 0.3); if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
@@ -313,9 +306,7 @@ final class TaffyMacBridge: NSObject {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         func paths(_ list: [String]) -> String { list.map { "(subpath \"\(home)/\($0)\")" }.joined(separator: " ") }
         func esc(_ s: String) -> String { NSRegularExpression.escapedPattern(for: s) }
-        // Bots change files only in Downloads, the Desktop and their own work folder, plus caches and temp.
         let writable = ["Downloads", "Desktop", "Taffy Work", "Library/Caches", ".cache", ".npm", ".local/state"]
-        // Dotfiles that shells and common tools need to start; every other dotfile and dot-folder is unreadable.
         let dotAllowed = [".zshrc", ".zprofile", ".zshenv", ".zlogin", ".bashrc", ".bash_profile", ".profile",
                           ".gitconfig", ".gitignore_global", ".cache", ".npm", ".local/state", ".local/share/mise",
                           ".cargo/bin", ".rustup", ".nvm", ".pyenv", ".bun/bin", ".deno/bin", ".CFUserTextEncoding",
@@ -362,7 +353,6 @@ final class TaffyMacBridge: NSObject {
             config.width = Int(CGFloat(display.width) * scale)
             config.height = Int(CGFloat(display.height) * scale)
             config.showsCursor = true
-            // The bot's cursor and the in-use bar are Taffy's own windows; leave them out of what it sees.
             let mine = content.windows.filter { $0.owningApplication?.processID == getpid() }
             let filter = SCContentFilter(display: display, excludingWindows: mine)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
@@ -380,7 +370,7 @@ final class TaffyMacBridge: NSObject {
 
     func needAccessibility(_ fail: (String) -> Void) -> Bool {
         if AXIsProcessTrusted() { return false }
-        offerGuide(.accessibility)   // Zero's own step-by-step guide, instead of macOS's bare prompt
+        offerGuide(.accessibility)
         fail("Zero needs Accessibility permission on the Mac. A setup guide is open on the Mac; \(who) can finish it "
              + "in about a minute, then ask again.")
         return true
@@ -401,7 +391,6 @@ final class TaffyMacBridge: NSObject {
         if needAccessibility(fail) { return }
         guard let x = args["x"] as? Double, let y = args["y"] as? Double else { return fail("Need x and y.") }
         if args["real"] as? Bool ?? false, !realMouseAllowed {
-            // The click is not replayed after Colin answers: by then the screen may have changed.
             return askForMouse { yes in
                 yes ? fail("\(self.who) allowed the real mouse for this task. Take a fresh look and click again.")
                     : fail("\(self.who) said no to using the real mouse. Press elements by number instead.")
@@ -586,7 +575,7 @@ final class TaffyMacBridge: NSObject {
 
     private func label(_ s: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) -> NSTextField {
         let l = NSTextField(wrappingLabelWithString: s)
-        l.preferredMaxLayoutWidth = 380   // long quotes wrap instead of stretching the card across the screen
+        l.preferredMaxLayoutWidth = 380
         l.font = .systemFont(ofSize: size, weight: weight)
         l.textColor = color
         return l
@@ -596,7 +585,6 @@ final class TaffyMacBridge: NSObject {
         dismissApproval(false)
         let bot = args["bot"] as? String ?? "A bot"
         let task = args["task"] as? String ?? ""
-        // "person_said" from hubs that know the person's name; "colin_said" from hubs before homes.
         let said = args["person_said"] as? String ?? args["colin_said"] as? String ?? ""
         answeredVia = "mac"
         if let id = args["approval_id"] as? String {
@@ -623,7 +611,7 @@ final class TaffyMacBridge: NSObject {
         stack.addArrangedSubview(label("Until the task ends, 30 minutes pass, or you press Stop, \(bot) can open things, run commands, see the screen, click and type.",
                                        size: 11, color: .secondaryLabelColor))
         let deny = NSButton(title: "Deny", target: self, action: #selector(denyPressed))
-        deny.keyEquivalent = "\u{1b}"   // Escape denies; nothing on the keyboard allows, so a stray Return cannot
+        deny.keyEquivalent = "\u{1b}"
         let allow = NSButton(title: "Allow", target: self, action: #selector(allowPressed))
         let buttons = NSStackView(views: [deny, allow])
         buttons.spacing = 10
@@ -638,7 +626,6 @@ final class TaffyMacBridge: NSObject {
         approvalReply = reply
         p.orderFrontRegardless()
         NSApp.requestUserAttention(.criticalRequest)
-        // An unanswered card closes itself before the hub stops waiting, so a late Allow never lands nowhere.
         approvalTimer = Timer.scheduledTimer(withTimeInterval: Self.approvalSeconds, repeats: false) { [weak self] _ in
             self?.dismissApproval(false, timedOut: true)
         }
@@ -649,7 +636,6 @@ final class TaffyMacBridge: NSObject {
 
     @objc func allowPressed() {
         guideOfferedThisGrant = false
-        // The grant lives here first, and the bar with its Stop button shows at the same moment.
         grantUntil = Date().addingTimeInterval(Self.grantSeconds)
         realMouseAllowed = false
         showBar(["bot": pendingBot])
@@ -739,7 +725,7 @@ final class TaffyMacBridge: NSObject {
         mousePanel = p
         mouseReply = reply
         p.orderFrontRegardless()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self, weak p] in   // under the hub's 30 s wait
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self, weak p] in
             if let p, self?.mousePanel === p { self?.dismissMousePanel(false) }
         }
     }
@@ -768,7 +754,6 @@ final class TaffyMacBridge: NSObject {
                 NSBezierPath(ovalIn: NSRect(x: 2 - 10 * pulse, y: bounds.height - 22 - 10 * pulse,
                                             width: 20 + 20 * pulse, height: 20 + 20 * pulse)).fill()
             }
-            // An arrow pointer with its tip at the top-left corner of the view.
             let h = bounds.height
             let arrow = NSBezierPath()
             arrow.move(to: NSPoint(x: 4, y: h - 2))

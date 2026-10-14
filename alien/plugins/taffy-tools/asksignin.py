@@ -35,7 +35,6 @@ SCHEMA = {
 
 
 def ask_to_sign_in(args: dict, **kwargs) -> str:
-    # Oct 8: School asked Colin to sign in to eLearning while its saved login sat unused in the vault.
     site = consent.site_of(str((args or {}).get("url") or ""))
     tried = (args or {}).get("saved_login_failed") or \
         time.time() - gate._filled_at(gate._fill_key(kwargs.get("session_id") or "", "")) < 1800

@@ -10,33 +10,24 @@ import re
 
 from . import chatter
 
-# Protocol strings (plan 2026-10-09, section 9). Reactions name whoever reacted: "[Reactions from Sam since ...".
 REACTIONS_PREFIX = "[Reactions from "
-STOPPED_PREFIX = "[Stopped by "   # turns.STOPPED_PREFIX: the request the person stopped, told with their next message
-# A call turn's request follows one of these; the second is the form before Oct 9, still in old conversations.
+STOPPED_PREFIX = "[Stopped by "
 CALL_REQUEST_MARKERS = ("Request from the call: ", "Colin's request: ")
 VOICE_TAG = "[Voice call] "
 
-# The message the person replied to (swipe or Reply on a bubble, Oct 10), on its own first line in front of their words:
-#   [Replying to your message: "excerpt"]                  one of the Zip's own messages
-#   [Replying to Sam's earlier message: "excerpt"]          one of the person's own messages
-#   [Replying to an earlier update in this chat: "excerpt"] a team update, a call or a note the hub put in the chat
-# It is part of the person's turn, so the Zip's cached prompt is untouched; the chat shows the words without it and
-# the quote above them (`reply_to` on the message).
 REPLY_PREFIX = "[Replying to "
 REPLY_EXCERPT_MAX = 300
 _REPLY_WHO = {"bot": "your message", "other": "an earlier update in this chat"}
 _REPLY_LINE = re.compile(r'^\[Replying to (your message|an earlier update in this chat|[^\n"]{1,60}?\'s earlier message): '
                          r'"(.*)"\]$')
 
-# (prefix of the user message, class of that message, class of the bot's reply to it)
 _KINDS = [
-    ("[Board update", "board_update", "board_reply"),      # shown as a team update
-    ("[kanban]", "board_update", "board_reply"),           # Hermes's own board wake (off since Oct 7; old ones remain)
-    ("[Hub note", "hub_note", "bot"),                      # hidden; the bot picking up is shown normally
-    ("[Voice call ended", "wrap_up", "wrap_up_reply"),     # hidden; the call's bubble covers it
-    ("[From a voice call]", "call_turn", "call_reply"),    # shown under the call's bubble
-    ("[From ", "team", "team_reply"),                      # a teammate's words; never in Colin's chat
+    ("[Board update", "board_update", "board_reply"),
+    ("[kanban]", "board_update", "board_reply"),
+    ("[Hub note", "hub_note", "bot"),
+    ("[Voice call ended", "wrap_up", "wrap_up_reply"),
+    ("[From a voice call]", "call_turn", "call_reply"),
+    ("[From ", "team", "team_reply"),
 ]
 
 VISIBLE = {"colin", "bot", "board_reply", "call_reply"}
@@ -45,7 +36,6 @@ VISIBLE = {"colin", "bot", "board_reply", "call_reply"}
 # Hermes's wrapper around words that reach a running turn (turns.steer), stored as a user message. In the chat it
 # showed as "[OUT-OF-BAND USER MESSAGE — a direct message from the user, ...]" (Oct 10); only the words inside count.
 STEER_OPEN, STEER_CLOSE = "[OUT-OF-BAND USER MESSAGE", "[/OUT-OF-BAND USER MESSAGE]"
-# voice.py's line for something the person said on a call about running work.
 CALL_UPDATE = re.compile(r"^Update from [^\n]{1,60}? on the call: ")
 
 
@@ -120,7 +110,6 @@ def classify(msgs: list[dict]) -> list[dict]:
                     break
             display = bare
             if cls == "colin" and CALL_UPDATE.match(bare):
-                # Said on a call about work already running: shown with the call, in his own words.
                 cls, reply_class, display = "call_turn", "call_reply", CALL_UPDATE.sub("", bare, count=1)
             if cls == "call_turn" and display is bare:
                 for marker in CALL_REQUEST_MARKERS:
@@ -129,7 +118,7 @@ def classify(msgs: list[dict]) -> list[dict]:
                         break
             item = {**m, "class": cls, "display": display}
             if quoted and cls == "colin":
-                item["reply_to"] = quoted   # the app shows it above the person's bubble
+                item["reply_to"] = quoted
             out.append(item)
         else:
             out.append({**m, "class": _quiet(reply_class, text), "display": text})
@@ -137,9 +126,6 @@ def classify(msgs: list[dict]) -> list[dict]:
     return out
 
 
-# Replies to the hub's own turns (a board update, a note after a card) that say nothing: Taffy's "[SILENT]" when the
-# news already reached the phone, a bare "." or "Noted." (#75, #78). They stay out of the chat, the home preview and
-# the call briefing. A reply to Colin's own words is always his to see, unless it is empty.
 _HUB_STARTED = {"board_reply", "team_reply", "wrap_up_reply"}
 
 

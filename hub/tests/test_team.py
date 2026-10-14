@@ -21,7 +21,7 @@ _tmp = Path(tempfile.mkdtemp())
 config.HUB_DB = _tmp / "hub.db"
 team.NOTES_FILE = _tmp / "team-notes.md"
 config.reload_bots = lambda: False
-for b in config.BUILTIN + config.OWNER_ZIPS:   # off alien the built-in profiles are missing, so reload_bots dropped them
+for b in config.BUILTIN + config.OWNER_ZIPS:
     config.BOTS_BY_ID.setdefault(b.id, b)
 for b in [config.Bot("default", "Taffy", "Lead", "#F2711C", "sparkles"),
           config.Bot("money", "Money", "Money", "#EAB308", "dollarsign.circle"),
@@ -53,7 +53,7 @@ class Notes(unittest.TestCase):
         team.add_note("default", "Colin applied for the Acme Homes role on Oct 7.")
         first = team.context_for("career", "s1", first=True)
         self.assertIn("Acme Homes", first)
-        self.assertEqual(team.context_for("career", "s1", first=False), "")      # nothing new
+        self.assertEqual(team.context_for("career", "s1", first=False), "")
         team.add_note("career", "Colin has an interview with Mark on Oct 10.")
         later = team.context_for("career", "s1", first=False)
         self.assertIn("interview", later)
@@ -102,7 +102,6 @@ class Round3(unittest.TestCase):
     def test_compressed_session_continues_from_bot_cursor(self):
         team.add_note("default", "Colin applied for the Acme Homes role on Oct 7.")
         self.assertIn("Acme Homes", team.context_for("career", "chat-1", first=False))
-        # Hermes compressed chat-1 into chat-2: no first turn, and nothing new, so nothing is re-sent.
         self.assertEqual(team.context_for("career", "chat-2", first=False), "")
         team.add_note("default", "Colin has an interview on Oct 10.")
         self.assertIn("interview", team.context_for("career", "chat-2", first=False))
@@ -164,7 +163,7 @@ class Asks(unittest.TestCase):
         out = asyncio.run(team.ask("default", "career", "Did Colin apply to Acme Homes?", "s1"))
         self.assertIn("applied on Oct 7", out)
         self.assertIn("not instructions from Colin", out)
-        self.assertTrue(self.calls[0][2])                          # ran in the team session
+        self.assertTrue(self.calls[0][2])
         self.assertTrue(self.calls[0][1].startswith("[From Taffy] "))
         kinds = [(bot, item["kind"]) for bot, item in team_items()]
         self.assertEqual(kinds, [("career", "ask"), ("career", "answer"), ("default", "reply")])
@@ -185,7 +184,7 @@ class Asks(unittest.TestCase):
             asyncio.run(team.ask("default", "money", f"Question number {i}?", "s1"))
         with self.assertRaises(team.TeamError):
             asyncio.run(team.ask("default", "money", "One more?", "s1"))
-        asyncio.run(team.ask("default", "money", "From another chat?", "s2"))   # other conversations are fine
+        asyncio.run(team.ask("default", "money", "From another chat?", "s2"))
 
     def test_daily_cap(self):
         old = team.ASKS_PER_DAY
@@ -231,7 +230,7 @@ class Souls(unittest.TestCase):
         block = team._soul_block()
         self.assertIn("| `builder` | Builder | Lumenly, Colin's apps / sites, code and deploys. |", block)
         self.assertIn("| Taffy | Lead coordinator. Talks with Colin's team. |", block)
-        self.assertIn("| `money` | Money | " + config.BOTS_BY_ID["money"].role + " |", block)   # no profile.yaml
+        self.assertIn("| `money` | Money | " + config.BOTS_BY_ID["money"].role + " |", block)
 
     def test_block_inserted_once_and_updated(self):
         home = _tmp / "hermes"
@@ -244,7 +243,7 @@ class Souls(unittest.TestCase):
         text = (home / "SOUL.md").read_text()
         self.assertEqual(text.count(team.SOUL_START), 1)
         self.assertIn("`career` | Career", text)
-        self.assertEqual(team.sync_souls(), [])                     # unchanged: nothing rewritten
+        self.assertEqual(team.sync_souls(), [])
         money = config.BOTS_BY_ID["money"]
         config.BOTS_BY_ID["money"] = config.Bot("money", "Budget", "Money", "#EAB308", "dollarsign.circle")
         config.BOTS[:] = list(config.BOTS_BY_ID.values())
@@ -257,7 +256,6 @@ class Souls(unittest.TestCase):
         self.assertEqual(text.count(team.SOUL_START), 1)
         self.assertIn("| Budget |", text)
         self.assertTrue(text.startswith("# Taffy\n\nBe kind."))
-        # A damaged file with a doubled block heals to one block.
         (home / "SOUL.md").write_text(text + "\n" + team._soul_block() + "\nAfter.\n")
         team.sync_souls()
         healed = (home / "SOUL.md").read_text()
@@ -265,8 +263,6 @@ class Souls(unittest.TestCase):
         self.assertTrue(healed.rstrip().endswith("After."))
 
 
-# These tests check Colin's team and the hub's wording for him (his name, School on the team), so they run in his
-# home whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     home_fixture.pin(None)
 

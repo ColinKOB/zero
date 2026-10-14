@@ -64,7 +64,7 @@ class ClaudeRequests(unittest.TestCase):
         self.assertEqual(req.shape, "directsdk")
         self.assertEqual(req.effort, "high")
         self.assertEqual(req.tools[0]["name"], "terminal")
-        self.assertEqual(req.env, {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "1000"})   # NODE_OPTIONS never passes
+        self.assertEqual(req.env, {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "1000"})
 
     def test_small_commands(self):
         self.assertEqual(zb.parse_claude(["--version"]).shape, "version")
@@ -143,7 +143,7 @@ class WhatTheBrokerRuns(unittest.TestCase):
             if mcp["mcpServers"]:
                 self.assertEqual(mcp["mcpServers"]["hermes"]["args"], [str(self.inert), str(self.tmp / "tools.json")])
                 self.assertEqual(mcp["mcpServers"]["hermes"]["command"], "/owner/venv/python")
-            self.assertNotIn("/home/zero-test", " ".join(argv))   # nothing of the home's command line runs
+            self.assertNotIn("/home/zero-test", " ".join(argv))
             settings = json.loads(zb.claude_files(req)["settings.json"])
             self.assertTrue(settings["disableClaudeAiConnectors"])
             self.assertEqual(set(settings) - {"disableClaudeAiConnectors", "autoMemoryEnabled", "crossSessionInbound"},
@@ -441,7 +441,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(json.loads(out["stdin"]), frame)
         self.assertTrue(json.loads(out["files"]["settings"])["disableClaudeAiConnectors"])
         self.assertNotIn(str(tmp), " ".join(out["argv"]))
-        deadline = time.time() + 3      # the run's folder is gone (removed just after the exit status is sent)
+        deadline = time.time() + 3
         while list((self.c.state / "tmp").iterdir()) and time.time() < deadline:
             time.sleep(0.05)
         self.assertEqual(list((self.c.state / "tmp").iterdir()), [])

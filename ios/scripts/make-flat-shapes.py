@@ -22,20 +22,19 @@ import cv2
 import numpy as np
 from PIL import Image
 
-FILL, FLOOR = 0.9, 0.97          # framing, as in make-agent-assets.py
-EYE_W, EYE_H, EYE_GAP = 0.044, 0.098, 0.092   # one eye size for every body, in shares of the square
+FILL, FLOOR = 0.9, 0.97
+EYE_W, EYE_H, EYE_GAP = 0.044, 0.098, 0.092
 OUT = Path(__file__).resolve().parent.parent / "Taffy" / "Views" / "Agent" / "FlatArt.swift"
 
 BODIES = ["o", "star", "moon", "bolt", "drop", "pill", "hex", "gem", "squircle", "mushroom", "bean", "arch",
           "flower", "dome", "leaf", "bell", "plus", "pebble", "acorn", "kite",
-          # Bodies that say a Zip's job at a glance (Colin's website review, Oct 11: "school shouldn't have a moon")
           "book", "calendar", "briefcase", "coin", "suitcase", "receipt"]
 NAMES = {"o": "O", "star": "Star", "moon": "Moon", "bolt": "Bolt", "drop": "Drop", "pill": "Pill", "hex": "Hexagon",
          "gem": "Gem", "squircle": "Square", "mushroom": "Mushroom", "bean": "Bean", "arch": "Arch",
          "flower": "Flower", "dome": "Dome", "leaf": "Leaf", "bell": "Bell", "plus": "Plus", "pebble": "Pebble",
          "acorn": "Acorn", "kite": "Kite", "book": "Book", "calendar": "Calendar", "briefcase": "Briefcase",
          "coin": "Coin", "suitcase": "Suitcase", "receipt": "Receipt"}
-DETAILED = {"star", "flower", "bolt", "acorn", "leaf", "bell", "plus", "moon", "receipt", "calendar", "briefcase", "suitcase"}   # more points on busier edges
+DETAILED = {"star", "flower", "bolt", "acorn", "leaf", "bell", "plus", "moon", "receipt", "calendar", "briefcase", "suitcase"}
 
 
 def hexcolor(c) -> str:
@@ -58,7 +57,7 @@ def resample(contour: np.ndarray, n: int) -> np.ndarray:
     xs = np.interp(targets, cum, closed[:, 0])
     ys = np.interp(targets, cum, closed[:, 1])
     out = np.stack([xs, ys], axis=1)
-    if cv2.contourArea(out.astype(np.float32), oriented=True) < 0:   # keep one winding direction
+    if cv2.contourArea(out.astype(np.float32), oriented=True) < 0:
         out = out[::-1]
     return out
 
@@ -123,19 +122,19 @@ def arch_parts():
     R, r, legs, cx = 0.45, 0.27, 0.10, 0.5
     cy = FLOOR - legs
     pts = []
-    for k in range(121):                                   # outer edge, left foot to right foot over the top
+    for k in range(121):
         a = math.pi + math.pi * k / 120
         pts.append((cx + R * math.cos(a), cy + R * math.sin(a)))
     pts.append((cx + R, FLOOR))
     pts.append((cx + r, FLOOR))
-    for k in range(81):                                    # inner edge back over the opening
+    for k in range(81):
         a = 2 * math.pi - math.pi * k / 80
         pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
     pts.append((cx - r, FLOOR))
     pts.append((cx - R, FLOOR))
     outline = densify(np.array(pts), 200)
     mid = (R + r) / 2
-    ang = math.radians(-58)                                # on the band, up and to the right
+    ang = math.radians(-58)
     return [("#F812A2", outline, [])], (cx + mid * math.cos(ang), cy + mid * math.sin(ang))
 
 
@@ -155,7 +154,6 @@ def flat_parts(src: Path, body: str):
         frame = Frame(np.vstack([cap_o, stem_o]))
         cap_c = np.median(a[red.astype(bool)], axis=0)
         stem_c = np.median(a[stem.astype(bool)], axis=0)
-        # Stem first, then the cap over it; the eyes go on the cap, where white reads clearly.
         ys, xs = np.nonzero(red)
         eye = frame(np.array([xs.mean() + 0.05 * (xs.max() - xs.min()), ys.mean() + 0.08 * (ys.max() - ys.min())]))
         return [(hexcolor(stem_c), frame(stem_o), []), (hexcolor(cap_c), frame(cap_o), [])], tuple(eye)

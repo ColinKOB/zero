@@ -81,8 +81,8 @@ class TeamLane(SigninCase):
         a = self.actions()
         self.assertEqual([(x["kind"], x["summary"], x["how"]) for x in a],
                          [("signin", "Signed in to elearning.lakeview.test to answer Zero", "tell")])
-        self.assertIsNone(gate.told_line("team-1", "browser_vault_fill"))   # the answer goes to Zero, not Colin
-        self.assertGreater(gate._filled_at("team-1"), 0)   # the post-fill script lock still applies
+        self.assertIsNone(gate.told_line("team-1", "browser_vault_fill"))
+        self.assertGreater(gate._filled_at("team-1"), 0)
 
     def test_opening_then_filling_is_one_line_in_the_activity(self):
         self.saved_sites = {"elearning.lakeview.test"}
@@ -121,7 +121,7 @@ class TeamLane(SigninCase):
         self.assertIn("answering a teammate's question, so you take no actions", blocked["message"])
         drive = {"service": "drive", "request": "Rename the essay draft in my Drive to Final essay"}
         self.assertIn("take no actions", self.call("connectors", drive, session="team-1")["message"])
-        self.assertEqual(self.cards(), before)   # no action card from a team session
+        self.assertEqual(self.cards(), before)
 
     def test_allow_once_on_the_card_lets_the_team_session_sign_in(self):
         self.site = "secure.chase.com"
@@ -151,7 +151,7 @@ class TeamLane(SigninCase):
         self.assertEqual(self.signins(), [])
 
     def test_without_a_saved_login_nothing_changes(self):
-        plugin.mark_signed_in("school", "elearning.lakeview.test")   # signed in by hand, nothing in the vault
+        plugin.mark_signed_in("school", "elearning.lakeview.test")
         blocked = self.open()
         self.assertIn("no saved login for elearning.lakeview.test", blocked["message"])
         self.assertEqual(self.cards(), [])
@@ -367,7 +367,7 @@ class TeamQuestionLookup(unittest.TestCase):
 class Rules(unittest.TestCase):
     def test_floor(self):
         f = tiers.floor
-        self.assertEqual(f("signin", context="team"), "never")                       # no saved login: as before
+        self.assertEqual(f("signin", context="team"), "never")
         self.assertEqual(f("signin", context="team", saved=True), "tell")
         self.assertEqual(f("signin", context="scheduled", saved=True), "tell")
         self.assertEqual(f("signin", context="scheduled"), "ask")
@@ -435,12 +435,12 @@ class SoulScript(unittest.TestCase):
         self.assertIn("sign in to a site when Colin's request needs it", text)
         self.assertIn(mod.NEW_SENTENCE, text)
         self.assertIn("- Other rule.", text)
-        self.assertIn(team_block, text)                                  # the hub's section is not touched
+        self.assertIn(team_block, text)
         backups = list(d.glob("SOUL.md.bak-signin-*"))
         self.assertEqual(len(backups), 1)
         self.assertIn(self.OLD, backups[0].read_text())
         with mock.patch("sys.stdout"):
-            mod.main([str(soul)])                                        # idempotent: no change, no new backup
+            mod.main([str(soul)])
         self.assertEqual(soul.read_text(), text)
         self.assertEqual(len(list(d.glob("SOUL.md.bak-signin-*"))), 1)
 
@@ -452,8 +452,6 @@ class SoulScript(unittest.TestCase):
             mod.main([str(soul), "--dry-run"])
         self.assertEqual(soul.read_text(), self.OLD + "\n")
 
-
-# ── The hub: a team card Colin allows finishes the answer in the team session ───────────────────────────────
 
 from test_fixes_r1 import AppCase  # noqa: E402
 from taffy_hub import store, team as hub_team  # noqa: E402
@@ -536,8 +534,6 @@ class FinishAfterSignin(AppCase):
         self.assertEqual(self.turns, [])
 
 
-# These tests check the hub's wording for Colin and his School Zip, so they run in his
-# home whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     home_fixture.pin(None)
 

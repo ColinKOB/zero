@@ -19,7 +19,7 @@ def main() -> int:
     failed = []
     for name, f in SHAPES:
         env = {k: v for k, v in os.environ.items() if k != "ZERO_HOME"}
-        env["ZERO_TESTS"] = "1"   # apns.send never pushes to a real phone from a test run
+        env["ZERO_TESTS"] = "1"
         if f is not None:
             env["ZERO_HOME"] = str(f)
         print(f"== {name}", flush=True)

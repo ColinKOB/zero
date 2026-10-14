@@ -101,20 +101,19 @@ class Saving(unittest.TestCase):
         self.assertIn("Bustelo", rel)
         self.assertIn("Stop & Shop", rel)
         self.assertLessEqual(len(rel), facts.RELEVANT_MAX_CHARS)
-        self.assertIn("Nova noted it", rel)    # the source, in plain words
+        self.assertIn("Nova noted it", rel)
 
     def test_relevant_is_not_repeated_in_one_conversation(self):
         facts.save("default", COFFEE, subject="coffee", kind="preference")
         self.assertIn("Bustelo", facts.relevant("order coffee please", "default", "s1"))
         self.assertEqual(facts.relevant("more coffee talk", "default", "s1"), "")
-        self.assertIn("Bustelo", facts.relevant("coffee again", "default", "s2"))   # a new conversation hears it
+        self.assertIn("Bustelo", facts.relevant("coffee again", "default", "s2"))
 
     def test_unrelated_message_gets_nothing(self):
         facts.save("default", COFFEE, subject="coffee", kind="preference")
         for i in range(8):
             facts.save("default", f"Sam likes thing number {i} a great deal at the bakery.", kind="preference")
         self.assertEqual(facts.relevant("What time is it in Lisbon right now?", "default", "s1"), "")
-        # Words in most facts (the person's name, "likes") are not a match on their own.
         self.assertEqual(facts.search("Sam likes", "default"), [])
 
     def test_same_subject_nearly_same_text_updates_instead_of_duplicating(self):
@@ -136,7 +135,6 @@ class Saving(unittest.TestCase):
         rel = facts.relevant("order my coffee", "todo", "s9")
         self.assertIn("Lavazza", rel)
         self.assertNotIn("Bustelo", rel)
-        # Replacing an already replaced fact replaces its newest version.
         c, _ = facts.save("default", "Sam now buys Lavazza at Wegmans.", subject="coffee", kind="place", replaces=a)
         self.assertEqual(facts.get(b)["replaced_by"], c)
 
@@ -158,10 +156,8 @@ class Saving(unittest.TestCase):
         self.assertEqual(len(facts.search("checking balance", "money")), 1)
         hid, _ = facts.save("default", "Sam takes a daily allergy medication in the morning.", kind="other")
         self.assertEqual(facts.get(hid)["visibility"], "owner")
-        # A phone number and a 1-800 number are not account numbers.
         facts.save("inbox", "Sam orders contact lenses from Lens Shop by phone at 1-800-266-8228.",
                    subject="contact lenses", kind="place")
-        # A job's pay saved by the lead stays a team fact.
         pid, _ = facts.save("default", "Sam applied Oct 7 for Production Supervisor at Narragansett Bay Foods, "
                                        "$58k to $64k.", subject="job", kind="plan")
         self.assertEqual(facts.get(pid)["visibility"], "team")
@@ -191,7 +187,7 @@ class TeamNotesStream(unittest.TestCase):
         self.assertEqual(facts.get(5)["replaced_by"], 7)
         nid, _ = facts.save("default", "Sam starts the new job in November.", kind="plan")
         self.assertGreater(nid, 7)
-        facts.reset_for_tests()   # runs once: a restart does not copy again
+        facts.reset_for_tests()
         self.assertEqual(len(facts.current(None)), 2)
 
     def test_preferences_are_not_broadcast_but_plans_are(self):
@@ -200,7 +196,6 @@ class TeamNotesStream(unittest.TestCase):
         first = team.context_for("todo", "t1", first=True)
         self.assertIn("Gregg's", first)
         self.assertNotIn("Bustelo", first)
-        # The broadcast fact is not given again as "relevant" in the same conversation; the preference is.
         rel = team.context_for("todo", "t1", first=False, message="Gregg's job and coffee")
         self.assertIn("Bustelo", rel)
         self.assertNotIn("Gregg's job on Oct 6", rel)
@@ -237,10 +232,10 @@ class OwnWords(unittest.TestCase):
         found = facts.message_search("What's on my Walmart list?", "default")
         texts = " ".join(f["text"] for f in found)
         self.assertIn("paper towels", texts)
-        self.assertIn("lightbulbs", texts)            # a call's request, without the guide before it
-        self.assertNotIn("transcript here", texts)    # the hub's own notes are not his words
-        self.assertNotIn("for the week ahead", texts)  # a scheduled job's prompt is not his words
-        self.assertNotIn("412", texts)                 # Money's amounts stay with Money
+        self.assertIn("lightbulbs", texts)
+        self.assertNotIn("transcript here", texts)
+        self.assertNotIn("for the week ahead", texts)
+        self.assertNotIn("412", texts)
         self.assertIn("412", " ".join(f["text"] for f in facts.message_search("Walmart bakery supplies", "money")))
 
     def test_relevant_includes_own_words_when_no_fact(self):
@@ -269,7 +264,7 @@ class Reading(unittest.TestCase):
         text = facts.briefing_text("default")
         self.assertIn("Preferences:", text)
         self.assertIn("Plans:", text)
-        self.assertNotIn("6,067", text)   # Money's own fact
+        self.assertNotIn("6,067", text)
         self.assertIn("6,067", facts.briefing_text("money"))
 
     def test_app_list_edit_and_delete(self):
@@ -283,7 +278,7 @@ class Reading(unittest.TestCase):
         facts.edit(b, "Sam drinks Lavazza Super Crema from Whole Foods.")
         self.assertEqual(facts.get(b)["text"], "Sam drinks Lavazza Super Crema from Whole Foods.")
         self.assertTrue(facts.delete(b))
-        self.assertIsNone(facts.get(a))          # the older version goes too
+        self.assertIsNone(facts.get(a))
         self.assertEqual(facts.search("coffee Lavazza Bustelo", "default"), [])
         self.assertFalse(facts.delete(b))
         c = facts.add_by_person("Sam prefers oat milk.", kind="preference", subject="milk")
@@ -327,10 +322,10 @@ class Extractor(unittest.TestCase):
             {"subject": "x", "kind": "other", "text": "Sam likes X.", "replaces": 999}]})
         ids = asyncio.run(extract._extract("default", "Actually I switched to Lavazza from Whole Foods.",
                                            "Got it, Lavazza from Whole Foods from now on.", "s1", "", "chat"))
-        self.assertEqual(len(ids), 2)                     # the password was refused
+        self.assertEqual(len(ids), 2)
         self.assertEqual(facts.get(a)["replaced_by"], ids[0])
         self.assertIsNone(facts.get(ids[1])["replaced_by"])
-        self.assertIn(f"[{a}]", self.prompts[0])          # the same-subject fact was shown, so it could replace it
+        self.assertIn(f"[{a}]", self.prompts[0])
         self.assertEqual(facts.get(ids[0])["source"], "chat")
         self.assertIn("said it to Nova", facts.source_words(facts.get(ids[0])))
 
@@ -378,12 +373,12 @@ class Noise(unittest.TestCase):
         rel = facts.relevant("Grabbed coffee: Death Wish ground, the 16 ounce bag, from Whole Foods.", "default",
                              "s1")
         self.assertIn("Bustelo", rel)
-        self.assertNotIn("Purina", rel)    # "bag" alone
+        self.assertNotIn("Purina", rel)
 
     def test_questions_and_short_requests_are_not_snippets(self):
         rel = facts.relevant("Can you order new coffee for me?", "default", "s2")
         self.assertNotIn("Order my coffee please", rel)
-        self.assertIn("Lavazza", facts.relevant("Did I switch coffee brands?", "default", "s3"))   # a statement is
+        self.assertIn("Lavazza", facts.relevant("Did I switch coffee brands?", "default", "s3"))
 
     def test_board_task_prompts_and_hub_notes_get_nothing(self):
         self.assertEqual(facts.relevant("work kanban task t_c088a01b", "todo", "k1"), "")
@@ -417,7 +412,7 @@ class CallContext(unittest.TestCase):
     def test_note_and_background_plans(self):
         note, keys = facts.call_context("thinking about taking that job with Gregg's, my other passions", "default")
         self.assertIn("Gregg's", note)
-        self.assertIn("cookbook", note)      # a plan it may clash with, though no word matches
+        self.assertIn("cookbook", note)
         self.assertNotIn("Peet's", note)
         self.assertEqual(facts.call_context("job with Gregg's", "default", set(keys)), ("", []))
 
@@ -521,7 +516,6 @@ class HomeIsolation(unittest.TestCase):
         state_db("default", [("api_1", "api_server", "user", "My coffee is the Cafe Bustelo brick from Stop & Shop, "
                                                             "please remember it.", time.time())])
         self.assertIn("Bustelo", facts.relevant("order coffee", "default", "s1"))
-        # The second home: its own files, as its hub (another Linux user) would have them.
         folder = Path(tempfile.mkdtemp(dir=_tmp))
         config.HUB_DB, config.HERMES_HOME = folder / "hub.db", folder / "hermes"
         config.HERMES_HOME.mkdir()
@@ -537,7 +531,6 @@ class HomeIsolation(unittest.TestCase):
         self.assertEqual(facts.briefing_text("default"), "")
         self.assertIn("Nothing saved", facts.recall("coffee", "default"))
         facts.save("default", "Riley's tea is Yorkshire Gold from Target.", subject="tea", kind="preference")
-        # Back in the first home, nothing of the second's arrived.
         config.HUB_DB, config.HERMES_HOME = first_db, first_hermes
         store._local.conn = None
         store._schema_ready = False

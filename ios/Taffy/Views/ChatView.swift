@@ -51,7 +51,6 @@ struct ChatScreen: View {
                             .accessibilityLabel("\((bot?.name ?? "").possessive) Computer")
                     }
                 }
-                // On the Mac the pill stays centered and the call and computer buttons sit at the right edge.
                 .overlay(alignment: .trailing) {
                     if embedded {
                         HStack(spacing: 8) {
@@ -67,7 +66,6 @@ struct ChatScreen: View {
                 .padding(.bottom, 8)
                 .modifier(TopBar(solid: !embedded))
             }
-            // On the Mac the window has no title bar, so the pill sits in that space like Grok Bot's.
             .ignoresSafeArea(.container, edges: embedded ? .top : [])
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showScreen) {
@@ -86,7 +84,7 @@ struct ChatScreen: View {
             .task {
                 let a = CommandLine.arguments
                 if let i = a.firstIndex(of: "-screen"), i + 1 < a.count, a[i + 1] == botID { showScreen = true }
-                if let i = a.firstIndex(of: "-profile"), i + 1 < a.count, a[i + 1] == botID {   // the bot info sheet
+                if let i = a.firstIndex(of: "-profile"), i + 1 < a.count, a[i + 1] == botID {
                     if a.contains("-profileLarge") { profileDetent = .large }
                     try? await Task.sleep(for: .milliseconds(500))
                     showProfile = true
@@ -163,12 +161,10 @@ struct ChatView: View {
                         MessageRow(message: m, botID: botID).id(m.id)
                             .padding(.top, Theme.onMac ? macGap(before: i, in: messages) : phoneGap(before: i, in: messages))
                     }
-                    // A Zip's open sign-in or account card, below everything said so far.
                     ForEach(openAsks) { m in
                         MessageRow(message: m, botID: botID).id(m.id)
                             .padding(.top, Theme.onMac ? 16 : 6)
                     }
-                    // The Zip's own computer, while it uses it or Colin holds it. A sign-in card has its own.
                     if let live = state.computers[botID], !openAsks.contains(where: { $0.kind == .login }) {
                         ComputerCard(botID: botID, live: live == "control" ? .control : .working)
                             .macBubbleWidth().id("computer")
@@ -180,7 +176,6 @@ struct ChatView: View {
                     ForEach(state.pinging.filter { $0.from == botID }, id: \.self) { p in
                         PingChip(ping: p).macBubbleWidth().id("ping-\(p.to.joined())")
                     }
-                    // Zero's first tasks after the onboarding, then what the Zip is doing, waiting on or stuck on.
                     if botID == "default", firstTasks != nil {
                         FirstTasksCard(tasks: $firstTasks).macBubbleWidth().id("first-tasks")
                     }
@@ -208,7 +203,6 @@ struct ChatView: View {
                 .frame(maxWidth: Theme.onMac ? Theme.chatColumn + 40 : .infinity)
                 .frame(maxWidth: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                    // The chat got shorter while he was reading the newest messages: go back to the bottom.
                     let shrank = h < contentHeight - 1
                     contentHeight = h
                     if shrank { lastShrink = Date() }
@@ -222,21 +216,18 @@ struct ChatView: View {
             .environment(\.showOriginal, ShowOriginal { quote, replyID in showOriginal(quote, before: replyID, proxy: proxy) })
             .defaultScrollAnchor(messages.isEmpty ? .top : .bottom)
             .onChange(of: messages.count) { old, new in
-                // His own message always takes him to the bottom; anything else only if he is already there.
                 if atBottom || messages.last?.kind == .colin { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 else if new > old { newBelow = true }
             }
             .onChange(of: workingText) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: state.problem(for: botID)) { _, p in if p != nil && atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: openAsks.map(\.id)) { old, new in
-                // A new card: in view if he is at the bottom, otherwise the New Messages pill points to it.
                 if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 else if new.contains(where: { !old.contains($0) }) { newBelow = true }
             }
             .onChange(of: state.computers[botID]) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: state.pinging) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: composing) { _, on in if on { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
-            // A longer message box keeps the newest message just above it, moving with the box, not under it.
             .onChange(of: composerHeight) { _, _ in if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
             .overlay(alignment: .bottom) {
@@ -258,12 +249,10 @@ struct ChatView: View {
             composer.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
         }
         .environment(\.composerSpace, composerSpace)
-        // A card's own answer slid into the box: the keyboard comes up with it.
         .onChange(of: state.answering[botID]?.id) { _, id in
             guard id != nil else { return }
             if Theme.onMac { macFocus &+= 1 } else { composing = true }
         }
-        // Swipe or Reply on a bubble: the keyboard comes up under the reply header.
         .onChange(of: state.replying[botID]?.messageID) { _, id in
             guard id != nil else { return }
             if Theme.onMac { macFocus &+= 1 } else { composing = true }
@@ -285,7 +274,7 @@ struct ChatView: View {
             }
             state.drafts[botID] = v
         }
-        .onChange(of: state.drafts[botID]) { _, v in   // a message that couldn't be sent comes back to the box
+        .onChange(of: state.drafts[botID]) { _, v in
             if let v, v != draft { justSent = nil; draft = v }
         }
         .onChange(of: dictation.text) { _, v in if dictation.active { draft = v } }
@@ -303,7 +292,6 @@ struct ChatView: View {
     private func macGap(before i: Int, in messages: [ChatMessage]) -> CGFloat {
         guard i > 0 else { return 0 }
         if folded(messages[i]) && folded(messages[i - 1]) { return 3 }
-        // A card he answered ends in his own bubble, and its caption starts it like one of his messages.
         func mine(_ m: ChatMessage) -> Bool { m.kind == .colin || (m.kind == .choices && m.answer != nil) }
         return mine(messages[i]) == mine(messages[i - 1]) ? 5 : 16
     }
@@ -475,7 +463,6 @@ struct ChatView: View {
         let end = all.firstIndex { $0.id == replyID } ?? all.count
         let quotable: Set<ChatMessage.Kind> = [.colin, .bot, .boardUpdate, .checkin, .team, .call]
         var lines: [ChatSync.Line] = []
-        // A reply to a card's answer bubble points at the message behind it, which the card stands for.
         var quote = quote
         if let id = quote.messageID, let card = timeline.answers.first(where: { $0.value.id == id })?.key {
             quote.messageID = card
@@ -507,7 +494,7 @@ struct ChatView: View {
             Button {
                 if Theme.onMac { composing = true }   // Wispr Flow types into the focused field
                 Task { await dictation.toggle(appendingTo: draft) }
-            } label: {   // problems show in an alert below
+            } label: {
                 Image(systemName: dictation.active ? "stop.circle.fill" : "mic")
                     .font(.system(size: dictation.active ? 22 : (Theme.onMac ? 15 : 18), weight: .medium))
                     .foregroundStyle(dictation.active ? Theme.danger : (Theme.onMac ? Theme.ink : Theme.inkSoft))
@@ -520,13 +507,10 @@ struct ChatView: View {
             .accessibilityLabel(dictation.active ? "Stop Dictation" : "Dictate")
             let paused = state.isPaused(botID)
             if empty && !dictation.active && busy && !paused {
-                // The Zip is working: Stop interrupts it, and nothing queued starts a new turn behind it (#55, #56).
                 StopButton { Task { await state.stop(botID) } }
             } else if empty && !dictation.active {
                 roundAction("phone.fill", label: "Call \(bot?.name ?? "Zip")", action: startCall)
             } else if !empty {
-                // Sending while the bot works is fine: the message waits its turn, and the chat says so (#57). A Zip
-                // held on a card is not working: the message goes straight through (hub turns.send).
                 roundAction("arrow.up", label: state.answering[botID] != nil ? "Send Answer"
                             : busy && !paused ? "Send After This Reply"
                             : state.replying[botID] != nil ? "Send Reply" : "Send", action: { send() })
@@ -562,7 +546,6 @@ struct ChatView: View {
         let a = words(text), b = words(sent)
         guard !a.isEmpty, !b.isEmpty else { return false }
         if a == b { return true }
-        // Everything but the last word matches, and it is about as long: an autocorrected last word.
         return a.count == b.count && a.count >= 3 && Array(a.dropLast()) == Array(b.dropLast())
     }
 
@@ -573,8 +556,6 @@ struct ChatView: View {
         draft = ""
         state.drafts[botID] = nil
         if let card = state.answering[botID] {
-            // The box was the card's answer field: this answers the card, which closes it on the hub, and the card
-            // turns into his answer.
             let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
             state.sentAnswers.insert(card.id)
             withAnimation(CardAnswerView.motion(reduceMotion)) {
@@ -654,7 +635,6 @@ struct MessageRow: View {
         case .colin:
             VStack(alignment: .trailing, spacing: 4) {
                 if let quote = message.replyTo {
-                    // The message this one replies to, small and faded above it (Replies.swift).
                     HStack {
                         Spacer(minLength: Self.gap + 10)
                         CapWidth(max: Theme.onMac ? Theme.bubbleMax * 0.8 : .infinity) {
@@ -667,7 +647,6 @@ struct MessageRow: View {
                 if state.queuedIDs.contains(message.id) { QueuedCaption() }
             }
         case .bot where expiredCard == nil && ReplyBubbles.parts(message.full.flatMap { ShortReplies.shared.opened.contains(message.id) ? $0 : nil } ?? message.text) != nil:
-            // A reply of a few paragraphs shows as a few small bubbles, like a teammate's texts.
             HStack {
                 CapWidth(max: Theme.onMac ? Theme.bubbleMax : .infinity) {
                     ReplyBubbles(message: message, size: Self.size, hPad: Self.hPad, vPad: Self.vPad, radius: Self.radius)
@@ -686,9 +665,8 @@ struct MessageRow: View {
                                 .font(Theme.text(13, .medium)).foregroundStyle(Theme.inkSoft)
                         }
                     }
-                    ReplyText(message: message, size: Self.size)   // short with Show Full Reply (ShortReplies.swift)
+                    ReplyText(message: message, size: Self.size)
                     if let what = expiredCard {
-                        // A card that closed with no answer: one tap asks the Zip to raise it again (#38, #39).
                         RowActionButton(action: RowAction(title: "Ask Again") { await $0.askAgain(message.botID ?? botID, what: what) })
                     }
                 }
@@ -705,8 +683,6 @@ struct MessageRow: View {
                     .buttonStyle(PressStyle(scale: 0.97))
                     .accessibilityLabel("Voice call, \(message.label ?? ""). Shows a summary.")
                     .replyable(message, botID: botID, isMine: true, state: state)
-                    // A popover closes when Colin clicks or taps anywhere else; on the iPhone it shows as a sheet
-                    // he can swipe away. Both have an X.
                     .popover(isPresented: $showCall, arrowEdge: .trailing) {
                         callSummary
                             .frame(idealWidth: 460, idealHeight: 420)
@@ -732,7 +708,6 @@ struct MessageRow: View {
         case .workLog:
             WorkLogRow(message: message)
         case .step:
-            // Steps are folded into a work log (ChatTimeline); one on its own still shows as a quiet row.
             WorkLogRow(message: {
                 var m = message
                 m.steps = [WorkStep.from(title: message.label, text: message.text)]
@@ -805,7 +780,6 @@ struct MessageRow: View {
                         .lineSpacing(4)
                         .foregroundStyle(Theme.ink)
                         .textSelection(.enabled)
-                    // The bot's own answers during the call, word for word, since the summary can leave things out.
                     if !message.details.isEmpty {
                         DisclosureGroup("What \(state.bot(message.botID ?? botID)?.name ?? "Zero") found on this call") {
                             VStack(alignment: .leading, spacing: 12) {
@@ -925,7 +899,7 @@ struct MineBubble: View {
         HStack {
             Spacer(minLength: MessageRow.gap + 10)
             CapWidth(max: Theme.onMac ? Theme.bubbleMax : .infinity) {
-                Text(ChatText.render(message.text, markdown: false))   // his words as typed, links tappable
+                Text(ChatText.render(message.text, markdown: false))
                     .font(Theme.text(MessageRow.size))
                     .lineSpacing(Theme.onMac ? 3 : 0)
                     .foregroundStyle(Theme.mineText)
@@ -1168,7 +1142,6 @@ final class Dictation {
         }
         engine.prepare()
         guard (try? engine.start()) != nil else {
-            // Leave nothing running: no tap, no active session ducking other audio.
             input.removeTap(onBus: 0)
             request = nil
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1351,14 +1324,11 @@ struct SignInRequestCard: View {
             if let o = request.origin, !o.isEmpty { return o }
             return "This came up during scheduled work, not something you asked for."
         case "background":
-            // Nothing Colin said is behind this card, so no words are quoted as if they were his or the bot's. The
-            // hub says where it came from (Oct 8: "working on its own" read as if the Zip had started it by itself).
             if let o = request.origin, !o.isEmpty { return o }
             return "This came up outside your chat with \(bot?.name ?? "the Zip")."
         case "ask":
             return asked.isEmpty ? "You set this site to ask every time." : "You set this site to ask every time. You asked: \(asked)"
         case "content":
-            // Only say he did not ask when no request of his is behind the card (Oct 8 QA round 2, H1).
             let name = bot?.name ?? "the Zip"
             return asked.isEmpty
                 ? "This came up after \(name) read something someone else wrote, not from something you asked."
@@ -1432,7 +1402,6 @@ struct SignInRequestCard: View {
             return "\(name) is paused on this. If you don't answer in five minutes, it stops and tells you."
         }
         if let rule = request.paused_by, !rule.isEmpty {
-            // Something the Zip would normally just do, paused because Colin asked to be asked (Custom Rules).
             return "Paused by your Ask First rule: \(rule)"
         }
         switch why {
@@ -1455,7 +1424,6 @@ struct SignInRequestCard: View {
                     BotAvatar(bot: bot, size: 18)
                     Text(actionTitle).font(Theme.text(15, .medium)).foregroundStyle(Theme.ink)
                     Spacer(minLength: 4)
-                    // The app it will use, small, level with the Zip (Colin, Oct 10).
                     if let icon = Self.appIcon(for: request.site) {
                         Image(icon).resizable().scaledToFit().frame(width: 18, height: 18)
                             .accessibilityLabel(Self.appName(for: request.site) ?? "")
@@ -1471,8 +1439,6 @@ struct SignInRequestCard: View {
                         Text(request.kind == "send" ? "To: \(target)" : target).font(Theme.secondary).foregroundStyle(Theme.ink)
                     }
                     if let inputs = request.inputs, !inputs.isEmpty {
-                        // Sized to the text, scrolling only when it is long (Oct 8 QA round 3, L6: a one-line
-                        // request sat in a tall empty box).
                         let text = Text(inputs).font(Theme.secondary).foregroundStyle(Theme.ink)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1485,7 +1451,6 @@ struct SignInRequestCard: View {
                         .background(Theme.field, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     if let details = request.details, !details.isEmpty {
-                        // The exact command, for anyone who wants it; the card leads with what it does (L1).
                         DisclosureGroup("Details") {
                             ScrollView {
                                 Text(details).font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.ink)
@@ -1501,7 +1466,6 @@ struct SignInRequestCard: View {
                         Text(excerpt).font(Theme.caption).foregroundStyle(Theme.inkSoft).lineLimit(8).textSelection(.enabled)
                     }
                     Label {
-                        // Redrawn every half minute, so a command card's wording changes when the wait is over.
                         TimelineView(.periodic(from: .now, by: 30)) { context in
                             Text(actionWhy(at: context.date))
                         }
@@ -1516,7 +1480,6 @@ struct SignInRequestCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.canvas, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 if alwaysFirst {
-                    // A scheduled job's change: the useful answer is usually a standing yes for that job (M4).
                     button("Always Allow This Job", primary: true) { confirmAlways = true }
                         .confirmationDialog("Always allow \(bot?.name ?? "this Zip") to make changes like this in \(request.routine_name ?? "this job")?",
                                             isPresented: $confirmAlways, titleVisibility: .visible) {
@@ -1531,7 +1494,6 @@ struct SignInRequestCard: View {
                     button("Not Now", primary: false) { await decide("deny") }
                 }
                 if request.can_always == true, let scope = request.scope, !scope.isEmpty, !alwaysFirst {
-                    // The same button as Not Now, so it reads as the third choice (Colin, Oct 10).
                     button(request.kind == "send" ? "Always Allow This Address" : "Always Allow This", primary: false) { confirmAlways = true }
                     .confirmationDialog(request.kind == "send" ? "Always allow \(bot?.name ?? "this Zip") to send to \(Self.shortScope(scope))?"
                                                                : "Always allow \(bot?.name ?? "this Zip") to do this?",
@@ -1599,7 +1561,6 @@ struct SignInRequestCard: View {
                     button("Not Now", primary: false) { await decide("deny") }
                 }
                 if offerAlways {
-                    // The same button as Not Now, so it reads as the third choice (Colin, Oct 10).
                     button("Always Allow This Site", primary: false) { confirmAlways = true }
                     .confirmationDialog("Always allow \(bot?.name ?? "this Zip") to sign in to \(request.site)?",
                                         isPresented: $confirmAlways, titleVisibility: .visible) {
@@ -1716,7 +1677,7 @@ struct PictureViewer: View {
                         if scale > 1 {
                             offset = CGSize(width: dragBase.width + v.translation.width, height: dragBase.height + v.translation.height)
                         } else if v.translation.height > 0 {
-                            offset = CGSize(width: 0, height: v.translation.height)   // pull down to close, like Photos
+                            offset = CGSize(width: 0, height: v.translation.height)
                         }
                     }
                     .onEnded { v in
@@ -1821,7 +1782,6 @@ private struct FollowsBottom: ViewModifier {
         content
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, follows else { return }
-                // Back in the app: the chat may have reloaded while away. Once now, once after the reload settles.
                 proxy.scrollTo("bottom", anchor: .bottom)
                 Task { try? await Task.sleep(for: .milliseconds(600)); proxy.scrollTo("bottom", anchor: .bottom) }
             }

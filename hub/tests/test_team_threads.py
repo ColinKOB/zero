@@ -224,7 +224,7 @@ class StepLabels(unittest.TestCase):
         self.assertEqual(rows[fid]["title"], "Signed in to elearning.lakeview.test")
         self.assertEqual(rows[fid]["plain_title"], "Signed in to eLearning")
         self.assertEqual(rows[act]["plain_title"], "Signed in to eLearning")
-        self.assertEqual(len(calls), 2)   # two different lines, each asked once
+        self.assertEqual(len(calls), 2)
 
     def test_a_bad_label_keeps_the_raw_one(self):
         fid = store.add_feed("signin", "school", None, "Signed in to elearning.lakeview.test", "Answering Zero's question",

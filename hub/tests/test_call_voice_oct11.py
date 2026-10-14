@@ -77,7 +77,7 @@ class WorkStatusOnce(Base):
         groups = {"working": [{"title": f"Task {i}", "status": "running"} for i in range(5)], "needs_you": [],
                   "done": []}
         call = chat_call("st-once")
-        voice.brief_for(call, LONG_LIST)          # the chat line was already said on this call
+        voice.brief_for(call, LONG_LIST)
         with mock.patch.object(board, "grouped", lambda: groups), mock.patch.object(turns, "busy_bots", lambda: []):
             text = voice.work_status(call)
         self.assertIn("5 things are in progress", text)
@@ -133,7 +133,6 @@ class NoLabelsAloud(unittest.TestCase):
         self.assertEqual(voice.unlabel("Added Coke. Question: diet too?"), "Added Coke. Diet too?")
         self.assertEqual(voice.unlabel("Added Coke.\nQ: diet too?"), "Added Coke.\nDiet too?")
         self.assertEqual(voice.unlabel("Note: the store closes at 9."), "The store closes at 9.")
-        # Words that only look like a label stay.
         self.assertEqual(voice.unlabel("The question: is it worth it?"), "The question: is it worth it?")
         self.assertEqual(voice.unlabel("Pickup at 5:30 today."), "Pickup at 5:30 today.")
 
@@ -178,7 +177,7 @@ class StartedJobSaysI(Base):
 
     def test_a_job_that_keeps_running_comes_back_in_the_first_person(self):
         def start(bot_id, text, consent_text=None):
-            return turns.Turn(bot_id, "app")      # never answers inside the quick window
+            return turns.Turn(bot_id, "app")
 
         async def go():
             call = chat_call("first-person")

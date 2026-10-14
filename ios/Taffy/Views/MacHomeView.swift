@@ -35,15 +35,13 @@ struct MacHomeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // The sidebar stays in the window and its column narrows to nothing, pinned at its right edge, so it
-            // slides out to the left as the chat widens, and back in the same way (Oct 10: it used to jump).
             sidebar
                 .frame(width: Self.sidebarWidth)
                 .background(Theme.sidebar)
                 .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
                 .frame(width: sidebarShown ? Self.sidebarWidth : 0, alignment: .trailing)
                 .clipped()
-                .ignoresSafeArea(.container, edges: topEdge)   // runs up under the title bar, clipped and all
+                .ignoresSafeArea(.container, edges: topEdge)
                 .allowsHitTesting(sidebarShown)
                 .accessibilityHidden(!sidebarShown)
             NavigationStack { detailView }
@@ -56,7 +54,7 @@ struct MacHomeView: View {
             sidebarToggle
                 .padding(.leading, toggleLeading).padding(.top, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .ignoresSafeArea(.container, edges: topEdge)   // the same height as the sidebar's header
+                .ignoresSafeArea(.container, edges: topEdge)
         }
         .tint(Theme.ink)
         .botActions(snoozing: $snoozing, deleting: $deleting, onDeleted: { detail = .bot("default") })
@@ -78,7 +76,6 @@ struct MacHomeView: View {
             WelcomeView().environment(state)
         }
         .sheet(isPresented: $savingLogin) { SaveLoginSheet().environment(state) }
-        // Once, after the first run on a Mac home: Pair a Phone or Mac (Views/MacSetupView.swift).
         .sheet(isPresented: $pairingPhone) { PairPhoneView() }
         .task {
             try? await Task.sleep(for: .seconds(1.5))
@@ -110,9 +107,8 @@ struct MacHomeView: View {
         }
         .onAppear {
             checkFullScreen()
-            if let bot = state.takeOpenBotRequest() { detail = .bot(bot) }   // a notification clicked at launch
+            if let bot = state.takeOpenBotRequest() { detail = .bot(bot) }
         }
-        // A clicked notification opens its Zip's chat (Push.swift).
         .onChange(of: state.openBotRequest) { _, _ in if let bot = state.takeOpenBotRequest() { detail = .bot(bot) } }
         .onChange(of: state.bots.count) { _, _ in if let bot = state.takeOpenBotRequest() { detail = .bot(bot) } }
         // A window restored straight into full screen never sends the notification below, so the window's size is
@@ -132,13 +128,12 @@ struct MacHomeView: View {
                     + "Remove it in Settings, Paired Devices, then reopen Zero."
             }
             if !state.demoMode {
-                MacLink.shared.start(client: state.client)   // lets bots use this Mac when Colin allows it (never in the sample home)
-                // After macOS's "Quit & Reopen" for Screen Recording, or Restart Zero: the permission guide picks up where it was.
+                MacLink.shared.start(client: state.client)
                 MacLink.shared.permissionGuide(["op": "resume"])
             }
             #if DEBUG
             if let i = CommandLine.arguments.firstIndex(of: "-open"), i + 1 < CommandLine.arguments.count {
-                switch CommandLine.arguments[i + 1] {   // for screenshots
+                switch CommandLine.arguments[i + 1] {
                 case "savelogin": savingLogin = true
                 case "search": searching = true
                 case "newzip": newZip = true
@@ -163,7 +158,7 @@ struct MacHomeView: View {
                 Task { await state.refreshAll(); await state.checkAway() }
             } else if phase == .background {
                 state.stopPolling()
-                state.noteLeaving()   // for While You Were Away
+                state.noteLeaving()
             }
         }
     }
@@ -173,7 +168,6 @@ struct MacHomeView: View {
     /// A plain icon, not a round button, like Grok Bot's.
     private var sidebarToggle: some View {
         Button {
-            // A smooth slide; with Reduce Motion the sidebar simply appears or goes.
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { sidebarShown.toggle() }
             sidebarSaved = sidebarShown
         } label: {
@@ -192,7 +186,7 @@ struct MacHomeView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Spacer()
-                Color.clear.frame(width: 34, height: 40)   // the sidebar button's place; it is drawn over the window
+                Color.clear.frame(width: 34, height: 40)
                 Button { searching = true } label: { roundIcon("magnifyingglass") }
                     .buttonStyle(PressStyle(scale: 0.94))
                     .accessibilityLabel("Search")
@@ -303,7 +297,6 @@ struct MacHomeView: View {
                                 .accessibilityLabel("Snoozed")
                         }
                     }
-                    // Paused, stuck, working, blocked or a card that closed, else the latest line (FluidViews.swift).
                     RowStatusLine(bot: bot, font: Theme.text(14), dots: 5)
                 }
                 Spacer(minLength: 0)
@@ -361,7 +354,7 @@ struct MacHomeView: View {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         guard let scene else { return }
         let window = scene.coordinateSpace.bounds.size, screen = scene.screen.bounds.size
-        var now = abs(window.width - screen.width) < 2 && window.height > screen.height - 60   // also a window filling the screen
+        var now = abs(window.width - screen.width) < 2 && window.height > screen.height - 60
         #if targetEnvironment(macCatalyst)
         now = now || scene.isFullScreen
         #endif

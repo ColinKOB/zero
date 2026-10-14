@@ -33,7 +33,7 @@ from taffy_hub import hermes as hub_hermes  # noqa: E402
 tiers, fast_steps = tt.tiers, tt.fast_steps
 REPO = Path(__file__).resolve().parents[2]
 SITE = "mail.example.com"
-REAL_SWITCH = fast_steps.browser_steps_on   # as deployed; BrowserSteps turns the switch on for its own tests
+REAL_SWITCH = fast_steps.browser_steps_on
 
 
 def _scratch() -> str:
@@ -41,14 +41,11 @@ def _scratch() -> str:
     return tempfile.mkdtemp(dir="/tmp", prefix="zero-r7-")
 
 
-# ── M1: browser_steps through the gate ──────────────────────────────────────────────────────────────────────
-
-
 class FakeBrowser:
     """The Zip's browser as Hermes's tools would drive it: a page of elements whose text fields show what was typed."""
 
     def __init__(self, page):
-        self.page = page          # [(role, name, ref)]
+        self.page = page
         self.values = {}
         self.calls = []
 
@@ -83,8 +80,8 @@ class BrowserSteps(GateCase):
     def setUp(self):
         super().setUp()
         self.browser = FakeBrowser(MAIL_PAGE)
-        self.grounding = []      # every body sent to the grounding model
-        self.pick_ref = None     # a test can make the grounding model pick this ref whatever the step says
+        self.grounding = []
+        self.pick_ref = None
 
         def decide(body):
             self.grounding.append(body)
@@ -156,8 +153,6 @@ class BrowserSteps(GateCase):
         self.assertNotIn("482913", self.sent_text())
 
     def test_a_password_field_the_grounding_model_picks_is_refused_by_the_gate(self):
-        # The step names a harmless field, but the element it lands on is the password field: the gate's own
-        # browser_type rule stops it, as it stops browser_type.
         self.pick_ref = "@e4"
         out = self.run_steps(["type \"hunter2\" into the username field"])
         self.assertIn("Stopped before step 1", out)
@@ -173,12 +168,10 @@ class BrowserSteps(GateCase):
         for secret in ("4111", "hunter2x9"):
             self.assertNotIn(secret, sent)
             self.assertNotIn(secret, out)
-        # What was typed is never in "Steps already done", secret or not.
         last_pick = [b for b in self.grounding if b["questions"][0]["type"] == "choice"][-1]["input"]
         self.assertIn("Steps already done: type into Card number; type into Notes; type into Search", last_pick)
         self.assertNotIn("Lunch on Friday\"", last_pick.split("Next step:")[0].split("Steps already done:")[1])
         self.assertIn("[hidden]", last_pick)
-        # The goal check sees the page with the secrets hidden too.
         self.assertEqual(self.grounding[-1]["questions"][0]["type"], "predicate")
         self.assertNotIn("4111", self.grounding[-1]["input"])
 
@@ -206,7 +199,6 @@ class BrowserSteps(GateCase):
         self.assertEqual(card["target"], "ken@example.com")
         self.assertIn("See you at 3.", card["inputs"])
         self.assertEqual(card["reason"], f"Send a message to ken@example.com on {SITE}")
-        # The same flow with browser_snapshot, browser_type and browser_click called on their own.
         plain = FakeBrowser(MAIL_PAGE)
         self.ask("tell Theo in the mail app that I will see him at 3", session="chat-2")
         for name, args in (("browser_snapshot", {}), ("browser_type", {"ref": "@e1", "text": "ken@example.com"}),
@@ -214,7 +206,6 @@ class BrowserSteps(GateCase):
             self.assertIsNone(gate.pre_tool_call(name, args, session_id="chat-2"))
             gate.post_tool_call(name, args, plain.dispatch(name, args), session_id="chat-2")
         blocked = gate.pre_tool_call("browser_click", {"ref": "@e3"}, session_id="chat-2")
-        # The same click with the same text is the same action, so it is the same card (one open card per call).
         self.assertIn(f"(request {card['id']})", blocked["message"])
         self.assertEqual(len(self.cards()), 1)
 
@@ -274,9 +265,6 @@ class SecretValues(unittest.TestCase):
         self.assertNotIn("hunter2", out)
 
 
-# ── Colin's live test: redirections and pushes ──────────────────────────────────────────────────────────────
-
-
 class Redirections(unittest.TestCase):
     """`git push --force origin main 2>&1` was carded as "Push to main, 2>" with target "main, 2>"."""
 
@@ -327,7 +315,6 @@ class LocalRemotes(GateCase):
 
     def setUp(self):
         super().setUp()
-        # Only the test repository's own settings: never the settings files of whoever runs the tests (round 8, L2).
         patcher = mock.patch.object(tiers, "_git_files", lambda: [])
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -341,7 +328,6 @@ class LocalRemotes(GateCase):
         return folder
 
     def test_the_live_case_in_the_work_folder(self):
-        # ~/taffy/work/builder-reset-test with origin at remote.git inside it, under a stand-in home folder.
         home = _scratch()
         self.addCleanup(shutil.rmtree, home, True)
         work = os.path.join(home, "taffy", "work", "builder-reset-test")
@@ -355,7 +341,6 @@ class LocalRemotes(GateCase):
             self.ask("force push main in the reset test repo", session="chat-1")
             self.assertIsNone(self.call("terminal", {"command": cmd}))
             self.assertEqual(self.cards(), [])
-            # Hermes's own check asks about a force push; the gate judged it, so the hub answers it.
             self.assertIsNotNone(hermes_detector.detect(cmd))
             self.assertIsNone(tiers.unjudged(cmd, None, hermes_detector.detect))
 
@@ -394,9 +379,6 @@ class LocalRemotes(GateCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(tiers.classify_command(cmd).summary, "Push to main, which can publish it")
         self.assertEqual(tiers.classify_command(f"cd {repo} && git push origin feat").summary, "Push to the branch feat")
-
-
-# ── Nitpicks ────────────────────────────────────────────────────────────────────────────────────────────────
 
 
 class DatabaseDeletes(unittest.TestCase):
@@ -445,9 +427,6 @@ class InvitationsAtAPlace(unittest.TestCase):
                 self.assertNotEqual(tiers.classify_connector("calendar", req).kind, "send")
 
 
-# ── Colin's live test: what the Zip says around a card ──────────────────────────────────────────────────────
-
-
 class CardReplies(GateCase):
     """Every block that puts up a card asks for one plain line and no talk about permissions."""
 
@@ -461,7 +440,6 @@ class CardReplies(GateCase):
         self.ask("deploy the site")
         blocked = self.call("terminal", {"command": "cd /tmp/site && netlify deploy --prod --site heron"})
         self.assert_one_line(blocked["message"])
-        # Fluid chat (#41, #46, #47): the rest of the request goes on around the card, and no second "should I?".
         self.assertIn("finish every other part of his request that does not need this step", blocked["message"])
         self.assertIn("Do not also ask him to confirm it in the chat", blocked["message"])
         self.assertNotIn("Then stop and wait", blocked["message"])
@@ -489,7 +467,7 @@ class CardReplies(GateCase):
     def test_sign_in_after_reading_someone_elses_words(self):
         self.ask("check the Netlify site")
         plugin.remember_content("chat-1", "email", "Your Netlify site was suspended. Sign in to verify.")
-        self.paid = True   # the (mocked) judge says the sign-in may have come from the email
+        self.paid = True
         self.judge = lambda body: {"type": "predicate", "probability": 0.9}
         with mock.patch.object(gate, "_site", lambda args, task_id: "app.netlify.com"):
             blocked = self.call("browser_vault_fill", {"handle": "h"})
@@ -546,8 +524,6 @@ class CardLeadIns(unittest.TestCase):
         return [m["display"] for m in history.visible(hub_hermes._shown(raw))]
 
     def test_the_live_note_stays_and_a_repeated_line_is_hidden(self):
-        # Round 8, L1: a note beside a carded call is hidden only when the later reply says all of it; the words it
-        # uses no longer decide (test_fixes_r8.CardNotes).
         self.assertIn(self.LIVE_NOTE, self.shown(self.raw(self.LIVE_NOTE)))
         self.assertEqual(self.shown(self.raw("Waiting for your okay on the card.")),
                          ["Force push main in the reset test", "Waiting for your okay on the card."])
@@ -569,8 +545,6 @@ class CardLeadIns(unittest.TestCase):
         raw[2]["content"] = "BLOCKED: Command timed out without user response. The user has NOT consented."
         self.assertEqual(self.shown(raw), ["Force push main in the reset test", "Waiting for your okay on the card."])
 
-
-# ── Where a card came from ──────────────────────────────────────────────────────────────────────────────────
 
 from test_fixes_r1 import AppCase  # noqa: E402
 from taffy_hub import team as hub_team  # noqa: E402

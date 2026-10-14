@@ -105,7 +105,7 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
                 }
             }
             s.presentationContextProvider = self
-            s.prefersEphemeralWebBrowserSession = false   // the person's Google sign-in in Safari helps
+            s.prefersEphemeralWebBrowserSession = false
             session = s
             if !s.start() { cont.resume(throwing: Failure.broken) }
         }

@@ -90,7 +90,7 @@ def _spawn(argv: list[str]) -> _Login:
     env = accounts._env()
     env.update(TERM="dumb", NO_COLOR="1", BROWSER="/bin/true", DISPLAY="")
     pid, fd = pty.fork()
-    if pid == 0:   # the child: Claude Code itself
+    if pid == 0:
         try:
             os.execvpe(argv[0], argv, env)
         finally:
@@ -144,7 +144,7 @@ def finish(code: str) -> dict:
         _current = None
     status = check()
     if status.get("state") == "signed_in":
-        accounts._last = None   # the next /api/accounts looks again
+        accounts._last = None
         return {"ok": True, "account": status.get("account", ""), "detail": "Claude is connected."}
     return {"ok": False, "account": "",
             "detail": "That code did not work. Choose Sign In With Claude again and copy the newest code."}

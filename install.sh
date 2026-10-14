@@ -24,11 +24,9 @@
 # command lines with your own account.
 set -euo pipefail
 
-# The public repository. The lead fills this in when the repository is public.
 ZERO_SOURCE="${ZERO_SOURCE:-https://github.com/ColinKOB/zero.git}"
 ZERO_REF="${ZERO_REF:-main}"
 
-# The engine, pinned to the commits alien runs.
 HERMES_REPO="https://github.com/NousResearch/hermes-agent.git"
 HERMES_COMMIT="74943bb889b7978f9d6ff0aa77ae442547201cc2"
 DIRECTSDK_REPO="https://github.com/NousResearch/hermes-plugin-claude-subscription-directsdk.git"
@@ -38,19 +36,15 @@ PYTHON_VERSION="3.14"
 SANDBOX_IMAGE="taffy/zip-sandbox:2026-10-08-v1"
 HOME_ID="home"
 
-ZDATA="$HOME/.local/share/zero"          # the installer's own files: the source copy and its state
+ZDATA="$HOME/.local/share/zero"
 STATE="$ZDATA/install.env"
 SRC="$ZDATA/src"
-TAFFY="$HOME/taffy"                      # the home: code, settings, hub state, work
-HERMES_HOME="$HOME/.taffy"               # Hermes: config, SOUL, memories, chats
+TAFFY="$HOME/taffy"
+HERMES_HOME="$HOME/.taffy"
 VENV="$TAFFY/.venv"
 UNITS="$HOME/.config/systemd/user"
 LOCALBIN="$HOME/.local/bin"
 export PATH="$LOCALBIN:$PATH"
-
-# ---------------------------------------------------------------------------------------------------------------
-# Output and questions
-# ---------------------------------------------------------------------------------------------------------------
 
 if [ -t 1 ]; then B=$'\033[1m'; D=$'\033[2m'; R=$'\033[0m'; else B=""; D=""; R=""; fi
 step() { printf '\n%s== %s%s\n' "$B" "$*" "$R"; }
@@ -61,7 +55,6 @@ die()  { printf '\n%sZero could not finish:%s %s\n' "$B" "$R" "$*" >&2; exit 1; 
 TTY=""
 if { exec 3</dev/tty; } 2>/dev/null; then TTY=yes; fi
 
-# ask VAR "question" default : uses $VAR when already set, else asks on the terminal, else takes the default.
 ask() {
   local var=$1 q=$2 def=${3:-} ans=""
   if [ -n "${!var:-}" ]; then return 0; fi
@@ -85,10 +78,6 @@ save_state() {
   mv "$STATE.tmp" "$STATE"
 }
 
-# ---------------------------------------------------------------------------------------------------------------
-# Checks
-# ---------------------------------------------------------------------------------------------------------------
-
 preflight() {
   [ "$(id -u)" != 0 ] || die "Run this as your own user, not as root. It asks for sudo when it needs it."
   [ "$(uname -s)" = Linux ] || die "This installer is for a Linux computer. Zero for Mac is a separate app."
@@ -110,7 +99,7 @@ preflight() {
 
 port_free() { ! ss -Hltn "sport = :$1" 2>/dev/null | grep -q .; }
 
-first_free_port() {   # first_free_port START END [EXCLUDE...]
+first_free_port() {
   local p=$1 end=$2; shift 2
   while [ "$p" -le "$end" ]; do
     if port_free "$p" && [[ " $* " != *" $p "* ]]; then echo "$p"; return 0; fi
@@ -122,7 +111,6 @@ first_free_port() {   # first_free_port START END [EXCLUDE...]
 range_free() { local p; for ((p=$1; p<$1+$2; p++)); do port_free "$p" || return 1; done; }
 
 hub_url() { if [ "${NETWORK:-}" = lan ]; then echo "https://127.0.0.1:$HUB_PORT"; else echo "http://127.0.0.1:$HUB_PORT"; fi; }
-# -k only here, on this computer's own loopback; the phone pins the certificate's fingerprint instead.
 hub_answers() { curl -fsSk --max-time 3 "$(hub_url)/api/health" >/dev/null 2>&1; }
 
 # The user's systemd manager. sudo or su sessions have no XDG_RUNTIME_DIR; lingering starts the manager.
@@ -136,10 +124,6 @@ user_bus() {
   done
   die "Your user's systemd did not start. Log out and in again, then run this again."
 }
-
-# ---------------------------------------------------------------------------------------------------------------
-# Steps
-# ---------------------------------------------------------------------------------------------------------------
 
 install_packages() {
   step "System packages"
@@ -198,7 +182,6 @@ install_uv_python() {
   say "uv $(uv --version | awk '{print $2}'), $("$VENV/bin/python" -V)"
 }
 
-# git_pin DIR REPO COMMIT : DIR holds REPO at COMMIT (fetches only that commit).
 git_pin() {
   local dir=$1 repo=$2 commit=$3
   if [ -d "$dir/.git" ] && [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$commit" ]; then return 0; fi
@@ -292,7 +275,6 @@ choose_ports() {
       [ "$PREVIEW_BASE" -lt 19900 ] || die "No free range of 60 ports for the Zips' previews."
     done
   elif ! hub_answers; then
-    # Our own services may be stopped; a port taken by something else means pick again.
     if ! port_free "$HUB_PORT" && ! systemctl --user is-active -q taffy-hub 2>/dev/null; then
       die "Port $HUB_PORT, which Zero's hub uses, is now taken by another program. Stop it or remove $STATE and run this again."
     fi
@@ -302,7 +284,6 @@ choose_ports() {
 
 ask_person() {
   step "About you"
-  # A rerun keeps the answers already in home.json.
   local existing="" saved_tz=""
   if [ -f "$TAFFY/home.json" ]; then
     existing=$("$VENV/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["person"]["name"])' "$TAFFY/home.json" 2>/dev/null || true)
@@ -348,7 +329,6 @@ else:
                               whisper_url=None, owner_name="", own_plan=True)
     s["backup"]["drop"] = None
     s["zips"] = {"max": 6, "container_memory_mb": 2048}
-# What the installer owns; everything else in the file is the hub's and the app's.
 s["person"]["name"] = e["ZERO_NAME"]
 s["person"]["first_name"] = e["ZERO_NAME"].split()[0]
 s["person"]["timezone"] = e["ZERO_TIMEZONE"]
@@ -356,7 +336,7 @@ s["ports"]["hub"], s["ports"]["hermes_api"] = int(e["HUB_PORT"]), int(e["API_POR
 s["ports"]["preview"]["base"] = int(e["PREVIEW_BASE"])
 s["network"]["public_url"] = e["PUBLIC_URL"]
 s["network"]["serve_port"] = None
-s["network"]["tls_fingerprint"] = e.get("TLS_FP") or None   # the app pins this on the local network
+s["network"]["tls_fingerprint"] = e.get("TLS_FP") or None
 s["host"].update(name=socket.gethostname(), kind="server", lead_backend=lead)
 s["plan"]["claude"] = {"mode": "own", "command": "claude"}
 s["plan"]["chatgpt"] = {"mode": "own", "codex_command": "~/.local/bin/codex", "codex_base_url": None}
@@ -379,8 +359,6 @@ render_home() {
     HERMES_HOME="$HERMES_HOME" ZERO_HOME="$TAFFY/home.json" "$VENV/bin/python" "$TAFFY/bin/set-toolsets.py" >/dev/null \
       && say "  set the Zips' tool lists"
   fi
-  # The hub listens on this computer only; Tailscale serve publishes it. Without Tailscale it listens on the
-  # local network too, so a phone on the same Wi-Fi can reach it.
   local d="$UNITS/taffy-hub.service.d" host=127.0.0.1 tls=""
   if [ "$NETWORK" = lan ]; then
     host=0.0.0.0
@@ -432,7 +410,6 @@ install_docker() {
       docker-ce-rootless-extras docker-buildx-plugin slirp4netns >/dev/null || die "Could not install Docker."
     DOCKER_BY_US=yes
     if [ "$had_docker" = no ]; then
-      # Zero uses only your user's own Docker; the system-wide daemon the package starts is not needed.
       sudo systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
       ROOTFUL_OFF_BY_US=yes
     fi
@@ -461,8 +438,6 @@ EOF
     [ -f "$HOME/.config/docker/daemon.json" ] || echo '{"dns": ["1.1.1.1", "8.8.8.8"], "log-driver": "local"}' > "$HOME/.config/docker/daemon.json"
     dockerd-rootless-setuptool.sh install --skip-iptables >/dev/null 2>&1 || dockerd-rootless-setuptool.sh install \
       || die "Rootless Docker did not start. See: journalctl --user -u docker"
-    # Kept beside Docker's own settings (not in Zero's folder), so uninstall knows Zero set this daemon up even
-    # after a reinstall.
     echo "Zero's install.sh set up this user's rootless Docker." > "$HOME/.config/docker/zero-set-this-up"
   fi
   systemctl --user daemon-reload
@@ -496,7 +471,6 @@ start_services() {
   systemctl --user is-active -q taffy-gateway || note "The gateway is still starting. Check it with: systemctl --user status taffy-gateway"
 }
 
-# The hub's own certificate for the local network: self-signed, made once and kept (the phone pins it), key mode 600.
 make_hub_cert() {
   local dir="$TAFFY/tls" ip=$1
   mkdir -p "$dir" && chmod 700 "$dir"
@@ -552,7 +526,6 @@ setup_tailscale() {
   sudo tailscale set --operator="$USER" >/dev/null 2>&1 || true
   local name; name=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
   [ -n "$name" ] && [ "$name" != null ] || { note "Tailscale has no name for this computer."; return 1; }
-  # 443 unless something else already uses it in this computer's serve settings.
   local serve; serve=$(tailscale serve status --json 2>/dev/null || echo '{}')
   local port="${SERVE_PORT:-}" p
   if [ -z "$port" ]; then
@@ -591,8 +564,6 @@ setup_tailscale() {
   return 0
 }
 
-# The official command lines are installed whatever the answer, so Sign In With Claude in the app works later. They
-# are only programs; nothing is signed in until the person does it with their own account.
 install_ai_clis() {
   if ! command -v claude >/dev/null; then
     say "Installing Claude Code (Anthropic's official command line)"
@@ -649,11 +620,8 @@ ai_signin() {
   fi
 }
 
-# Which plan the Zips think with, as Zero for Mac decides it: Claude when Claude Code is signed in, else ChatGPT
-# through Codex. home.json keeps the choice (plan.brain), so a rerun or a new Zip renders the same model. A Codex
-# sign-in is also copied into Hermes's own, with Hermes's import code, for ChatGPT as the brain or the fallback.
 apply_brain() {
-  [ -f "$TAFFY/home.json" ] && [ -x "$VENV/bin/python" ] || return 0   # not installed yet: the install does this
+  [ -f "$TAFFY/home.json" ] && [ -x "$VENV/bin/python" ] || return 0
   local brain=claude codex=""
   command -v codex >/dev/null && codex login status >/dev/null 2>&1 && codex=yes
   if ! { command -v claude >/dev/null && claude auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; }; then
@@ -676,8 +644,8 @@ import json, sys
 path, brain = sys.argv[1], sys.argv[2]
 import os
 s = json.load(open(path))
-s["plan"]["brain"] = brain   # the same key and words Zero for Mac uses
-tmp = path + ".tmp"          # swapped in whole, as the hub saves it
+s["plan"]["brain"] = brain
+tmp = path + ".tmp"
 open(tmp, "w").write(json.dumps(s, indent=2) + "\n")
 os.replace(tmp, path)
 PY
@@ -707,10 +675,6 @@ pair() {
   [ "$NETWORK" = lan ] && say "Your iPhone needs to be on the same Wi-Fi as this computer."
   say "For a new code later, run: bash $ZDATA/install.sh pair"
 }
-
-# ---------------------------------------------------------------------------------------------------------------
-# Actions
-# ---------------------------------------------------------------------------------------------------------------
 
 load_state() { [ -f "$STATE" ] && . "$STATE"; true; }
 

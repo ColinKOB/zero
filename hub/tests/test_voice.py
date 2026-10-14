@@ -51,7 +51,7 @@ class Speech(unittest.TestCase):
     def test_question_goes_ahead_of_waiting_progress(self):
         voice.PROGRESS_GAP_SEC = 60
         call = new_call()
-        call.last_progress = __import__("time").time()     # progress was just said
+        call.last_progress = __import__("time").time()
         voice.say(call, "Found two ice makers.")
         voice.say(call, "Question: the $89 one or the $129 one?", must=True)
         self.run_speaker(call, 1.0)
@@ -66,7 +66,6 @@ class Speech(unittest.TestCase):
         self.assertEqual(self.spoken, [])
 
     def test_stale_or_wordless_talking_does_not_block(self):
-        # Muted with the flag stuck, a lost "stopped" update, or road noise with no words: news still comes.
         call = new_call()
         now = __import__("time").time()
         call.colin_talking, call.talking_at, call.last_user_delta = True, now - 10, now - 30
@@ -80,7 +79,7 @@ class Speech(unittest.TestCase):
         voice.set_away(call.id, True)
         voice.say(call, "Your cart is ready.", must=True, final=True)
         self.run_speaker(call, 1.0)
-        self.assertEqual(self.spoken, [])          # not even the 10-second fallback speaks into a held call
+        self.assertEqual(self.spoken, [])
         voice.calls.pop(call.id, None)
 
     def test_withdrawn_cue_is_not_said(self):
@@ -151,10 +150,8 @@ class BriefingChat(unittest.TestCase):
                 {"role": "user", "text": "[From a voice call] Colin is on a live call... Colin's request: hi"},
                 {"role": "assistant", "text": "Hi"}]
         out = briefing._visible(msgs)
-        # Board replies and what a call found are part of the conversation Colin saw.
         self.assertEqual([m["text"] for m in out],
                          ["School found the syllabus says Chicago style", "How are you", "Good", "Hi"])
-        # Fluid chat (#75, #78): a reply to the hub's own turn that says nothing is left out.
         quiet = [{"role": "user", "text": "[Board update] School finished"}, {"role": "assistant", "text": "Noted"}]
         self.assertEqual(briefing._visible(quiet), [])
 

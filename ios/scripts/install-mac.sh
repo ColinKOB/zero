@@ -1,6 +1,4 @@
 #!/bin/zsh
-# Builds the Mac app (Release) and installs it as /Applications/Zero.app, replacing the old copy (Zero.app, or
-# Taffy.app from before the Oct 10 rename) only if the build succeeded. Same bundle id, so data and permissions stay.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 xcodegen generate >/dev/null

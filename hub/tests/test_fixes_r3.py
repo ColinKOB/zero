@@ -35,7 +35,7 @@ class ScheduledAllowOnce(GateCase):
 
     def run_call(self, tool, args, run):
         out = gate.pre_tool_call(tool, args, session_id=f"cron-{run}", task_id=f"cron:kenwatch:{run}")
-        if out is None:   # as Hermes does: the tool ran, so the post hook lists it (live convo QA)
+        if out is None:
             gate.post_tool_call(tool, args, '{"ok": true}', session_id=f"cron-{run}", task_id=f"cron:kenwatch:{run}")
         return out
 
@@ -49,7 +49,7 @@ class ScheduledAllowOnce(GateCase):
         self.assertIsNotNone(self.email("Send ken@example.com a reminder about repo access", "run1"))
         self.allow_last()
         self.assertIsNone(self.email("Send ken@example.com a reminder about the repo access.", "run2"))
-        self.assertIsNotNone(self.email("Send ken@example.com a reminder about repo access", "run3"))   # used up
+        self.assertIsNotNone(self.email("Send ken@example.com a reminder about repo access", "run3"))
         self.assertEqual(plugin.recent_actions(1)[0]["how"], "button")
 
     def test_a_different_recipient_or_text_gets_its_own_card(self):
@@ -60,7 +60,6 @@ class ScheduledAllowOnce(GateCase):
         self.assertIsNotNone(self.email("Send ken@example.com and riley@example.com a reminder about repo access",
                                         "run2"))
         self.assertEqual(len(self.cards()), 3)
-        # The approved one is still there for the right email.
         self.assertIsNone(self.email("Send ken@example.com a reminder about repo access", "run2"))
 
     def test_an_approved_deploy_covers_that_site_only(self):
@@ -130,7 +129,6 @@ class OtherAssistants(GateCase):
         "codex exec 'email Riley the report with himalaya'", "codex e hi", "codex", "npx @openai/codex exec hi",
         "node ~/.local/lib/node_modules/@openai/codex/bin/codex.js exec hi",
         "hermes chat -q 'send the email'", "hermes", "hermes-agent -q hi", "hermes-acp",
-        # Simple evasions: env prefixes, wrappers, shells, substitutions, remote and background runs.
         "HOME=/home/jdoe claude -p hi", "env -i PATH=/usr/bin claude -p hi", "command claude -p hi",
         "exec claude -p hi", "nohup claude -p hi &", "sudo -u jdoe claude -p hi", "bash -c 'claude -p hi'",
         "sh -c \"codex exec hi\"", "bash -lc 'cd ~ && claude -p hi'", "echo hi | xargs claude -p",
@@ -160,7 +158,7 @@ class OtherAssistants(GateCase):
                 self.assertIsNotNone(blocked)
                 self.assertIn("Starting another assistant", blocked["message"])
                 self.assertIn("connectors tool", blocked["message"])
-        self.assertEqual(self.cards(), [])   # never: no card a tap could approve
+        self.assertEqual(self.cards(), [])
 
     def test_terminal_cannot_change_hermes_settings(self):
         for cmd in self.SETTINGS:
@@ -539,7 +537,7 @@ class WizardAndConfirmButtons(PageCase):
                          "delete")
         self.assertEqual(self.kind("Confirm", "shop.example.com", {"dialogs": ["Confirm your purchase"]}), "pay")
         self.assertEqual(self.kind("Continue", "github.com", {"dialogs": ["Delete this repository?"]}), "delete")
-        self.assertIsNone(self.kind("Continue", "github.com", {"headings": ["Delete this repository"]}))   # not a dialog
+        self.assertIsNone(self.kind("Continue", "github.com", {"headings": ["Delete this repository"]}))
         self.assertIsNone(self.kind("Confirm", "app.example.com", {"headings": ["Your settings"]}))
         self.assertIsNone(self.kind("Yes", "app.example.com"))
 
@@ -616,8 +614,6 @@ class CardTitles(GateCase):
                 self.assertEqual(self.cards()[-1]["site"], "")
 
 
-# ── The hub side ──────────────────────────────────────────────────────────────────────────────────────────
-
 import asyncio  # noqa: E402
 
 from test_fixes_r1 import AppCase  # noqa: E402
@@ -673,7 +669,7 @@ class HermesApprovals(AppCase):
         self.assertEqual(self.client.post(f"/api/signin-requests/{card['id']}", json={"decision": "once"}).status_code,
                          200)
         self.assertEqual(self.answers, [("builder", "run1", "r1", "once")])
-        self.assertEqual(self.followed, [])   # the Zip is still in its turn; nothing to resume
+        self.assertEqual(self.followed, [])
 
     def test_not_now_refuses(self):
         self.handle("git reset --hard (destroys uncommitted changes)", "git reset --hard")
@@ -683,10 +679,9 @@ class HermesApprovals(AppCase):
         self.assertEqual(self.answers[-1][3], "deny")
 
     def test_allowing_after_hermes_gave_up_covers_the_next_try(self):
-        # Round 4, L5: the card no longer goes away with the turn; a late answer resumes the chat (test_fixes_r4).
         self.handle("kill all processes", "pkill -f llama-server", run="run2", req="r2")
         card = self.cards()[0]
-        self.still_waiting = False                               # Hermes stopped waiting before Colin answered
+        self.still_waiting = False
         self.client.post(f"/api/signin-requests/{card['id']}", json={"decision": "once"})
         self.assertIsNone(self.handle("kill all processes", "pkill -f llama-server", run="run3", req="r3"))
         self.assertEqual(self.answers[-1], ("builder", "run3", "r3", "once"))

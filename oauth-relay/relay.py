@@ -40,7 +40,7 @@ log = logging.getLogger("relay")
 
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 SCHEME = "zero"
-LIMIT = 30            # token requests per address per ten minutes
+LIMIT = 30
 WINDOW_SEC = 600
 
 

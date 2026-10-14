@@ -34,7 +34,6 @@ HOME = Path.home()
 HUB_DB = HOME / "taffy" / "hub-state" / "hub.db"
 HERMES = HOME / ".taffy"
 
-# Two sets of fictional values, so a second run is not answered from the first run's chats.
 VALUES = {
     "a": dict(coffee="the Cafe Bustelo espresso brick, the 10 ounce one", store="the Stop & Shop on Hope Street",
               coffee_re=r"bustelo", store_re=r"stop\s*(&|and)\s*shop",
@@ -149,8 +148,6 @@ def scenarios(v: dict):
 
 FRESH_ALL = ("fresh", ["default", "inbox", "todo"])
 
-# "Weeks of use": what a home has after a few weeks, so a new fact competes with many older ones and memory is nearly
-# full (Hermes caps MEMORY.md at 4,400 characters in these homes). Fictional, about the test persona.
 FILLER = [
     "Sam's bakery, Rivera Bakes, opens at 6 a.m. Tuesday to Sunday and is closed Mondays.",
     "Sam's partner Alex works as a nurse at Miriam Hospital, mostly night shifts.",
@@ -193,7 +190,7 @@ FILLER = [
     "Sam's knife sharpening happens monthly at Stock Culinary Goods.",
     "Sam volunteers at the Providence Community Fridge on the last Sunday of the month.",
 ]
-ASK_WINDOW = 150   # an ask that is still working after this is stopped; its first lines already show what it knew
+ASK_WINDOW = 150
 
 
 def profile_home(bot: str) -> Path:
@@ -260,7 +257,7 @@ def stream(hub: Hub, bot: str, text: str, window: float) -> list[dict]:
                     except HubError:
                         pass
                     break
-    except Exception as e:   # a timeout still leaves what arrived
+    except Exception as e:
         events.append({"type": "eval_error", "text": str(e)[:200], "t": round(time.time() - began, 2)})
     return events
 
@@ -312,7 +309,7 @@ def run_step(hub: Hub, step, log) -> dict:
     before = usage(bot)
     window = ASK_WINDOW if kind == "ask" else 240
     events = stream(hub, bot, text, window)
-    time.sleep(3)   # the session's counters are written as the turn ends
+    time.sleep(3)
     after = usage(bot)
     rec = {"step": kind, "bot": bot, "text": text, "events": events, "said": said(events),
            "secs": events[-1]["t"] if events else None,
@@ -322,12 +319,12 @@ def run_step(hub: Hub, step, log) -> dict:
     if kind == "ask":
         rec["grade"], rec["why"] = grade(rec["said"], step[3])
     log(rec)
-    time.sleep(2)   # a turn still running waits in the hub's queue anyway (turns.send)
+    time.sleep(2)
     return rec
 
 
 MEM_SEP = "\n§\n"
-AGE_DAYS = (3, 30)   # filler notes are dated over the last month
+AGE_DAYS = (3, 30)
 
 
 def age(out: Path) -> None:

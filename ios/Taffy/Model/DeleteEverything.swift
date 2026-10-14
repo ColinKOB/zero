@@ -25,7 +25,7 @@ extension AppState {
             } catch {
                 if let h = error as? HubClient.HubError {
                     switch h {
-                    case .notPaired: break   // already signed out of the computer; clear this device
+                    case .notPaired: break
                     case .http(let code, let message):
                         if code == 409 { return .refused(message) }
                         return .computerUnreachable
@@ -47,16 +47,14 @@ extension AppState {
         consentWaiters.forEach { $0.resume(returning: false) }
         consentWaiters = []
         aiConsentSheet = false
-        // In memory first, so the property observers cannot write old values back.
         client.token = nil
-        HubTrust.removePin(for: client.server)   // this home's certificate pin goes with it
+        HubTrust.removePin(for: client.server)
         client.server = ""
         client.demo = false
         chats = [:]; board = .empty; bots = []; working = [:]; mutedBots = []; proactivity = nil
         drafts = [:]; pinned = ["default"]; callVoice = "cove"
         onDeviceVoice = "george"
         callEngine = AppState.chatGPTEngine
-        // The On-Device Voice's files, with its greeting takes (they say the person's name).
         Task { await OnDeviceVoice.shared.remove() }
         UserDefaults.standard.removeObject(forKey: "onDeviceGreeting")
         pendingPair = nil
@@ -73,7 +71,6 @@ extension AppState {
         // The Keychain: the pairing and the Google voice key (iOS keeps these after the app is deleted).
         Keychain.delete("hubToken")
         GeminiKeyStore.remove()
-        // The settings file, the saved copy of the chats, opened attachments and website sign-ins.
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         aiConsent = .unasked
         UserDefaults.standard.removeObject(forKey: "aiConsent")
@@ -83,7 +80,6 @@ extension AppState {
         WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
                                                 modifiedSince: .distantPast) {}
         UIApplication.shared.unregisterForRemoteNotifications()
-        // Back to the first screen of the onboarding.
         paired = false
         showWelcome = false
         rehearsingOnboarding = false

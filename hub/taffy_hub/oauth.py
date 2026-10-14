@@ -47,8 +47,6 @@ MISSING = "missing"
 
 MS_AUTHORITY = "https://login.microsoftonline.com/common"
 
-# Each app's sign-in. `home` is the key under home.json apps (Zero's public IDs, home.py DEFAULTS), `field` the ID's
-# name there. "relay" swaps the code through Zero's relay instead of the provider's token address.
 PROVIDERS = {
     "outlook": {"name": "Outlook", "home": "microsoft", "field": "client_id",
                 "authorize": f"{MS_AUTHORITY}/oauth2/v2.0/authorize", "token": f"{MS_AUTHORITY}/oauth2/v2.0/token",
@@ -76,7 +74,7 @@ GITHUB = {"name": "GitHub", "home": "github", "field": "client_id", "device": "h
           "verify": "https://github.com/login/device"}
 APPS = (*PROVIDERS, "github")
 
-_pending: dict[str, dict] = {}   # state -> {app, exp, verifier | device_code, interval, next}
+_pending: dict[str, dict] = {}
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 

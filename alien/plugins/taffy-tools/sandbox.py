@@ -30,14 +30,12 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import home as settings, safe_files   # `home` is a profile folder below
+from . import home as settings, safe_files
 
 
 def _p(text: str) -> str:
     """A message written for Colin's home, said for this home (its server's name and its person's)."""
     return settings.personalize(text)
-
-# ── Which Zips are in a container ─────────────────────────────────────────────────────────────────────────
 
 _info_cache: dict[str, tuple[float, dict | None]] = {}
 
@@ -65,25 +63,19 @@ def container_info(home: Path) -> dict | None:
     info = None
     if re.search(r"(?m)^\s+backend:\s*['\"]?docker['\"]?\s*$", block):
         ports = set()
-        # docker_extra_args: ["-p", "127.0.0.1:18230-18239:18230-18239", ...], either list style
         for m in re.finditer(r"(?:127\.0\.0\.1:)(\d{2,5})(?:-(\d{2,5}))?:\d", block):
             first, last = int(m.group(1)), int(m.group(2) or m.group(1))
             if 0 < first <= last <= 65535 and last - first < 200:
                 ports.update(range(first, last + 1))
-        # Only the home's own preview range counts: a profile's config cannot open another home's ports.
         own = settings.preview_range()
         info = {"ports": {p for p in ports if p in own}}
     _info_cache[str(path)] = (mtime, info)
     return info
 
 
-# ── Addresses ─────────────────────────────────────────────────────────────────────────────────────────────
-
 ALLOWED_SCHEMES = {"http", "https"}
-# Schemes that open something on alien itself, or a browser page that can (settings, downloads, devtools).
 LOCAL_SCHEMES = re.compile(r"(?<![\w.+-])(file|view-source|chrome|chrome-untrusted|chrome-extension|chrome-search|"
                            r"devtools|filesystem|about|data|javascript|blob|ws|wss|ftp|smb|sftp|ssh)\s*:", re.I)
-# The same, as found inside other text (page scripts, typed text): only the schemes that never mean anything else.
 TEXT_SCHEMES = re.compile(r"(?<![\w.+-])(file|view-source|chrome|chrome-untrusted|chrome-extension|chrome-search|"
                           r"devtools|filesystem)\s*:", re.I)
 _HTTP_URL = re.compile(r"(?i)\bhttps?://[^\s'\"\\<>`)\]}]+")
@@ -167,12 +159,12 @@ def url_problem(url: str, ports: set[int]) -> str | None:
         return None
     if re.fullmatch(r"(?i)about:blank(#.*)?", u):
         return None
-    m = re.match(r"^([a-zA-Z][\w+.-]*):(?!\d)", u)   # a scheme, not "localhost:8650"
+    m = re.match(r"^([a-zA-Z][\w+.-]*):(?!\d)", u)
     if m:
         if m.group(1).lower() not in ALLOWED_SCHEMES:
             return f"the browser opens only http and https pages, not {m.group(1).lower()}: addresses"
     else:
-        u = "http://" + u   # "example.com" or "localhost:8650", as typed into the address bar
+        u = "http://" + u
     try:
         parts = urlsplit(u)
         port = parts.port
@@ -213,8 +205,6 @@ def _message(why: str, ports: set[int]) -> str:
             "do not try another way.")
 
 
-# ── browser_exec: Python that runs on alien ───────────────────────────────────────────────────────────────
-
 # The browser helpers browser_exec offers (browser_harness.helpers), minus http_get (an outside fetch from alien that
 # follows redirects anywhere; use curl in the container) and the recording and daemon helpers.
 HELPERS = {"cdp", "drain_events", "goto_url", "page_info", "click_at_xy", "type_text", "fill_input", "press_key",
@@ -235,10 +225,8 @@ MODULES = {"json": {"dumps", "loads", "JSONDecodeError"},
            "datetime": {"datetime", "date", "timedelta", "timezone"}}
 # Attributes that lead from an ordinary object back to the interpreter (frames, code, globals).
 _BAD_ATTR = re.compile(r"^(_|(gi|cr|ag|f|tb|co)_|mro$|func_)")
-# Page-script code that moves the page or sends a request somewhere; with a changing address it could reach alien.
 _JS_SINKS = re.compile(r"\blocation\b|window\.open|\.href\s*=|\.src\s*=|\bfetch\s*\(|XMLHttpRequest|sendBeacon|"
                        r"\bimport\s*\(|\.action\s*=|\.submit\s*\(|WebSocket|EventSource", re.I)
-# CDP methods that write files on alien, hand its files to a page or change what pages may do.
 CDP_BLOCKED = {"DOM.setFileInputFiles": "picking files from alien for a page",
                "Page.setDownloadBehavior": "choosing where downloads go on alien",
                "Browser.setDownloadBehavior": "choosing where downloads go on alien",
@@ -278,7 +266,6 @@ def _str_values(node, bindings: dict, depth: int = 0) -> list[str] | None:
         if left is not None and len(left) == 1:
             first = left[0]
     if isinstance(first, str):
-        # The address is fixed once its scheme and host are: https://example.com/search?q={q}
         m = re.match(r"(?i)^(https?://[^/?#]+)[/?#]", first)
         if m and "{" not in m.group(1):
             return [first]
@@ -377,7 +364,6 @@ def _check_path(node, what: str, roots: tuple[str, ...], home: str) -> None:
     if not vals:
         raise _Problem(f"{what} must be given as a written-out path")
     for v in vals:
-        # Links and ".." are followed, and protected or hard-linked files are refused (safe_files.py).
         try:
             safe_files.resolve(v, roots, home)
         except safe_files.Refused as e:
@@ -413,7 +399,7 @@ def _check_cdp(call: ast.Call, bindings, ports) -> None:
 def _check_script(node, ports) -> None:
     """A page script built from changing parts may not move the page or send requests."""
     if isinstance(node, ast.Constant):
-        return   # its text is checked with every other string in the code
+        return
     text = " ".join(n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str))
     if _JS_SINKS.search(text):
         raise _Problem("a page script that opens addresses or sends requests must be written out in full, with no "
@@ -427,9 +413,9 @@ def browser_exec_problem(code: str, ports: set[int], work_roots: tuple[str, ...]
     except SyntaxError as e:
         return f"{_p(EXEC_RULE)}, and this code does not parse ({e.msg} on line {e.lineno})"
     bindings, bound = _bindings(tree)
-    aliases: dict[str, str] = {}   # local name -> module
-    imported: set[str] = set()     # names brought in with `from <module> import <name>`
-    calls_ok: set[int] = set()     # ids of Name nodes used directly as a helper call
+    aliases: dict[str, str] = {}
+    imported: set[str] = set()
+    calls_ok: set[int] = set()
     try:
         for n in ast.walk(tree):
             if isinstance(n, (ast.Global, ast.Nonlocal, ast.ClassDef, ast.Match)):
@@ -524,12 +510,9 @@ def cdp_tool_problem(args: dict, ports: set[int]) -> str | None:
     return text_problem(json.dumps(params, ensure_ascii=False), ports)
 
 
-# ── computer_use: the Zip's screen on alien ───────────────────────────────────────────────────────────────
-
 _MODS = {"ctrl": "ctrl", "control": "ctrl", "primary": "ctrl", "alt": "alt", "option": "alt", "mod1": "alt",
          "shift": "shift", "super": "super", "win": "super", "windows": "super", "meta": "super", "cmd": "super",
          "command": "super", "hyper": "super", "fn": "fn"}
-# Keys that open a terminal, a run dialog, an app menu or finder, a file dialog or the browser's developer tools.
 _KEYS_ALONE = {"menu", "f12"}
 _ALT_KEYS = {"f1", "f2", "f3", "f", "e"}                       # app menu, run dialog, app finder, browser menus
 _CTRL_KEYS = {"o", "s", "p", "j", "escape", "esc"}             # open file, save page, print, downloads, app menu
@@ -597,8 +580,6 @@ def _typed_url(text: str, ports: set[int]) -> str | None:
         return url_problem(t, ports)
     return None
 
-
-# ── The gate's entry point ────────────────────────────────────────────────────────────────────────────────
 
 def work_roots(real_home: Path, bot: str | None = None) -> tuple[str, ...]:
     """The folders a Zip may hand files on from (safe_files.zip_roots); every Zip's work folder when no Zip is named."""

@@ -132,8 +132,8 @@ class Shapes(unittest.TestCase):
 
     def test_validate_catches_what_the_plan_forbids(self):
         bad = homes.shape("riley")
-        bad["plan"]["connectors"] = "claude"                 # a shared plan cannot carry connectors
-        bad["mail"]["accounts"][0]["password"] = "hunter22"  # no passwords in home.json
+        bad["plan"]["connectors"] = "claude"
+        bad["mail"]["accounts"][0]["password"] = "hunter22"
         bad["person"]["timezone"] = "Mars/Olympus"
         problems = " ".join(home_checks.validate_home(bad))
         self.assertIn("connectors", problems)

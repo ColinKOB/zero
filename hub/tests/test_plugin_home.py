@@ -26,7 +26,6 @@ home, team, tiers = tt.home, tt.team, tt.tiers
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN = Path(tt.__file__).resolve().parent
 
-# Riley's home exactly as the plan's section 4 writes it.
 RILEY = json.loads(r'''{
   "version": 1, "home_id": "riley",
   "person": {"name": "Riley Ellis", "first_name": "Riley", "timezone": "America/New_York",
@@ -54,7 +53,6 @@ RILEY = json.loads(r'''{
   "zips": {"max": 4, "container_memory_mb": 2048}
 }''')
 
-# A stranger on a server that is not alien, in another time zone, with Google sign-in mail and a CalDAV calendar.
 SAM = {"version": 1, "home_id": "sam",
        "person": {"name": "Sam Rivera", "timezone": "America/Chicago", "pronoun_free": True},
        "locale": {"units": "metric", "spelling": "american", "clock": "24h"},
@@ -65,7 +63,6 @@ SAM = {"version": 1, "home_id": "sam",
                       "username": "sam@icloud.com"}],
        "zips": {"max": 6}}
 
-# What must never reach a stranger's Zips (the plan's grep test, section 7).
 COLIN_FACTS = re.compile(r"\bColin\b|\bhis\b|\bHis\b|\bhim\b|\bhe\b|\bHe\b|\balien\b|America/New_York|/home/jdoe|"
                          r"Riley|Lakeview|AbCd1234|goodworks|jdoe1|D\.R\. Acme Homes")
 
@@ -117,12 +114,11 @@ class Reader(unittest.TestCase):
             self.assertEqual(home.hub_url(), "http://127.0.0.1:8651/internal/")
             path.write_text("{not json")
             os.utime(path, ns=(1, 1))
-            # Unreadable: the last good copy, never a crash and never Colin's home (night review, Oct 9).
             self.assertEqual(home.home_id(), "riley")
         torn = self.tmp / "torn.json"
         torn.write_text('{"home_id": "stranger", "person": {"name": "Sam')
         with mock.patch.dict(os.environ, {"ZERO_HOME": str(torn)}):
-            self.assertNotEqual(home.home_id(), "colin")   # no good copy yet: still not Colin's
+            self.assertNotEqual(home.home_id(), "colin")
             self.assertFalse(home.is_colin())
             self.assertIsNone(home.tally())
             self.assertIsNone(home.trello())
@@ -159,7 +155,7 @@ class Reader(unittest.TestCase):
         self.assertFalse(home.judge_enabled())
         self.assertFalse(home.connectors_on())
         self.assertTrue(home.pronoun_free())
-        self.assertEqual(home.path("work", self.tmp), self.tmp / "taffy" / "work")   # the layout is shared
+        self.assertEqual(home.path("work", self.tmp), self.tmp / "taffy" / "work")
 
     def test_onboarding_name_when_the_file_has_none(self):
         state = self.tmp / "taffy" / "hub-state"
@@ -282,7 +278,7 @@ class Rendered(unittest.TestCase):
             self.assertTrue(path.startswith(str(self.home)), path)
         self.assertIn(f"`{self.home}/taffy/work/errands/`", soul)
         self.assertNotIn("{work_dir}", soul)
-        self.assertNotIn("assessed schoolwork", soul)   # the school rule is for school Zips
+        self.assertNotIn("assessed schoolwork", soul)
         self.assertIn("assessed schoolwork", team._soul("Tutor", "Help with homework. " * 40, "tutor", school=True))
 
     def test_every_template_renders_long_enough_for_a_short_name(self):
@@ -326,7 +322,7 @@ class Colins(unittest.TestCase):
         for name in ("connectors", "tally", "email", "team_add_bot", "share_screen", "react", "mac_start",
                      "ask_teammate"):
             self.assertIn(name, tools)
-        self.assertNotIn("calendar", tools)    # Colin's calendar is his connector
+        self.assertNotIn("calendar", tools)
         self.assertNotIn("browser_steps", tools)
 
 
@@ -355,7 +351,7 @@ class Registration(unittest.TestCase):
         self.assertIn("calendar", tools)
         for off in ("connectors", "tally", "browser_steps"):
             self.assertNotIn(off, tools)
-        self.assertFalse(fast_steps.paid_calls_on())   # judge.enabled false, whatever the owner folder holds
+        self.assertFalse(fast_steps.paid_calls_on())
 
     def test_switches_follow_the_owner_folder_where_the_judge_is_on(self):
         pin(self, {**home.colin_settings(), "paths": {**home.colin_settings()["paths"],
@@ -496,8 +492,8 @@ class Paths(unittest.TestCase):
         with home.pinned({"home_id": "pat", "paths": {"owner": "~/zero-switches"}}):
             spec.loader.exec_module(mod)
         self.assertIsNotNone(mod.SECRET_PATHS.search("touch ~/zero-switches/judge-on"))
-        self.assertIsNone(tt.safe_files.SECRET_PATHS.search("touch ~/zero-switches/judge-on"))   # only that home
-        self.assertIsNotNone(mod.SECRET_PATHS.search("cat ~/taffy/owner/x"))   # the old patterns stay
+        self.assertIsNone(tt.safe_files.SECRET_PATHS.search("touch ~/zero-switches/judge-on"))
+        self.assertIsNotNone(mod.SECRET_PATHS.search("cat ~/taffy/owner/x"))
 
 
 class AddBot(unittest.TestCase):
@@ -521,7 +517,7 @@ class AddBot(unittest.TestCase):
                         "mkdir -p \"$HERMES_HOME/profiles/$3/memories\" && echo old > "
                         "\"$HERMES_HOME/profiles/$3/memories/MEMORY.md\" && touch \"$HERMES_HOME/profiles/$3/.env\"\n")
         fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-        render = bin_ / "zero-home-render"   # WP3's renderer, as installed under /srv/zero/bin on a server
+        render = bin_ / "zero-home-render"
         render.write_text("#!/bin/sh\necho \"$@\" >> \"%s/rendered.log\"\n" % self.real)
         render.chmod(render.stat().st_mode | stat.S_IXUSR)
         p = mock.patch.object(team, "RENDERER", render)
@@ -546,8 +542,7 @@ class AddBot(unittest.TestCase):
         self.assertIsNone(COLIN_FACTS.search(soul), COLIN_FACTS.search(soul))
         self.assertIn("You own Sam's inbox.", soul)
         self.assertEqual((self.real / ".taffy" / "profiles" / "inbox" / "memories" / "MEMORY.md").read_text(), "")
-        self.assertIn("--clone-from default", (self.real / ".taffy" / "created.log").read_text())  # no School here
-        # its own container, preview ports and network come from the home's renderer, not the clone
+        self.assertIn("--clone-from default", (self.real / ".taffy" / "created.log").read_text())
         self.assertEqual((self.real / "rendered.log").read_text().split(), ["sam", "--zip", "inbox"])
         self.assertTrue((self.real / "taffy" / "work" / "inbox").is_dir())
         self.assertEqual(json.loads((self.real / "taffy" / "hub-state" / "bots.json").read_text())[0]["id"], "inbox")

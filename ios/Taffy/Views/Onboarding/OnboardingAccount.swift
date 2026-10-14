@@ -1,8 +1,5 @@
 import SwiftUI
 
-// Screen 4: the person's account. A username and a password make a new home for them (FrontDoor.swift), which takes a
-// couple of minutes, and then this device signs in to it. Someone with an account or a pairing code goes another way.
-
 struct AccountScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -174,7 +171,7 @@ struct AccountScreen: View {
         let name = username.trimmingCharacters(in: .whitespaces)
         Task {
             defer { busy = false }
-            if state.fixtureMode {   // no front door: pretend, then go on
+            if state.fixtureMode {
                 model.draft.username = name
                 model.draft.signUpJob = "fixture"
                 return
@@ -221,7 +218,6 @@ struct AccountScreen: View {
                 default: break
                 }
             } catch let e as FrontDoor.Problem where e.code == 404 {
-                // The service lost the job (it restarted). The same details start it again where it stopped.
                 problem = e.errorDescription
                 model.draft.signUpJob = nil
                 return
@@ -248,7 +244,6 @@ struct AccountScreen: View {
         message = "Your account is ready."
         password = ""
         try? await Task.sleep(for: .seconds(1.2))
-        // One change, so the screen never shows the empty form between the account and the next step.
         var next = model.draft
         next.signUpJob = nil
         next.signUpReady = nil

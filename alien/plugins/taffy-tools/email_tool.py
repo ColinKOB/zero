@@ -59,8 +59,8 @@ def _google(account: str) -> bool:
 
 
 ACTIONS = ("list", "search", "read", "attachments", "draft", "send")
-BODY_MAX = 10000          # the whole message must fit on the card (consent.SEND_TEXT_MAX)
-READ_MAX = 30000          # characters of a message returned to the Zip
+BODY_MAX = 10000
+READ_MAX = 30000
 PAGE_SIZE, PAGE_SIZE_MAX = 20, 50
 ATTACH_MAX = 20 * 1024 * 1024
 TIMEOUT_SEC = 120
@@ -138,7 +138,6 @@ def schema() -> dict:
     acc["enum"] = list(accounts())
     acc["description"] = acc["description"].replace("{default}", default_account())
     if not any(_is_gmail(a) for a in accounts().values()):
-        # Sam's Zips were told about '[Gmail]/All Mail' in a home with one IMAP mailbox and no Gmail (live convo QA 2).
         s["description"] = s["description"].replace(", '[Gmail]/All Mail'.", ".").replace(
             "Sent, Drafts.", "Sent and Drafts.")
     if any(a.get("kind") == "google_oauth" for a in accounts().values()):
@@ -338,8 +337,6 @@ def classify(args: dict):
                         inputs=card_text(m), scope=addrs[0].lower() if len(addrs) == 1 else "", extra=extra)
 
 
-# ── Running himalaya ──────────────────────────────────────────────────────────────────────────────────────
-
 def _himalaya() -> str:
     local = consent.REAL_HOME / ".local" / "bin" / "himalaya"
     return str(local) if local.exists() else (shutil.which("himalaya") or "himalaya")
@@ -390,9 +387,6 @@ def _template(m: dict) -> str:
     if m["in_reply_to"]:
         base = _headers(_ok(run(["template", "reply", "-a", acc, "-f", m["folder"], "--", m["in_reply_to"]]),
                             "Reading the message to reply to"))
-        # An original with no Message-ID cannot be threaded. The card showed the recipients, subject and text, and
-        # those are what goes, so the reply goes out unthreaded instead of failing after the okay (live convo QA,
-        # Oct 9: Sam's approved reply to Jordan was refused here, after the tap). The result says so.
     else:
         base = _headers(_ok(run(["template", "write", "-a", acc]), "Starting the message"))
     sender = base.get("from") or _address(acc)
@@ -467,8 +461,6 @@ def _save_attachments(m: dict) -> dict:
     if not work.is_dir() or work.is_symlink():
         raise RuntimeError(f"your work folder {work} does not exist")
     dest = work / "mail" / f"{m['account']}-{m['id']}"
-    # himalaya downloads into a private folder outside the work folder; each file is then written into the Zip's
-    # folder through a handle that never follows a link.
     tmp = Path(tempfile.mkdtemp(prefix="taffy-mail-"))
     dest_fd = None
     try:
@@ -595,9 +587,7 @@ def email_tool(args: dict, **kwargs) -> str:
     return json.dumps(out, ensure_ascii=False)
 
 
-# ── Gmail, for a mailbox the person connected with Sign In with Google (kind "google_oauth") ────────────────────
-
-_session = threading.local()   # the calling session, for the hub's token request
+_session = threading.local()
 # himalaya's folder names on a Gmail account, as Gmail's own labels.
 _LABELS = {"inbox": "INBOX", "sent": "SENT", "drafts": "DRAFT", "[gmail]/sent mail": "SENT", "[gmail]/drafts": "DRAFT",
            "[gmail]/spam": "SPAM", "spam": "SPAM", "[gmail]/trash": "TRASH", "trash": "TRASH",

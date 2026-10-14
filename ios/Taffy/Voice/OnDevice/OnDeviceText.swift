@@ -1,6 +1,3 @@
-// On-Device Voice: turning streamed reply text into sentences to speak, and reading the person's words.
-// Pure Foundation, so the Mac bench (ios/OnDeviceBench) compiles this same file. Ported from the call test
-// (/tmp/kokoro-call-test, docs/research/2026-10-08-kokoro-call-test.md and 2026-10-09-call-test-hearing.md).
 import Foundation
 
 /// One sentence to speak, and the pause that should follow it when another comes after.
@@ -88,7 +85,6 @@ struct SentenceSplitter {
             case ".", "?", "!", "\u{2026}":
                 var j = i + 1
                 while j < chars.count, "\"'\u{201D}\u{2019})".contains(chars[j]) { j += 1 }
-                // Wait for the next character: "3.5" and a half-streamed "Dr." must not be cut.
                 guard j < chars.count else { return nil }
                 guard chars[j].isWhitespace else { break }
                 if ch == ".", isAbbreviation(chars, endingBefore: i) { break }
@@ -113,7 +109,7 @@ struct SentenceSplitter {
         var s = i
         while s > 0, !chars[s - 1].isWhitespace { s -= 1 }
         let word = String(chars[s..<i]).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "(\"'"))
-        if word.count == 1, word.first?.isLetter == true { return true }   // an initial, as in "J. Smith"
+        if word.count == 1, word.first?.isLetter == true { return true }
         return Self.abbreviations.contains(word)
     }
 }
@@ -218,8 +214,8 @@ func speakableText(_ s: String) -> String {
 enum TextShape: String {
     case empty
     case complete
-    case weakIncomplete = "maybe_incomplete"   // ends in a preposition, "like", "so": often fine as a question
-    case incomplete                            // ends in a filler, conjunction, article or a dangling subject
+    case weakIncomplete = "maybe_incomplete"
+    case incomplete
 }
 
 /// Whether the words so far sound finished. "um" and "uh" mean the person is still thinking.

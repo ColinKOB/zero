@@ -63,7 +63,7 @@ final class MacApprover {
         context.localizedReason = "Allow \(request.bot) to use your Mac"
         let key = try privateKey(context: context)
         let message = MacGrant.message(id: request.id, bot: request.bot, task: request.task, said: request.said,
-                                       expires: request.expires)   // Shared/MacGrant.swift, the same words the Mac checks
+                                       expires: request.expires)
         let signature = try key.signature(for: message)   // Face ID or the passcode happens here
         let keyID = try await client.macKeyID()
         return try await client.answerMac(request.id, allow: true, keyID: keyID,

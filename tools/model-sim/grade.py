@@ -68,7 +68,6 @@ def chat_full(rows: list[dict]) -> str:
 
 
 # MARK: The models
-
 MODELS_PROMPT = """Three AI assistants, Zip A, Zip B and Zip C, each had the same conversation with the same simulated
 person (Sam) through a phone chat app. You do not know which models they are. Do not guess.
 
@@ -133,7 +132,6 @@ def grade_models(results: Path) -> None:
 
 
 # MARK: The shortener
-
 SHORT_PROMPT = """A phone chat app shows long assistant replies in a short version (written by a small model), with a
 Show Full Reply button. The goal: the key point first, two or three sentences, nothing invented, nothing the person
 needs taken away. It should not shorten a reply when the person asked for the full thing (a list, a plan, a draft,

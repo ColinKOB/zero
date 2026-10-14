@@ -66,7 +66,7 @@ class History(unittest.TestCase):
         self.assertEqual(out[1]["reply_to"], {"text": "The cart is ready now.", "who": "bot"})
         self.assertNotIn("reply_to", out[0])
         self.assertNotIn("reply_to", out[2])
-        self.assertTrue(out[1]["text"].startswith("[Replying to your message: "))   # the Zip's copy stays whole
+        self.assertTrue(out[1]["text"].startswith("[Replying to your message: "))
 
     def test_with_the_reactions_and_stopped_notes(self):
         line = history.reply_line("Plan my week", "person", "Colin")
@@ -92,7 +92,7 @@ class History(unittest.TestCase):
         a, b = history.reply_line("first", "bot", "Colin"), history.reply_line("second", "bot", "Colin")
         out = history.classify(msgs(("user", f"{a}\n{b}\nhi")))
         self.assertEqual(out[0]["reply_to"]["text"], "first")
-        self.assertEqual(out[0]["display"], f"{b}\nhi")   # only the hub's own first line is taken off
+        self.assertEqual(out[0]["display"], f"{b}\nhi")
 
     def test_a_steered_reply_unwraps(self):
         line = history.reply_line("Draft ready", "bot", "Colin")
@@ -116,7 +116,7 @@ class History(unittest.TestCase):
 class Turns(_Turns):
     def stream(self, release=None):
         self.seen = []
-        self.release = release if release is not None else asyncio.Event()   # _Turns._stop sets it
+        self.release = release if release is not None else asyncio.Event()
 
         async def stream(bot_id, text, team=False, lane=None):
             self.seen.append(text)
@@ -147,8 +147,8 @@ class Turns(_Turns):
         name = who.first()
         self.assertEqual(self.seen, [f'[Replying to your message: "The cart is ready."]\nIs pickup free?'])
         self.assertEqual(t.own_words, "Is pickup free?")
-        self.assertIn("Is pickup free?", passes)                       # sign-in consent: his words only
-        self.assertIn(("expect", "Is pickup free?"), passes)           # Retry offers his words
+        self.assertIn("Is pickup free?", passes)
+        self.assertIn(("expect", "Is pickup free?"), passes)
         self.assertTrue(all("Replying" not in str(p) for p in passes))
         self.assertTrue(name)
 

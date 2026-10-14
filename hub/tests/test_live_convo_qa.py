@@ -94,7 +94,6 @@ class StopIsStop(AppCase):
         self.assertIn('"Build me a full weekly prep list."', note)
         self.assertIn("Do not finish or restart it", note)
         self.assertTrue(note.endswith("\nAdd flour to my list."))
-        # told once: the message after that goes as it is
         self.turn([{"type": "reply", "text": "Done."}, {"type": "done"}], text="Thanks.")
         self.assertEqual(self.sent[-1], "Thanks.")
 
@@ -173,10 +172,10 @@ class TimeZoneFollowsSettings(unittest.TestCase):
         spec.write_text("# Spec\n\n- Style: plain. Time zone America/New_York. Don't name servers.\n")
         with mock.patch.object(team.home, "timezone_name", lambda: "America/Los_Angeles"):
             team.sync_souls()
-            self.assertEqual(team.sync_souls(), [])   # settled: nothing rewritten the second time
+            self.assertEqual(team.sync_souls(), [])
         text = lead.read_text()
         self.assertIn("- Time zone America/Los_Angeles. Units: Fahrenheit, miles.", text)
-        self.assertIn("Sam moved from America/Chicago in 2024.", text)   # only the "Time zone" line follows
+        self.assertIn("Sam moved from America/Chicago in 2024.", text)
         self.assertIn("Time zone America/Los_Angeles. Don't name servers.", spec.read_text())
 
     def test_every_zip_hears_the_apps_zone_and_to_flag_a_mismatch_once(self):
@@ -243,7 +242,7 @@ class CardsAndDoneLines(GateCase):
         self.assertIsNone(self.call("terminal", self.SEND, result=json.dumps({"done": "sent"})))
         acts = plugin.recent_actions(5)
         self.assertEqual([(a["how"], a["kind"]) for a in acts], [("button", "send")])
-        gate.post_tool_call("terminal", self.SEND, json.dumps({"done": "sent"}), session_id="chat-1")   # no double
+        gate.post_tool_call("terminal", self.SEND, json.dumps({"done": "sent"}), session_id="chat-1")
         self.assertEqual(len(plugin.recent_actions(5)), 1)
 
     def test_what_counts_as_failed(self):
@@ -290,7 +289,7 @@ class SoulLinesForAnyHome(unittest.TestCase):
                     self.assertIn("finish the rest of what Sam asked", new)
                     self.assertIn("Keep doing the rest of what Sam asked that does not need that step", new)
                     self.assertIn("When the result is a file you saved, give its two or three key points", new)
-                    self.assertEqual(self.s.update_text(new), new)   # once
+                    self.assertEqual(self.s.update_text(new), new)
                     if lead:
                         self.assertIn("Before saying what a teammate has or hasn't done, ask it or check the board",
                                       new)
@@ -381,7 +380,7 @@ class OneOkayPerMessage(_email_case()):
         again = dict(first, to="astone@lakeview.test", body=first["body"] + "\n\n", folder="INBOX")
         self.assertEqual(self.tool(**again)["done"], "sent")
         self.assertEqual(len(self.cards()), 0)
-        self.assertIn("blocked", self.tool(**again))   # used once: a second send needs a second okay
+        self.assertIn("blocked", self.tool(**again))
 
     def test_a_different_message_still_gets_its_own_card(self):
         first = self.send_args()

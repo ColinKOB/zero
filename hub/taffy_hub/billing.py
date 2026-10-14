@@ -40,7 +40,6 @@ log = logging.getLogger("taffy.billing")
 FREE = "free"
 PAID_PLANS = ("lite", "cloud", "plus")
 PLAN_NAMES = {"lite": "Zero Cloud Lite", "cloud": "Zero Cloud", "plus": "Zero Cloud Plus"}
-# Stripe price lookup keys (tools/stripe_setup.py creates them) and the plan each one sells.
 LOOKUP_KEYS = {"zero_cloud_lite_monthly": "lite", "zero_cloud_monthly": "cloud", "zero_cloud_plus_monthly": "plus"}
 TOP_UP_MINUTES = 30
 TOLERANCE_SEC = 300                 # Stripe's default: a signature older than five minutes is refused
@@ -55,8 +54,6 @@ class Accounts(Protocol):
 class BadSignature(Exception):
     pass
 
-
-# ---- signatures (Stripe's scheme, used for both hops) ----
 
 def sign(payload: bytes, secret: str, now: float | None = None) -> str:
     t = int(time.time() if now is None else now)
@@ -94,8 +91,6 @@ def verify(payload: bytes, header: str | None, secrets: list[str] | str, now: fl
     raise BadSignature("signature does not match")
 
 
-# ---- where people pay ----
-
 def checkout_url(link: str, account_id: str, email: str | None = None) -> str:
     """A plan's Payment Link for one account. Stripe hands client_reference_id back in checkout.session.completed."""
     q = {"client_reference_id": account_id}
@@ -103,8 +98,6 @@ def checkout_url(link: str, account_id: str, email: str | None = None) -> str:
         q["prefilled_email"] = email
     return link + ("&" if "?" in link else "?") + urllib.parse.urlencode(q)
 
-
-# ---- the handler ----
 
 class Billing:
     def __init__(self, accounts: Accounts, db_path: str | Path,
@@ -164,7 +157,7 @@ class Billing:
                 return "unknown customer"
             current = self._current_subscription(obj.get("customer"))
             if current and obj.get("id") and obj["id"] != current:
-                return "old subscription"      # a newer subscription for the same customer decides the plan
+                return "old subscription"
             if kind.endswith("deleted") or obj.get("status") in ENDED:
                 self.accounts.set_plan(account, FREE)
                 return "free"

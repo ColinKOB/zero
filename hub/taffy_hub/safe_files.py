@@ -11,7 +11,6 @@ from pathlib import Path
 from . import config
 
 _PATH = config.PLUGIN_DIR / "safe_files.py"
-# Off alien (tests on a Mac), read the same file from this repo's alien/ folder.
 _REPO_PATH = Path(__file__).resolve().parents[2] / "alien" / "plugins" / "taffy-tools" / "safe_files.py"
 if not _PATH.exists() and _REPO_PATH.exists():
     _PATH = _REPO_PATH

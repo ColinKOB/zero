@@ -48,20 +48,18 @@ from . import config, home, store, who
 log = logging.getLogger("taffy.accounts")
 
 CONNECT_URL = "https://claude.ai/customize/connectors"
-# Where a ChatGPT plan connects apps (Settings, then Apps; the directory is at this address).
 CHATGPT_CONNECT_URL = "https://chatgpt.com/apps"
-# Where Google lists the apps that can reach the account, for a full disconnect.
 GOOGLE_CONNECTIONS_URL = "https://myaccount.google.com/connections"
 
 
 @dataclass(frozen=True)
 class Service:
-    id: str          # matches the `service` argument of the connectors tool
-    name: str        # what the person reads
-    connector: str   # the connector's name in Claude Code
-    provider: str    # who the person signs in with: "Google" or "Trello"
-    group: str       # "google" services share one Connect Google flow; "more" is any other Claude connector
-    chatgpt: str = ""   # the app's name in ChatGPT, when Codex on a ChatGPT plan can use it
+    id: str
+    name: str
+    connector: str
+    provider: str
+    group: str
+    chatgpt: str = ""
 
 
 SERVICES = (
@@ -72,24 +70,22 @@ SERVICES = (
 )
 BY_ID = {s.id: s for s in SERVICES}
 
-# One state per service. "connected" is the only one the Zips can use.
 CONNECTED = "connected"
-NOT_CONNECTED = "not_connected"        # not on the Claude account (never added, or disconnected there)
-NEEDS_SIGN_IN = "needs_sign_in"        # on the account, but its sign-in expired or was never finished
-TURNED_OFF = "turned_off"              # switched off in Claude Code on this computer
-TROUBLE = "trouble"                    # on the account, but it could not be reached just now
+NOT_CONNECTED = "not_connected"
+NEEDS_SIGN_IN = "needs_sign_in"
+TURNED_OFF = "turned_off"
+TROUBLE = "trouble"
 CLAUDE_SIGNED_OUT = "claude_signed_out"
 CLAUDE_API_KEY = "claude_api_key"      # Claude Code uses an API key or cloud provider: connectors never load
-CLAUDE_SIGN_IN_AGAIN = "claude_sign_in_again"   # claude.ai rejected Claude Code's own sign-in
+CLAUDE_SIGN_IN_AGAIN = "claude_sign_in_again"
 CLAUDE_MISSING = "claude_missing"
 UNKNOWN = "unknown"
-NEEDS_CLAUDE = "needs_claude"          # only a ChatGPT plan, and this account works through Claude only for now
-NO_SUCH = "no_such_account"            # a Zip asked for an account the person doesn't have in Claude
-NEEDS_OWN_PLAN = "needs_own_plan"      # the home shares someone's plan, so connectors are not available here
+NEEDS_CLAUDE = "needs_claude"
+NO_SUCH = "no_such_account"
+NEEDS_OWN_PLAN = "needs_own_plan"
 OWN_PLAN_DETAIL = ("Accounts connect through your own Claude or ChatGPT plan. For now, add your mailbox and calendar "
                    "here.")
 
-# The person needs to act on these; the others are fine or pass on their own.
 BROKEN = {NEEDS_SIGN_IN, CLAUDE_SIGN_IN_AGAIN, CLAUDE_SIGNED_OUT, CLAUDE_API_KEY, CLAUDE_MISSING}
 
 
@@ -367,8 +363,8 @@ async def _chatgpt() -> dict:
 
 # MARK: The check, cached
 
-CACHE_SEC = 10 * 60       # a status older than this is checked again before it is trusted
-MIN_GAP_SEC = 3           # the Connect screen polls; checks closer together than this share one answer
+CACHE_SEC = 10 * 60
+MIN_GAP_SEC = 3
 _last: dict | None = None
 _lock: asyncio.Lock | None = None
 _lock_loop = None
@@ -401,7 +397,7 @@ def merge(claude: dict, states: dict[str, str], chatgpt: dict | None) -> tuple[d
             out[s.id], via[s.id] = CONNECTED, "chatgpt"
         elif claude.get("state") == "signed_in" or not gpt:
             out[s.id], via[s.id] = st, "claude"
-        else:   # only a ChatGPT plan works here
+        else:
             out[s.id], via[s.id] = (NOT_CONNECTED, "chatgpt") if s.chatgpt else (NEEDS_CLAUDE, "claude")
     return out, via
 
@@ -449,7 +445,7 @@ async def _claude_side() -> tuple[dict, dict[str, str], list[dict]]:
     return claude, dict(zip([s.id for s in SERVICES], found)), others
 
 
-_apps: dict[str, str] = {}   # service id -> ChatGPT app id, from the last check (kept out of the app's payload)
+_apps: dict[str, str] = {}
 
 
 def shared_payload(checked_at: float) -> dict:
@@ -510,8 +506,6 @@ async def _check_now() -> dict:
     return result
 
 
-# Services Zero now reaches through the provider's own API when the person connected them in Connect Apps
-# (apps.py): service id here -> app id there.
 NATIVE = {"trello": "trello", "drive": "google_drive"}
 NATIVE_TOOLS = {"trello": "trello", "drive": "drive"}
 
@@ -646,8 +640,6 @@ def ask(bot_id: str, service: str, why: str, session_id: str | None, state: str)
     for row, card in _open_cards(bot_id):
         if (BY_ID[card["service"]].group if card.get("service") in BY_ID else "") == s.group == "google" \
                 or card.get("service") == s.id:
-            # Moved to now, the bottom of the chat, so "the card" the Zip mentions is the one he can see (as with
-            # sign-in cards, Oct 9).
             store.touch_feed(row["id"])
             return None, (f"{who.possessive()} card to connect {card.get('name') or s.name} is now at the bottom of "
                           f"your chat. Stop working on this now and tell {who.first()} in one short line that the card "
@@ -680,7 +672,7 @@ def close(bot_id: str, feed_id: int) -> dict:
         try:
             asyncio.get_running_loop().create_task(_continue(bot_id, note, card.get("session_id"), urgent=False))
         except RuntimeError:
-            pass   # no event loop (a script): nothing to resume
+            pass
     return card
 
 
@@ -732,12 +724,12 @@ async def need(bot_id: str, service: str, why: str, session_id: str | None, fail
         return {"connected": False, "state": NEEDS_OWN_PLAN, "message": no_connectors_message()}
     result = await check()
     if not find(service):
-        await _list_others(force=True)     # a connector added since the last list
+        await _list_others(force=True)
         if not find(service):
             return {"connected": False, "state": NO_SUCH, "message": no_such(service, result)}
     st = state_of(result, service)
     if failed or st != CONNECTED:
-        result = await check(force=True)   # just connected, or just broke: look again before acting on it
+        result = await check(force=True)
         st = state_of(result, service)
     if st in (CONNECTED, UNKNOWN, TROUBLE):
         return {"connected": True, "state": st, **route(result, service)}

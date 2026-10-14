@@ -107,7 +107,6 @@ final class CallEngine: NSObject {
     }
 
     func start() async {
-        // Asked now, while CallKit sets up the call: whether ChatGPT's voice can take it (OnDevice decision below).
         let client = state.client
         let engines: Task<HubClient.VoiceEngines?, Never>? = OnDeviceVoice.supported && state.callEngine != AppState.onDeviceEngine
             ? Task { await client.voiceEngines(timeout: 3) } : nil
@@ -120,7 +119,6 @@ final class CallEngine: NSObject {
             finishDiagnostics()
             return
         }
-        // The ChatGPT voice's offer is made while the system call starts, so a fast start does not wait for it.
         let link = RealtimeLink()
         let offerTask: Task<String, Error>? = state.callEngine != AppState.onDeviceEngine
             ? Task { try await link.makeOffer() } : nil
@@ -186,7 +184,6 @@ final class CallEngine: NSObject {
             note("timing", ["step": "offer_ready", "ms": msSinceStart])
             let call: (callID: String, answer: String, voice: String?)
             awaitingHub = true
-            // One voice on every device (#33, #34): this device's choice goes along only when it is new.
             let defaults = UserDefaults.standard
             let chosen = CallRules.voiceChosen(current: defaults.string(forKey: "callVoice"),
                                                reported: defaults.string(forKey: "callVoiceReported"))
@@ -205,10 +202,10 @@ final class CallEngine: NSObject {
             note("timing", ["step": "hub_answered", "ms": msSinceStart])
             if let used = call.voice, CallEngine.chatGPTVoices.contains(used) {
                 if used != state.callVoice { note("voice", ["home": used, "device": state.callVoice]) }
-                if used != state.callVoice { state.callVoice = used }      // Settings shows the home's voice
+                if used != state.callVoice { state.callVoice = used }
                 defaults.set(used, forKey: "callVoiceReported")
             }
-            guard phase == .calling else {           // hung up while it was still calling
+            guard phase == .calling else {
                 link.close()
                 await state.client.stopVoice(call: call.callID)
                 finishDiagnostics()
@@ -216,7 +213,6 @@ final class CallEngine: NSObject {
             }
             let client = state.client, id = call.callID
             link.onConnect = { [weak self] in
-                // The call is live from here: the timer starts and the voice says hello, honestly after a slow start.
                 Task { @MainActor in
                     guard let self else { return }
                     let waited = self.msSinceStart
@@ -239,8 +235,6 @@ final class CallEngine: NSObject {
             link.close()
             if phase == .calling, hubCallID == nil, OnDeviceVoice.supported,
                case .http(let code, _)? = error as? HubClient.HubError, code == 503 {
-                // ChatGPT's voice could not start (signed out, its limit, no Codex): the call goes on in the
-                // On-Device Voice instead of failing.
                 note("fallback", ["to": "on-device", "error": String(describing: error).prefix(200).description])
                 await startOnDevice(reason: "chatgpt_failed")
                 return
@@ -248,8 +242,6 @@ final class CallEngine: NSObject {
             stopConnectingSounds()
             if phase == .calling {
                 note("failed", ["stage": "connect", "error": String(describing: error).prefix(300).description])
-                // The hub says in a sentence why the voice could not start, such as ChatGPT not being signed in on
-                // the computer (hub voice.start_error); other failures keep the general line.
                 if case .http(503, let why)? = error as? HubClient.HubError, !why.isEmpty {
                     phase = .failed(why)
                 } else {
@@ -263,18 +255,17 @@ final class CallEngine: NSObject {
         link.micEnabled = !muted
         link.onDisconnect = { [weak self] in
             guard let self, self.phase != .ended else { return }
-            // The audio is gone, so the call is over: the hub still writes its summary.
             self.note("failed", ["stage": "audio_dropped", "ms": self.msSinceStart])
             self.stopOnHub()
             self.stopConnectingSounds()
-            self.link?.close()       // the audio stops before the session is handed back
+            self.link?.close()
             self.link = nil
             self.phase = .failed("The call dropped. Hang up and call again.")
             self.endSystemCall(failed: true)
         }
         followEvents()
-        if phase == .listening { watchMic() }   // the audio connected before the call was stored
-        Task { @MainActor [weak self] in        // audio that never connects should not ring forever
+        if phase == .listening { watchMic() }
+        Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(30))
             guard let self, self.phase == .calling else { return }
             self.stopConnectingSounds()
@@ -289,7 +280,6 @@ final class CallEngine: NSObject {
     }
 
     func end(by: String = "app") {
-        // The call's audio stops first, then the system call ends and the audio session is handed back.
         stopAudio()
         endSystemCall(failed: false)
         endFromSystem(by: by)
@@ -310,7 +300,7 @@ final class CallEngine: NSObject {
             store.inCall = false
             store.engine.useCPU = false
             Task { await store.engine.unloadCPU() }
-            store.prepareGreeting()   // the first call may have just taught it the greeting
+            store.prepareGreeting()
         }
     }
 
@@ -648,7 +638,6 @@ final class CallEngine: NSObject {
                     if levels.mic > self.talkLevel { lastLoud = now; loudRun += 1 } else { loudRun = 0 }
                     talking = now.timeIntervalSince(lastLoud) < 0.8
                 }
-                // Yield: two loud readings in a row while the voice plays.
                 let voicePlaying = now.timeIntervalSince(voiceLoudAt) < 0.3
                 if loudRun >= 2, voicePlaying, !self.yielded {
                     self.yielded = true
@@ -659,7 +648,6 @@ final class CallEngine: NSObject {
                     self.yielded = false
                     self.applyPause()
                 }
-                // A work sound, only into silence.
                 let quiet = !talking && now.timeIntervalSince(voiceLoudAt) > 0.4 && now.timeIntervalSince(lastLoud) > 0.6
                     && !self.held && self.ringing.isEmpty && self.hangupTask == nil
                 if let e = self.cueGate.next(now: now.timeIntervalSince1970, quiet: quiet) {
@@ -740,7 +728,6 @@ final class CallEngine: NSObject {
         case "news":
             if let id = ev.id { local?.news(id: id) }
         case "cue":
-            // A work sound (hub voice.cue): `text` is started, working or done, `id` the task's number.
             if let kind = Earcon(rawValue: text), let task = ev.id {
                 if let local { local.cue(kind, task: task) } else { cueGate.add(kind, task: task, now: Date().timeIntervalSince1970) }
             }
@@ -783,7 +770,6 @@ final class CallEngine: NSObject {
     private func startOnDevice(reason: String) async {
         voiceEngine = "on-device"
         let store = OnDeviceVoice.shared
-        // The On-Device Voice hears the person with the phone's own speech recognition, which needs its permission.
         let speech = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
         note("on_device", ["reason": reason, "voice": store.voice.rawValue, "loaded": store.engine.ready,
                            "speech_auth": speech.rawValue])
@@ -824,8 +810,6 @@ final class CallEngine: NSObject {
         #endif
         let start: HubClient.LocalCallStart
         awaitingHub = true
-        // One voice on every device (#33, #34). A call that moved here on its own, from a person who never picked an
-        // On-Device Voice, keeps the kind of voice they chose for ChatGPT's (#34).
         let defaults = UserDefaults.standard
         let picked = defaults.string(forKey: "onDeviceVoice")
         let chosen = CallRules.voiceChosen(current: picked, reported: defaults.string(forKey: "onDeviceVoiceReported"))
@@ -846,7 +830,7 @@ final class CallEngine: NSObject {
         if let late = start.greeting_late, !late.isEmpty { store.greetingLateText = late }
         let voice = OnDeviceVoiceName(rawValue: start.voice) ?? store.voice
         if picked != nil || reason == "chosen" {
-            if voice.rawValue != state.onDeviceVoice { state.onDeviceVoice = voice.rawValue }   // Settings follows the home
+            if voice.rawValue != state.onDeviceVoice { state.onDeviceVoice = voice.rawValue }
             defaults.set(voice.rawValue, forKey: "onDeviceVoiceReported")
         }
         guard phase == .calling else {
@@ -855,7 +839,6 @@ final class CallEngine: NSObject {
             finishDiagnostics()
             return
         }
-        // After a long wait (the first download, a slow hub) the hello says so (#18).
         let waited = msSinceStart
         let greeting = waited >= CallRules.lateGreetingMs ? (start.greeting_late ?? start.greeting) : start.greeting
         let take = store.greetingTake(voice: voice, text: greeting)

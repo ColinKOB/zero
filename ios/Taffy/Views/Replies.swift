@@ -2,12 +2,6 @@ import SwiftUI
 import UIKit
 
 // MARK: Reply to a specific message (Oct 10)
-//
-// Colin: "i should also be able to reply to specific messages like you can on iphone with the messages app". On the
-// iPhone a bubble swiped to the right follows the finger, shows a reply arrow, taps lightly at the point where letting
-// go replies, and springs back; the long-press menu has Reply. On the Mac, hovering a message shows Tapback, Reply and
-// More beside it, and the right-click menu has Reply. The message box then says who is being replied to, and the sent
-// message shows a small quote above it that scrolls to the original. The quote logic is in Model/ChatSync.swift.
 
 /// The message being replied to in a chat: its quote and the message box's header ("Replying to Zero").
 struct ReplyTarget: Equatable {
@@ -43,7 +37,7 @@ extension AppState {
         }
         let quote = ReplyQuote(text: ReplyLogic.excerpt(Self.quotedWords(m, full: opened)), who: who, messageID: m.id)
         guard !quote.text.isEmpty else { return }
-        answering[bot] = nil   // one header over the message box at a time
+        answering[bot] = nil
         replying[bot] = ReplyTarget(messageID: m.id, quote: quote, title: title)
     }
 
@@ -160,7 +154,6 @@ struct Replyable: ViewModifier {
     private var drag: CGFloat {
         guard swipe.horizontal == true else { return 0 }
         let dx = max(0, swipe.dx)
-        // Follows the finger to the threshold, then with resistance, like Messages.
         return dx <= Self.threshold ? dx : min(Self.threshold + (dx - Self.threshold) * 0.3, Self.threshold + 36)
     }
 
@@ -177,7 +170,6 @@ struct Replyable: ViewModifier {
         return content
             .offset(x: drag)
             .background(alignment: .leading) {
-                // Revealed in the space the bubble leaves behind.
                 Image(systemName: "arrowshape.turn.up.left.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(armed ? Theme.ink : Theme.inkSoft)
@@ -189,7 +181,6 @@ struct Replyable: ViewModifier {
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
             }
-            // Reduce Motion: the bubble still follows the finger, and settles back without a bounce.
             .transaction { t in if reduceMotion, t.animation != nil { t.animation = .easeOut(duration: 0.16) } }
             .simultaneousGesture(swipeGesture)
             .sensoryFeedback(.impact(weight: .light), trigger: armed) { _, now in now }
@@ -204,8 +195,6 @@ struct Replyable: ViewModifier {
         DragGesture(minimumDistance: 14, coordinateSpace: .global)
             .updating($swipe) { v, s, _ in
                 if s.horizontal == nil {
-                    // Mostly sideways and to the right: a reply. Anything else is the chat scrolling. A swipe from
-                    // the screen's left edge is going back to the Zips, like Messages (Oct 10: replies took it).
                     let dx = v.translation.width, dy = v.translation.height
                     s.horizontal = dx > 0 && abs(dx) > abs(dy) * 1.3 && v.startLocation.x > Self.backEdge
                 }
@@ -224,7 +213,6 @@ struct Replyable: ViewModifier {
         return content
             .overlay(alignment: isMine ? .topLeading : .topTrailing) {
                 hoverBar
-                    // Beside the bubble: its far edge lines up with the bubble's near edge.
                     .alignmentGuide(isMine ? .leading : .trailing) { d in isMine ? d.width : 0 }
                     .opacity(shown ? 1 : 0)
                     .allowsHitTesting(shown)
@@ -257,7 +245,7 @@ struct Replyable: ViewModifier {
         .padding(isMine ? .trailing : .leading, 6)
         .contentShape(Rectangle())
         .onHover { barHover = $0 }
-        .accessibilityHidden(true)   // VoiceOver has the same as actions on the message
+        .accessibilityHidden(true)
     }
 
     private func barButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {

@@ -114,7 +114,7 @@ async def ask_haiku(prompt: str, timeout: float = 90, effort: str | None = None)
     env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "HERMES_HOME")}
     env["HOME"] = str(config.HOME)
     given = str(home.get("plan.claude.command") or "claude")
-    exe = str(home.expand(given)) if "/" in given else "claude"   # the broker's client in a shared home
+    exe = str(home.expand(given)) if "/" in given else "claude"
     extra = ["--effort", effort] if effort in ("low", "medium", "high") and home.get("plan.claude.mode") != "broker" \
         else []
     proc = await asyncio.create_subprocess_exec(
@@ -124,7 +124,7 @@ async def ask_haiku(prompt: str, timeout: float = 90, effort: str | None = None)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout)
     finally:
-        if proc.returncode is None:   # timed out or cancelled: never leave a stray claude process
+        if proc.returncode is None:
             proc.kill()
             await proc.wait()
     lines = out.decode().strip().splitlines()
@@ -194,7 +194,6 @@ async def _since(bot_id: str, written: float) -> str:
         lines = "\n".join(f"{who.first() if m['role'] == 'user' else 'You'}: {' '.join(m['text'].split())[:400]}"
                           for m in new)
         out += "\n\n--- Said in chat since this briefing was written ---\n" + lines
-    # Calls in the last day, so calling back picks up where the last call left off.
     from . import store
     rows = store.db().execute("SELECT body, created_at FROM feed WHERE kind='call' AND bot_id=? AND created_at>? "
                               "ORDER BY id DESC LIMIT 3", (bot_id, int(time.time()) - 86400)).fetchall()

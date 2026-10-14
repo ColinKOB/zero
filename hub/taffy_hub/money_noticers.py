@@ -17,7 +17,7 @@ from . import notices
 from . import noticers as base
 from .calendar_noticers import words
 from .notices import Candidate, Option
-P = notices.plain   # outside text in Colin's words: one plain line, no quotes (QA round 10, L5)
+P = notices.plain
 
 NEW_WINDOW_DAYS = 2
 HISTORY_DAYS = 200
@@ -61,13 +61,13 @@ async def charge(src: base.Sources) -> list[Candidate]:
             continue
         name = " ".join(str(p.get("name") or "").split())
         if not name or name.lower().startswith("venmo"):
-            continue   # Venmo is sorted in Money's update
+            continue
         key = merchant(p)
         history = [q for q in rows if q is not p and merchant(q) == key and (_day(q) or 0) < d
                    and (_day(q) or 0) >= d - HISTORY_DAYS * 86400]
         if not history:
             if name.lower() in notes or (key and key in notes):
-                continue   # Money already knows it
+                continue
             found.append(_new_charge(p, name, d, amt))
             continue
         past = sorted(history, key=lambda q: _day(q) or 0)

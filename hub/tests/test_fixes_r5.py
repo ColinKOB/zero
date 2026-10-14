@@ -27,9 +27,8 @@ import hermes_detector  # noqa: E402
 tiers = tt.tiers
 REPO = Path(__file__).resolve().parents[2]
 WORK = "~/taffy/work/builder/site"
-HOME_FOLDER = "~/taffy"   # where a Zip's terminal starts
+HOME_FOLDER = "~/taffy"
 
-# One-line scripts with separators inside their quotes (the report's Q01, Q02, Q03, Q07, Q08, and more).
 SCRIPTS = [
     """python3 -c "import json,sys; d=json.load(open('package.json')); print(d['version'])\"""",
     """node -e "const p=require('./package.json'); console.log(p.scripts)\"""",
@@ -134,7 +133,7 @@ class InlineScripts(HubCase):
         self.assertEqual(tiers._split("a 'b; c' && d | e; f &"), ["a 'b; c' ", " d ", " e", " f "])
         self.assertEqual(tiers._split("a | b && c", pipes=False), ["a | b ", " c"])
         self.assertEqual(tiers._scan("echo $(cd x; ls) `pwd`")[1], ["cd x; ls", "pwd"])
-        self.assertEqual(tiers._split("echo 'unclosed; rm x"), ["echo 'unclosed", " rm x"])   # the old cut
+        self.assertEqual(tiers._split("echo 'unclosed; rm x"), ["echo 'unclosed", " rm x"])
         self.assertEqual([s for s, _ in tiers._segments("(cd x; ls) && echo $(date)", WORK)], ["ls", "echo $(date)"])
 
     def test_the_gate_judges_every_part(self):
@@ -143,7 +142,7 @@ class InlineScripts(HubCase):
                 with self.subTest(cmd=cmd, cwd=cwd):
                     self.assertIsNone(tiers.classify_command(cmd, cwd=cwd))
                     self.assertIsNone(tiers.unjudged(cmd, cwd, hermes_detector.detect))
-                    self.assertIsNone(tiers.unjudged(cmd, cwd))   # and with the gate's copy of the patterns
+                    self.assertIsNone(tiers.unjudged(cmd, cwd))
 
     def test_hermes_is_answered_yes_with_no_card(self):
         for cmd in SCRIPTS:
@@ -214,7 +213,6 @@ class WhatRunsInside(HubCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(tiers.unjudged(cmd, WORK, hermes_detector.detect), "stop/restart system service")
                 if "$(" in cmd or "`" in cmd:
-                    # The gate asks first: what the delete removes is only known when it runs.
                     self.assertEqual(tiers.classify_command(cmd, cwd=WORK).summary,
                                      "Delete a path another command works out")
                     continue
@@ -321,7 +319,7 @@ class AllowOnceCoversOneFolder(GateCase):
         plugin.decide(card["id"], True)
         self.assertIsNotNone(self.call_in(landing, cmd))
         self.assertEqual(self.cards()[-1]["reason"], "Publish zero-landing to production on Netlify")
-        self.assertIsNone(self.call_in(heron, cmd))   # the allowed one still goes through, once
+        self.assertIsNone(self.call_in(heron, cmd))
         self.assertIsNotNone(self.call_in(heron, cmd))
 
     def test_a_relative_delete_allowed_in_one_folder_asks_in_another(self):
@@ -386,7 +384,7 @@ class LateAllowInTheSameFolder(HubCase):
 
     def setUp(self):
         super().setUp()
-        self.waiting = False   # Hermes already stopped waiting when Colin answers
+        self.waiting = False
         self.cwd = HOME_FOLDER
 
     def test_another_folder_gets_its_own_card(self):
@@ -407,7 +405,7 @@ class LateAllowInTheSameFolder(HubCase):
         self.answers.clear()
         self.assertIsNone(self.run_command(cmd))
         self.assertEqual(self.answers, ["once"])
-        self.assertEqual(self.run_command(cmd), "Waiting for your okay")   # once only
+        self.assertEqual(self.run_command(cmd), "Waiting for your okay")
 
 
 class LateAllowSaysHowLate(unittest.TestCase):
@@ -450,13 +448,11 @@ class EventsAtVenues(GateCase):
     exists. A new event with a title, a day and a venue is an event, whatever the venue is called."""
 
     TITLES = [
-        # The report's forms (C23 to C36) that became invitations.
         "Add Science Fair to Thursday at Lincoln Elementary", "Add Pumpkin Picking to Saturday at Alstede Farms",
         "Add Book Fair to Monday at Lakeview", "Add Fall Festival to Saturday in Ocean City",
         "Add Back to School Night to Thursday at 7 at the high school",
         "Add Farmers Market to Saturday morning at Pier Village", "Add Robotics Competition to Saturday at Rutgers",
         "Add Career Day to Friday at Lakeview University",
-        # More of the same shape.
         "Add Science Fair to Thursday at Lincoln Elementary at 6pm", "Add Spirit Week to Monday through Friday at Lincoln",
         "Add Picture Day to October 14 at Lincoln Elementary", "Add Field Trip to Friday at the Franklin Institute",
         "Add Pumpkin Patch to tomorrow at Johnson Farm", "Add Movie Night to tonight at the Smiths",
@@ -465,7 +461,7 @@ class EventsAtVenues(GateCase):
         "Add Choir Rehearsal to Wednesday at St. Mary's", "Add Open House to Tuesday 6pm at Lincoln Elementary",
         "Add Science Fair Dinner to Thursday at Lincoln Elementary",
         "Add Back to School Dinner to Thursday at the high school", "Add Lincoln Elementary Science Fair to Thursday",
-        "Add Theo Avery to Book Club",   # no event word: a title, and nobody is added
+        "Add Theo Avery to Book Club",
     ]
     INVITES = [
         ("Add Theo Avery to the Science Fair at Lincoln Elementary", "Theo Avery",
@@ -624,8 +620,6 @@ class CommandCardCopy(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

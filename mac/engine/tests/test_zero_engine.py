@@ -134,7 +134,7 @@ class SignInTest(unittest.TestCase):
         self.assertIn("ZERO-STEP 2 2 Sign in on the page that opened in your browser.", out)
         self.assertIn("ZERO-URL https://claude.com/cai/oauth/authorize?test=1", out)
         self.assertTrue(out.rstrip().endswith("ZERO-DONE"), out)
-        self.assertNotIn("Login successful", out)   # the tool's own words go to the log, not the app
+        self.assertNotIn("Login successful", out)
 
     def test_stop_ends_quietly(self):
         import time

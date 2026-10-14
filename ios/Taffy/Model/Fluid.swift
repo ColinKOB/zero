@@ -1,18 +1,6 @@
 import Foundation
 import SwiftUI
 
-// The fluid app (Oct 9), grounded in docs/research/2026-10-09-grokbot-dots-user-feedback.md. Row numbers (#55) are
-// that document's evidence rows. Everything here sits beside AppState so the chat, the lists and the hub agree:
-//
-// - Keep talking to a working Zip: a message sent while it works waits, visibly, and Stop interrupts the current turn
-//   without the hub's own work starting a new one behind the person's back (#55 to #58).
-// - A compact activity line in plain words while a Zip works, to watch it and spot it going off track (#4).
-// - Honest status in lists: paused for an okay, blocked and why, taking longer than usual, a failed reply with Retry,
-//   a card that closed with Ask Again (#38, #39, #43, #50 to #53).
-// - Which kinds of news notify, per Zip, and a While You Were Away summary only when there is something to say
-//   (#75 to #77).
-// - First run: Zero introduces itself and proposes first tasks to approve (#6, principle 12).
-
 /// One honest line for a Zip's row, from the hub (`status` in GET /api/bots). Nil when nothing needs saying.
 struct BotStatus: Codable, Hashable {
     /// paused (a card waits for an okay or a sign-in), blocked, failed (its last reply), expired (a card closed)
@@ -151,7 +139,6 @@ extension AppState {
     /// a message from the person ends the pause at once (Oct 9, 11:18 p.m.: an 11:54 a.m. sign-in card kept Zero
     /// "paused for your okay" over the reply to a new message). See ChatSync.live.
     func isPaused(_ bot: String) -> Bool {
-        // A running turn: the hub's word on it decides (ChatSync.paused).
         ChatSync.paused(turnHeld: activity[bot]?.waiting) { cardsWait(bot) }
     }
 
@@ -161,7 +148,6 @@ extension AppState {
         let said = lastSaid(bot)
         let cards = (board.requests ?? []).filter { $0.bot_id == bot }
         if cards.contains(where: { r in
-            // Cards from other work (a board task, a scheduled job) hold that work until answered.
             r.why == "background" || r.why == "scheduled"
                 || ChatSync.live(card: Date(timeIntervalSince1970: r.created_at), hubWaiting: nil, lastSaid: said)
         }) { return true }

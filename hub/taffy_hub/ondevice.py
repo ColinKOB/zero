@@ -45,17 +45,17 @@ from . import briefing, calllog, config, voice, who
 log = logging.getLogger("taffy.ondevice")
 
 ENGINE = "on-device"
-MODEL = briefing.MODEL            # claude-haiku-5-5: thinking off, low effort, streamed
+MODEL = briefing.MODEL
 EFFORT = "low"
 MAX_TOKENS = 600
 ROUTE = "speech recognition and voice on the phone; words streamed from Haiku on the home's Claude plan"
 VOICES = ["george", "alba"]
 DEFAULT_VOICE = "george"
-VOICE_SETTING = "on_device_voice"  # the home's On-Device Voice, the same on every device (voice.pick_voice)
+VOICE_SETTING = "on_device_voice"
 PREFIX = "mcp__hermes__"          # how Claude Code names a tool from the inert list's server, "hermes"
 TOOLS = ("ask_bot", "update_job", "work_status")
 INERT = Path(__file__).with_name("inert_mcp.py")
-WARM_MAX_AGE_SEC = 240            # the broker ends a run after 900 s; a waiting process is replaced well before
+WARM_MAX_AGE_SEC = 240
 FIRST_EVENT_TIMEOUT_SEC = 25
 TURN_TIMEOUT_SEC = 90
 TEXT_LIMIT = 4000
@@ -106,8 +106,6 @@ finish it from the app. Never tell {first} to do the whole thing when you can ge
 
 {{spoken}}"""
 
-# What the call test taught about this voice (docs/research/2026-10-08-kokoro-call-test.md, 2026-10-09-george-questions.md):
-# a short first sentence starts the voice sooner, a comma after it leaves a gap, and "Oh, man" sounds wrong.
 SPOKEN_TEMPLATE = """How your words become speech on this call:
 - A speech voice on {possessive} phone reads your words aloud, so write plain spoken English: no symbols, emojis, \
 lists, headings or markdown, and nothing in brackets.
@@ -150,12 +148,12 @@ def request_body() -> dict:
 @dataclass
 class Turn:
     n: int
-    kind: str                      # "words" (the person spoke) or "news" (background work came back)
+    kind: str
     text: str
     speculative: bool
     asked_at: float = field(default_factory=time.time)
     reply: str = ""
-    handoff: tuple | None = None   # (tool, argument)
+    handoff: tuple | None = None
     first_text_at: float = 0.0
     warm: bool = False
     done: bool = False
@@ -171,12 +169,12 @@ class Turn:
 @dataclass
 class Local:
     greeting: str
-    greeting_late: str = ""        # said instead when the person waited long for the call (voice.greeting)
+    greeting_late: str = ""
     voice_name: str = DEFAULT_VOICE
     system: str = ""
     brief_task: asyncio.Task | None = None
-    turns: dict = field(default_factory=dict)      # n: Turn
-    news: dict = field(default_factory=dict)       # id: text
+    turns: dict = field(default_factory=dict)
+    news: dict = field(default_factory=dict)
     news_seq: int = 0
     warm: "Run | None" = None
     warming: asyncio.Task | None = None
@@ -323,7 +321,7 @@ class Run:
             try:
                 return json.loads(line)
             except ValueError:
-                continue     # a stray line from a wrapper is not the stream
+                continue
 
     async def ask(self, text: str):
         """Yields ("text", delta) and ("tool", name, input). Raises RunError when Claude fails."""
@@ -360,7 +358,7 @@ class Run:
             if time.time() > deadline:
                 raise RunError("Claude took too long.")
         if finals.startswith(streamed) and len(finals) > len(streamed):
-            yield ("text", finals[len(streamed):])     # anything the partial stream missed
+            yield ("text", finals[len(streamed):])
         for name, args in tools:
             yield ("tool", name, args)
         if error is not None or result is None:
@@ -471,7 +469,7 @@ async def _run_for(call: voice.Call, replay: list) -> tuple[Run, bool]:
     key = (system, tuple(replay))
     if local.warming and not local.warming.done() and (local.warm is None or not local.warm.fresh):
         try:
-            await asyncio.wait_for(asyncio.shield(local.warming), 1.5)   # it may be a moment from ready
+            await asyncio.wait_for(asyncio.shield(local.warming), 1.5)
         except Exception:
             pass
     run, warm = local.warm, True
@@ -513,14 +511,14 @@ async def _produce(call: voice.Call, t: Turn, q: asyncio.Queue):
                 if isinstance(arg, str) and arg.strip():
                     t.handoff = (ev[1], arg.strip()[:TEXT_LIMIT])
         if t.handoff and not t.reply.strip():
-            t.reply = "One sec."     # the line before a hand-off must never be silence
+            t.reply = "One sec."
             t.first_text_at = t.first_text_at or time.time()
             await q.put({"type": "text", "text": t.reply})
         t.done = True
         await q.put({"type": "done", "text": t.reply, "handoff": t.handoff[0] if t.handoff else None})
     except asyncio.CancelledError:
         if t.confirmed and not t.done:
-            t.done = True        # cut off: what was written so far stays, /said says what was heard
+            t.done = True
             t.cut_off = True
         raise
     except Exception as e:
@@ -543,7 +541,7 @@ async def turn(call: voice.Call, n: int, text: str | None = None, news: int | No
                speculative: bool = False):
     """Streams one reply as events: {"type": "text", "text": ...} pieces, then {"type": "done", ...}."""
     local = local_of(call)
-    call.last_activity = time.time()     # the idle watchdog (voice._watchdog) counts turns as activity
+    call.last_activity = time.time()
     if news is not None:
         content, kind, speculative = local.news.get(news), "news", False
         if not content:
@@ -556,11 +554,11 @@ async def turn(call: voice.Call, n: int, text: str | None = None, news: int | No
     if prior is not None:
         if prior.task and not prior.task.done():
             prior.task.cancel()
-        t.handed = prior.handed       # words that arrived late never start the same work twice
+        t.handed = prior.handed
         if prior.confirmed and prior.kind == "words" and call.transcript and \
                 call.transcript[-1] == (who.first(), prior.text):
-            call.transcript.pop()     # the longer words replace it below
-    for other in local.turns.values():   # the phone moved on: an older reply still being written is dropped
+            call.transcript.pop()
+    for other in local.turns.values():
         if other.n < n and other.task and not other.task.done() and not other.confirmed:
             other.task.cancel()
     local.turns[n] = t
@@ -576,7 +574,7 @@ async def turn(call: voice.Call, n: int, text: str | None = None, news: int | No
                 return
     finally:
         if not t.task.done():
-            t.task.cancel()     # the phone hung up on this reply (a speculative start it no longer wants)
+            t.task.cancel()
 
 
 def confirm(call: voice.Call, n: int) -> bool:
@@ -596,7 +594,7 @@ def _confirm(call: voice.Call, t: Turn) -> None:
         call.transcript.append((who.first(), t.text))
         call.last_user_delta = now
         calllog.write(call.id, "line", who=who.first(), text=calllog.short(t.text, calllog.TEXT_LIMIT))
-        voice.heard_line(call, t.text)     # a goodbye here ends the call once it is said back
+        voice.heard_line(call, t.text)
     if t.done:
         _settle(call, t)
 
@@ -653,7 +651,7 @@ def said(call: voice.Call, n: int, spoken: str, cut_off: bool = False, first_aud
         bot = config.BOTS_BY_ID.get(call.bot_id)
         calllog.write(call.id, "line", who=bot.name if bot else "Zero", text=calllog.short(spoken, calllog.TEXT_LIMIT))
         if not t.cut_off and not t.handoff and t.kind == "words":
-            voice.voice_line(call, spoken)   # said goodbye back: the phone ends the call
+            voice.voice_line(call, spoken)
     if t.cut_off:
         calllog.write(call.id, "interrupted", note="The person started talking while the voice was speaking.",
                       turn=n)
@@ -668,7 +666,7 @@ async def news(call: voice.Call, text: str) -> None:
     local = local_of(call)
     local.news_seq += 1
     local.news[local.news_seq] = text[:TEXT_LIMIT]
-    call.last_voice_sound = time.time()      # voice._speaker waits for the voice to start on it
+    call.last_voice_sound = time.time()
     await call.events.put({"type": "news", "id": local.news_seq})
 
 
@@ -683,7 +681,7 @@ def greeted(call: voice.Call, late: bool = False) -> None:
     calllog.write(call.id, "line", who=bot.name if bot else "Zero", text=local.greeting)
     call.last_voice_sound = time.time()
     if late:
-        _prewarm(call)        # the waiting Claude has the other greeting in its history
+        _prewarm(call)
 
 
 def closed(call: voice.Call) -> None:

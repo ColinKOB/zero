@@ -51,7 +51,7 @@ class FakeHaiku:
             raise RuntimeError("Haiku is down")
         out = {"handled": self.handled, "why": "Colin said so in chat.", "evidence": "Haiku evidence.",
                "question": "Haiku question?", "lock": "Short line", "draft": None, "deadline": None,
-               "ask": True}   # the short gate's answer (Oct 9), for a question in code's own wording
+               "ask": True}
         if '"draft": a short email' in prompt:
             out["draft"] = "Hi Theo,\n\nJust checking in on the handoff. Any update?\n\nColin"
         out.update(self.extra)
@@ -92,7 +92,6 @@ class ProCase(unittest.TestCase):
             mock.patch.object(notices, "send_push", push),
             mock.patch.object(notices, "person_name", lambda: "Colin O'Brien"),
             mock.patch.dict(health.status, {"claude": True}),
-            # Phase 2: the calendar and Trello copy, prep turns and the quiet look never run a real program here.
             mock.patch.object(calcache, "refresh", no_refresh),
             mock.patch.object(sys.modules["taffy_consent"], "DB_PATH", self.tmp / "consent.db"),
             mock.patch.object(calcache, "TRELLO_FILE", self.tmp / "trello.json"),
@@ -116,8 +115,6 @@ class ProCase(unittest.TestCase):
     def _reset_store(self):
         store._local.conn = None
         store._schema_ready = False
-
-    # helpers
 
     def cand(self, subject="thing:1", noticer="renewal", deadline=None, blocking=False, version="", judge=True,
              options=None, **kw):
@@ -152,7 +149,7 @@ class ProCase(unittest.TestCase):
 class OnByDefault(ProCase):
     def test_on_until_colin_turns_it_off(self):
         store.set_setting("proactivity", {})
-        self.assertTrue(notices.enabled())     # on from the start (Colin, Oct 9)
+        self.assertTrue(notices.enabled())
         self.assertTrue(notices.DEFAULTS["enabled"])
         notices.set_enabled(False)
         self.assertFalse(notices.enabled())
@@ -190,7 +187,6 @@ class Rules(ProCase):
         same = [Option("Keep it", "decide"), Option("keep it", "close")]
         self.assertEqual(notices.check(self.cand(deadline=self.soon(), options=same)),
                          "options must differ and be short")
-        # A send only ever comes with the drafted text on the card, never as a bare option.
         bare_send = [Option("Send it", "send"), Option("Leave it", "wait")]
         self.assertEqual(notices.check(self.cand(deadline=self.soon(), options=bare_send)),
                          "a send option needs a draft")
@@ -234,7 +230,7 @@ class Budget(ProCase):
         self.assertTrue(self.pushes[0]["body"].endswith(" And 2 more questions.") or
                         self.pushes[0]["body"].endswith(", and 2 more questions."), self.pushes[0]["body"])
         self.clock += 3 * 3600
-        self.assertEqual(run(notices.deliver()), 0)     # the fourth waits for the brief
+        self.assertEqual(run(notices.deliver()), 0)
         held = [r for r in notices._open_rows() if r["pushes"] == 0]
         self.assertEqual(len(held), 1)
         self.assertEqual(held[0]["push_due"], 0)
@@ -251,7 +247,7 @@ class Budget(ProCase):
         self.clock += 3600
         self.raise_(self.urgent("b", "promise"))
         self.assertEqual(run(notices.deliver()), 0)
-        self.assertEqual(self.notice("b")["push_due"], 1)    # still due, waiting for the gap
+        self.assertEqual(self.notice("b")["push_due"], 1)
         self.clock += 3601
         self.assertEqual(run(notices.deliver()), 1)
 
@@ -275,7 +271,7 @@ class Budget(ProCase):
         self.raise_(self.urgent("night", "renewal"))
         self.assertEqual(run(notices.deliver()), 0)
         self.assertEqual(self.pushes, [])
-        self.assertEqual(self.notice("night")["push_due"], 0)        # held questions join the morning brief
+        self.assertEqual(self.notice("night")["push_due"], 0)
         self.assertIn("Haiku evidence.", notices.brief_text())
         self.assertFalse(notices.waking())
         with mock.patch("taffy_hub.noticers.find") as find:
@@ -296,7 +292,7 @@ class Budget(ProCase):
     def test_busy_block_gives_way_to_a_near_deadline(self):
         (self.tmp / "calendar.json").write_text(json.dumps([
             {"title": "POL 101 class", "start": at(10, 8, 9), "end": at(10, 8, 11)}]))
-        self.raise_(self.cand("soon", deadline=at(10, 8, 12)))     # before the block ends plus two hours
+        self.raise_(self.cand("soon", deadline=at(10, 8, 12)))
         self.assertEqual(run(notices.deliver()), 1)
 
     def test_muted_zero_never_pushes(self):
@@ -311,7 +307,6 @@ class Budget(ProCase):
         run(notices.deliver())
         p = self.pushes[0]
         self.assertEqual(p["title"], "Zero")
-        # Haiku's line has a number the card doesn't and no question: the card's own sentence and question instead.
         self.assertEqual(p["body"], "Haiku evidence. Haiku question?")
         self.assertLessEqual(len(p["body"]), notify.LIMIT)
         self.assertEqual(p["collapse"], notices.collapse_id("renewal:agentmax-app"))
@@ -360,7 +355,7 @@ class Dedupe(ProCase):
         self.assertEqual(self.notice()["state"], "open")
         notices.answer(self.notice()["feed_id"], "Keep it")
         self.raise_(self.cand(deadline=self.soon(120), version="oct12"))
-        self.assertEqual(self.notice()["state"], "picked")       # raised twice; never a third time
+        self.assertEqual(self.notice()["state"], "picked")
 
     def test_an_answer_the_hub_closes_itself_still_reaches_the_zip(self):
         """Colin, Oct 10: "Already canceled" got only "Closed." and the Zip never heard it, so it could not reply or
@@ -412,21 +407,21 @@ class Dedupe(ProCase):
         self.raise_(self.cand("dated", deadline=self.soon(30)))
         self.clock = self.soon(31)
         notices.expire()
-        self.assertEqual(self.notice("dated")["state"], "expired")      # shown as Closed in the app
+        self.assertEqual(self.notice("dated")["state"], "expired")
         self.assertEqual(self.notice("no-date")["state"], "open")
         self.clock = at(10, 14, 10, 1)
         notices.expire()
-        self.assertEqual(self.notice("no-date")["state"], "open")       # a week, not three days (Oct 9)
+        self.assertEqual(self.notice("no-date")["state"], "open")
         self.clock = at(10, 15, 10, 1)
         notices.expire()
         self.assertEqual(self.notice("no-date")["state"], "expired")
         self.assertEqual(self.card("no-date")["state"], "expired")
-        out = notices.answer(self.notice("no-date")["feed_id"], "Find the cancel page")   # Closed is not final
-        self.assertEqual(out["send"], "Find the cancel page.")          # no date passed: no note about one
+        out = notices.answer(self.notice("no-date")["feed_id"], "Find the cancel page")
+        self.assertEqual(out["send"], "Find the cancel page.")
         self.assertEqual(self.notice("no-date")["state"], "picked")
         self.assertEqual(self.card("no-date")["state"], "picked")
         with self.assertRaises(notices.AnswerError):
-            notices.answer(self.notice("no-date")["feed_id"], "Keep it")   # one answer, as before
+            notices.answer(self.notice("no-date")["feed_id"], "Keep it")
 
     def test_more_than_five_open_closes_the_oldest_day_old_one(self):
         for i in range(5):
@@ -434,7 +429,7 @@ class Dedupe(ProCase):
             self.raise_(self.cand(f"q{i}", deadline=self.soon(96)))
         self.clock += 3600
         self.raise_(self.cand("q5", deadline=self.soon(96)))
-        self.assertEqual(len(notices._open_rows()), 6)                  # none is a day old yet: none closes
+        self.assertEqual(len(notices._open_rows()), 6)
         self.clock += 86400
         self.raise_(self.cand("q6", deadline=self.soon(96)))
         self.assertEqual(len(notices._open_rows()), 5)
@@ -459,7 +454,7 @@ class Learning(ProCase):
         self.dismiss("b")
         self.assertEqual(notices.mode("renewal"), "digest")
         self.raise_(self.cand("c", deadline=self.soon(3)))
-        self.assertEqual(self.notice("c")["push_due"], 0)       # a card in the chat, no push
+        self.assertEqual(self.notice("c")["push_due"], 0)
         run(notices.deliver())
         self.assertEqual(self.pushes, [])
         notices.answer(self.notice("c")["feed_id"], None)
@@ -477,7 +472,7 @@ class Learning(ProCase):
         self.dismiss("c")
         self.assertEqual(notices.mode("renewal"), "digest")
         self.clock += 60
-        notices.set_mode("renewal", "on")        # Colin turns it back on in Settings
+        notices.set_mode("renewal", "on")
         self.clock += 60
         self.dismiss("d")
         self.assertEqual(notices.mode("renewal"), "on")
@@ -496,7 +491,7 @@ class Learning(ProCase):
             out = notices.answer(self.notice(s)["feed_id"], "Find the cancel page")
             self.assertEqual(out["send"], "Find the cancel page.")
         self.assertEqual(notices.per_noticer_cap("renewal"), 2)
-        self.assertEqual(notices.daily_cap(), 3)           # still inside the daily cap
+        self.assertEqual(notices.daily_cap(), 3)
         self.clock += 8 * 86400
         self.assertEqual(notices.per_noticer_cap("renewal"), 1)
 
@@ -527,7 +522,7 @@ class Learning(ProCase):
         notices.stop(self.notice("a")["feed_id"], "subject")
         self.assertEqual(self.notice("a")["state"], "stopped")
         self.raise_(self.cand("a", deadline=self.soon(96), version="2"))
-        self.assertEqual(self.notice("a")["state"], "stopped")      # never again, even with a new date
+        self.assertEqual(self.notice("a")["state"], "stopped")
         self.assertEqual([s["id"] for s in notices.status()["stopped"]], [self.notice("a")["id"]])
         self.assertTrue(notices.undo_stop(self.notice("a")["id"]))
         self.raise_(self.cand("b", deadline=self.soon(72)))
@@ -552,7 +547,6 @@ class Haiku(ProCase):
             self.raise_(self.cand(f"j{i}", deadline=self.soon(72)))
         self.assertEqual(len(self.haiku.prompts), cap)
         self.assertIsNone(self.notice(f"j{cap}"))
-        # A code-only noticer (the board is the truth) still asks, in code's own words.
         self.raise_(self.cand("board", noticer="waiting_in_app", blocking=True, judge=False))
         self.assertEqual(self.card("board")["question"], "Keep it, or should I find the cancel page?")
         self.clock = at(10, 9, 10)
@@ -643,7 +637,7 @@ class Answers(ProCase):
         self.assertIn("Hi Theo,\n\nJust checking in on the handoff. Any update?\n\nColin", out["send"])
         self.assertEqual(out["follow"], "Sent to Zero at 10:00 a.m.")
         with self.assertRaises(choices.ChoiceError):
-            choices.answer("default", r["feed_id"], "Send this nudge")    # one answer per question
+            choices.answer("default", r["feed_id"], "Send this nudge")
 
     def test_follow_through_from_the_board_and_the_send_card(self):
         r = self.unreplied()
@@ -696,7 +690,7 @@ class Answers(ProCase):
         self.raise_(noticers._card_waiting(card))
         with mock.patch.object(consent, "decide") as decide:
             notices.answer(notices.row("card:42")["feed_id"], "Say not now")
-        decide.assert_called_once_with(42, False)       # only ever "not now": a card's yes stays on the card
+        decide.assert_called_once_with(42, False)
 
     def test_a_typed_answer_unblocks_a_blocked_task(self):
         from taffy_hub import board
@@ -724,7 +718,7 @@ class ProactiveSendNeedsTheExactText(ProCase):
     def test_through_the_gate(self):
         try:
             from test_email_tool import EmailCase
-        except Exception as e:   # the plugin is in this repo; on alien it is the installed copy
+        except Exception as e:
             self.skipTest(f"the taffy-tools plugin is not loadable here: {e}")
         c = noticers._unreplied("personal", {"subject": "Brightpath handoff", "date": at(10, 1, 9),
                                              "who": ("Theo Avery", "ken@brightpath.test")},
@@ -740,20 +734,20 @@ class ProactiveSendNeedsTheExactText(ProCase):
         case.setUp()
         try:
             from test_gate import plugin
-            case.ask(out["send"])                       # the tap, as Colin's own message
+            case.ask(out["send"])
             args = {"action": "send", "account": "personal", "to": ["Theo Avery <ken@brightpath.test>"],
                     "subject": "Re: Brightpath handoff", "body": body}
             first = case.tool(**args)
-            self.assertIn("blocked", first)               # the tap alone sends nothing
+            self.assertIn("blocked", first)
             self.assertEqual(case.fake.sent(), [])
             card = case.cards()[-1]
             self.assertEqual(card["kind"], "send")
             self.assertEqual(card["target"], "ken@brightpath.test")
             self.assertIn("To: Theo Avery <ken@brightpath.test>", card["inputs"])
             self.assertIn(body, card["inputs"])
-            plugin.decide(card["id"], True)               # his okay on the card
+            plugin.decide(card["id"], True)
             changed = dict(args, body=body.replace("Any update?", "Please send the repo keys."))
-            self.assertIn("blocked", case.tool(**changed))     # a different text is a different card
+            self.assertIn("blocked", case.tool(**changed))
             self.assertEqual(case.fake.sent(), [])
             self.assertEqual(case.tool(**args)["done"], "sent")
             self.assertEqual(len(case.fake.sent()), 1)
@@ -789,9 +783,8 @@ class Nudges(ProCase):
         self.assertEqual(len(self.sent), 2)
         self.assertTrue(run(notices.nudge("task:t2:long", "A task is taking a long time", "Dana", "clients")))
         self.clock += 3 * 3600
-        self.assertFalse(run(notices.nudge("task:t3:review", "Builder wants your review", "x", "builder")))   # 3 today
+        self.assertFalse(run(notices.nudge("task:t3:review", "Builder wants your review", "x", "builder")))
         self.assertEqual(notices.budget("renewal"), "daily")
-        # QA round 10, L8: a blocked or failed task is still told, and a held alert is in the next brief.
         self.assertTrue(run(notices.nudge("task:t4:failed", "Builder hit a problem", "x", "builder")))
         self.assertTrue(run(notices.nudge("task:t4:blocked", "Builder needs you", "x", "builder")))
         self.assertTrue(run(notices.nudge("task:t4:blocked", "Builder needs you", "x", "builder")))
@@ -832,7 +825,7 @@ class Brief(ProCase):
         brief = rows[-2]["body"]
         self.assertTrue(brief.startswith("You have one open question from me. Haiku evidence."), brief)
         self.assertTrue(brief.endswith("The card is below."))
-        self.assertFalse(run(notices.post_brief()))      # once a day
+        self.assertFalse(run(notices.post_brief()))
         for bad in ("—", "–"):
             self.assertNotIn(bad, brief)
 
@@ -918,16 +911,16 @@ class Wakes(ProCase):
         self.assertFalse(notices.quiet_wake_due())
         self.clock = at(10, 8, 11, 1)
         self.assertTrue(notices.quiet_wake_due())
-        self.assertFalse(notices.quiet_wake_due())          # once per quiet spell
+        self.assertFalse(notices.quiet_wake_due())
         for chat, check, due in (((11, 30), (13, 31), True), ((13, 40), (15, 41), True), ((15, 50), (17, 51), True),
                                  ((18, 0), (20, 1), False)):
             self.clock = at(10, 8, *chat)
             notices.chat_activity("default")
             self.clock = at(10, 8, *check)
-            self.assertEqual(notices.quiet_wake_due(), due, check)   # at most four a day
+            self.assertEqual(notices.quiet_wake_due(), due, check)
         self.clock = at(10, 9, 21, 30)
         notices._last_chat["default"] = at(10, 9, 18)
-        self.assertFalse(notices.quiet_wake_due())          # 9 a.m. to 9 p.m. only
+        self.assertFalse(notices.quiet_wake_due())
         self.clock = at(10, 9, 20, 30)
         self.assertTrue(notices.quiet_wake_due())
 
@@ -937,9 +930,9 @@ class Wakes(ProCase):
 class FakeSources(noticers.Sources):
     def __init__(self):
         super().__init__()
-        self.mail = {}            # (account, folder) -> [envelopes]
-        self.bodies = {}          # id -> text
-        self.replies = {}         # addr -> bool | None
+        self.mail = {}
+        self.bodies = {}
+        self.replies = {}
         self.groups = {"needs_you": [], "working": [], "done": []}
         self.since = {}
         self.cards = []
@@ -961,7 +954,6 @@ class FakeSources(noticers.Sources):
     async def status_since(self, task):
         return self.since.get(task["id"], 0)
 
-    # Fixtures only: on alien the real sources would read Colin's Tally, notes, calendar copy and Trello copy.
     async def purchases(self, *a, **k):
         return getattr(self, "bought", [])
 
@@ -1010,15 +1002,14 @@ class Noticers(ProCase):
         ken = ("Theo Avery", "ken@brightpath.test")
         self.src.mail[("personal", "Sent")] = [
             env(1, "Brightpath handoff", to=[ken], date=at(9, 30, 9), folder="Sent"),
-            env(2, "Lunch?", to=[("Jake", "jake@example.com")], date=at(10, 6, 9), folder="Sent"),     # too recent
-            env(3, "Order question", to=[("", "orders@shop.example")], date=at(9, 20, 9), folder="Sent"),   # not a person
-            env(4, "Team update", to=[ken, ("Matt", "matt@example.com")], date=at(9, 25, 9), folder="Sent"),   # group
-            env(5, "Re: Thanks", to=[("Dana", "karen@example.com")], date=at(9, 28, 9), folder="Sent"),      # no ask
-            env(6, "Old", to=[("Ann", "ann@example.com")], date=at(8, 1, 9), folder="Sent"),                # too old
+            env(2, "Lunch?", to=[("Jake", "jake@example.com")], date=at(10, 6, 9), folder="Sent"),
+            env(3, "Order question", to=[("", "orders@shop.example")], date=at(9, 20, 9), folder="Sent"),
+            env(4, "Team update", to=[ken, ("Matt", "matt@example.com")], date=at(9, 25, 9), folder="Sent"),
+            env(5, "Re: Thanks", to=[("Dana", "karen@example.com")], date=at(9, 28, 9), folder="Sent"),
+            env(6, "Old", to=[("Ann", "ann@example.com")], date=at(8, 1, 9), folder="Sent"),
         ]
         self.src.bodies["5"] = "Thanks Dana, sounds great.\n\n> Can you check the banner?"
         self.src.bodies["1"] = "Hi Theo, can you send me the handoff notes by Friday?"
-        # Files handed to a print shop ask nothing, so nothing is owed back (Oct 9).
         self.src.mail[("personal", "Sent")].append(env(7, "Word Documents", to=[("", "store1234@theupsstore.com")],
                                                        date=at(9, 22, 9), folder="Sent"))
         self.src.bodies["7"] = "Here are the files to print.\n\nColin"
@@ -1032,11 +1023,11 @@ class Noticers(ProCase):
         self.assertIsNone(notices.check(c))
         self.src.replies["ken@brightpath.test"] = True
         self.assertEqual(self.find("unreplied"), [])
-        self.src.replies["ken@brightpath.test"] = None      # the mailbox couldn't tell: no guess
+        self.src.replies["ken@brightpath.test"] = None
         self.assertEqual(self.find("unreplied"), [])
 
     def test_five_business_days(self):
-        self.assertEqual(noticers.business_days_after(at(10, 2, 11), 5), at(10, 9, 11))   # Fri to the next Fri
+        self.assertEqual(noticers.business_days_after(at(10, 2, 11), 5), at(10, 9, 11))
         self.src.mail[("personal", "Sent")] = [env(1, "Handoff", to=[("Theo", "ken@brightpath.test")],
                                                    date=at(10, 2, 11), folder="Sent")]
         self.src.bodies["1"] = "Could you confirm the handoff date?"
@@ -1048,11 +1039,11 @@ class Noticers(ProCase):
         karen = ("Miss Dana", "karen@blueheron.test")
         self.src.mail[("personal", "INBOX")] = [
             env(1, "Halloween preview", frm=karen, date=at(10, 6, 9)),
-            env(2, "Re: Halloween preview", frm=karen, date=at(10, 7, 20)),                     # under 48 hours
-            env(3, "Your receipt", frm=("Walmart", "no-reply@walmart.com"), date=at(10, 5, 9)),   # not a person
-            env(4, "Photos", frm=("Jake", "jake@example.com"), date=at(10, 5, 9)),                # asks nothing
+            env(2, "Re: Halloween preview", frm=karen, date=at(10, 7, 20)),
+            env(3, "Your receipt", frm=("Walmart", "no-reply@walmart.com"), date=at(10, 5, 9)),
+            env(4, "Photos", frm=("Jake", "jake@example.com"), date=at(10, 5, 9)),
             env(5, "Quote", frm=("Matt", "matt@example.com"), date=at(10, 5, 9), flags=["Seen", "Answered"]),
-            env(6, "Schedule", frm=("Josh", "josh@example.com"), date=at(10, 4, 9)),              # he replied
+            env(6, "Schedule", frm=("Josh", "josh@example.com"), date=at(10, 4, 9)),
         ]
         self.src.mail[("personal", "Sent")] = [env(9, "Re: Schedule", to=[("Josh", "josh@example.com")],
                                                    date=at(10, 4, 15), folder="Sent")]
@@ -1084,7 +1075,7 @@ class Noticers(ProCase):
         self.assertTrue(all(c.blocking and not c.judge for c in found))
         self.assertTrue(all(notices.check(c) is None for c in found))
         self.assertEqual(found[1].options[0].hub, "deny_card")
-        self.assertNotIn("approve", " ".join(o.hub for o in found[1].options))   # a card's yes stays on the card
+        self.assertNotIn("approve", " ".join(o.hub for o in found[1].options))
 
     def test_renewals_from_mail_and_notes(self):
         self.src.mail[("personal", "INBOX")] = [
@@ -1092,7 +1083,7 @@ class Noticers(ProCase):
             env(2, "Your domain expires", frm=("Porkbun", "support@porkbun.com"), date=at(10, 3, 9)),
             env(3, "Weekly newsletter", frm=("News", "news@example.com"), date=at(10, 3, 9))]
         self.src.bodies = {"1": "Your plan will renew on October 10, 2026 for $20.19.",
-                           "2": "blueheron.test expires on 11/30/2026."}         # outside the week
+                           "2": "blueheron.test expires on 11/30/2026."}
         self.src.memory = ["agentmax.app renewal on Oct 10 for $20.19; decision not made.",
                            "Netlify certificate for sugared-heron renews Oct 12.",
                            "The car payment is $292."]
@@ -1123,7 +1114,7 @@ class Noticers(ProCase):
             {"role": "assistant", "class": "bot", "ts": said + 5, "display": "Sounds good."},
             {"role": "user", "class": "colin", "ts": said + 60, "display": "Remind me to call the bank on Friday"}]
         self.clock = at(10, 8, 11)
-        self.assertEqual(self.find("promise"), [])           # asked at noon on the day
+        self.assertEqual(self.find("promise"), [])
         self.clock = at(10, 8, 12, 30)
         found = self.find("promise")
         self.assertEqual(len(found), 1)
@@ -1138,10 +1129,10 @@ class Noticers(ProCase):
                          ["On Wednesday you asked Zero to remind you to call the bank on Friday."])
         self.src.groups["working"] = [{"id": "t_h", "title": "Re-upload Form H for Lakeview", "created_at": said + 100}]
         self.clock = at(10, 8, 12, 30)
-        self.assertEqual(self.find("promise"), [])           # a board task already covers it
+        self.assertEqual(self.find("promise"), [])
 
     def test_promise_phrases(self):
-        ts = at(10, 8, 9)   # a Thursday
+        ts = at(10, 8, 9)
         p = noticers.promises_in("I will send Theo the invoice on Monday. Remind me to pay rent this weekend.", ts)
         self.assertEqual([(x["what"], x["due"], x["remind"]) for x in p],
                          [("send Theo the invoice", at(10, 12, 0), False), ("pay rent", at(10, 10, 0), True)])
@@ -1161,7 +1152,7 @@ class Noticers(ProCase):
             calls.clear()
             notices.set_mode("renewal", "off")
             run(noticers.find({"mail"}, self.src))
-            self.assertEqual(sorted(calls), ["form", "reply_waiting", "unreplied"])   # phase 2 adds forms
+            self.assertEqual(sorted(calls), ["form", "reply_waiting", "unreplied"])
             calls.clear()
             run(noticers.find({"quiet"}, self.src))
             self.assertIn("promise", calls)
@@ -1174,23 +1165,22 @@ class Noticers(ProCase):
         self.src.groups["needs_you"] = [{"id": "t_rev", "title": "Draft reply to Dana", "assignee": "clients",
                                          "status": "review", "summary": "Hi Dana"}]
         self.src.since = {"t_rev": self.clock - 30 * 3600}
-        # Only the two noticers this fixture feeds: on alien the others would read its real notes and calendar copy.
         for name in noticers.FINDERS:
             if name not in ("unreplied", "waiting_in_app"):
                 notices.set_mode(name, "off")
         with mock.patch.object(noticers, "SOURCES", self.src):
-            self.assertEqual(run(notices.run_pass({"timer"})), 1)      # one card a look: the most important
-        self.assertEqual(notices.row("task:t_rev:review")["state"], "open")   # a Zip is waiting on Colin now
+            self.assertEqual(run(notices.run_pass({"timer"})), 1)
+        self.assertEqual(notices.row("task:t_rev:review")["state"], "open")
         self.assertIsNone(notices.row("mail-sent:personal:ken@brightpath.test:brightpath handoff"))
         self.assertEqual(len(self.pushes), 1)
-        self.assertEqual(self.pushes[0]["body"], "Haiku evidence. Haiku question?")   # the card's fact and ask
+        self.assertEqual(self.pushes[0]["body"], "Haiku evidence. Haiku question?")
         with mock.patch.object(noticers, "SOURCES", self.src):
-            self.assertEqual(run(notices.run_pass({"timer"})), 0)      # one card at a time (Oct 10)
+            self.assertEqual(run(notices.run_pass({"timer"})), 0)
         notices.answer(notices.row("task:t_rev:review")["feed_id"], None)
-        self.clock += 2 * 3600 + 60                                    # and two hours after the last one
+        self.clock += 2 * 3600 + 60
         with mock.patch.object(noticers, "SOURCES", self.src):
-            self.assertEqual(run(notices.run_pass({"timer"})), 1)      # the thread on the next look, not pushed
-            self.assertEqual(run(notices.run_pass({"timer"})), 0)      # nothing new
+            self.assertEqual(run(notices.run_pass({"timer"})), 1)
+            self.assertEqual(run(notices.run_pass({"timer"})), 0)
         self.assertEqual(len(self.pushes), 1)
 
 
@@ -1242,7 +1232,7 @@ class MailReading(unittest.TestCase):
         with self.assertRaises(mail.MailError):
             mail.envelopes("work", "INBOX")
         self.assertEqual(mail.read("personal", "INBOX", "11"), "Hello?")
-        self.assertIn("-p", self.calls[-1])     # preview: it stays unread
+        self.assertIn("-p", self.calls[-1])
         for bad in ("-x", "1;rm", "../1"):
             with self.assertRaises(mail.MailError):
                 mail.read("personal", "INBOX", bad)
@@ -1276,7 +1266,7 @@ class NewMailWake(unittest.TestCase):
                 newest = [{"id": "1", "date": 1.0}]
                 with mock.patch.object(mail, "envelopes", lambda a, f, n, q=None: list(newest)), \
                         mock.patch.object(notices, "wake") as wake:
-                    self.assertFalse(run(noticers.check_new_mail()))     # the first look only remembers
+                    self.assertFalse(run(noticers.check_new_mail()))
                     self.assertFalse(run(noticers.check_new_mail()))
                     newest.append({"id": "2", "date": 2.0})
                     self.assertTrue(run(noticers.check_new_mail()))
@@ -1305,7 +1295,7 @@ class Api(ProCase):
         s = self.client.get("/api/proactivity").json()
         self.assertTrue(s["enabled"])
         self.assertEqual([n["id"] for n in s["noticers"]][:5],
-                         ["unreplied", "reply_waiting", "waiting_in_app", "renewal", "promise"])   # then phase 2's
+                         ["unreplied", "reply_waiting", "waiting_in_app", "renewal", "promise"])
         self.assertTrue(all(n["mode"] == "on" for n in s["noticers"]))
         self.assertEqual(s["limits"]["daily"], 3)
         s = self.client.put("/api/proactivity", json={"enabled": True, "noticers": {"renewal": "digest"}}).json()
@@ -1341,8 +1331,6 @@ class Soul(unittest.TestCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

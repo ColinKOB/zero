@@ -30,7 +30,6 @@ from pathlib import Path
 ENV = "ZERO_HOME"
 COLIN = "colin"
 
-# Every key in the schema, with the values every home shares unless its file says otherwise.
 DEFAULTS = {
     "version": 1,
     "home_id": COLIN,
@@ -42,7 +41,7 @@ DEFAULTS = {
               "owner": "~/taffy/owner", "background_docs": []},
     "ports": {"hub": 8650, "hermes_api": 8642, "broker_http": 8660,
               "preview": {"base": 18200, "per_zip": 10, "count": 6}, "docker_subnet_base": "172.30"},
-    "network": {"public_url": "", "serve_port": 6443},   # a home without an address prints no link
+    "network": {"public_url": "", "serve_port": 6443},
     "host": {"name": "alien", "kind": "server", "sandbox_image": "taffy/zip-sandbox:2026-10-08-v1",
              "lead_backend": "docker"},
     "plan": {"claude": {"mode": "own", "command": "claude"},
@@ -58,8 +57,6 @@ DEFAULTS = {
     "google": {"client_id": None},
 }
 
-# Colin's own facts: the defaults of his home (no file, a file with home_id "colin", or his own file without one),
-# equal to what the code held before home.json existed.
 COLIN_FACTS = {
     "person": {"name": "Colin O'Brien", "first_name": "Colin", "pronoun_free": False},
     "paths": {"background_docs": ["~/taffy/shared/background-notes.md",
@@ -97,7 +94,7 @@ def _merge(base: dict, over: dict) -> dict:
 
 def os_home() -> Path:
     """The running user's home directory (not $HOME: the Zips may run with a per-profile HOME)."""
-    return Path(os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir)   # the hub's config.HOME
+    return Path(os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def settings_path() -> Path:
@@ -105,10 +102,8 @@ def settings_path() -> Path:
     return Path(env).expanduser() if env else os_home() / "taffy" / "home.json"
 
 
-# The owner's user (Colin's) and the one file that may leave home_id out and still be his home: his own
-# ~/taffy/home.json. The hub's reader and zero-home-lib.py use the same user and rule.
 OWNER_USER = os.environ.get("ZERO_OWNER_USER", "jdoe")
-NO_ID = "unnamed"   # the home_id a file without one reads as, anywhere but the owner's own file
+NO_ID = "unnamed"
 
 
 def owner_file() -> Path:
@@ -132,8 +127,6 @@ def _colin(data: dict | None, path: Path | None) -> bool:
         return False
 
 
-# The plugin imports this module as part of its package, while consent.py and safe_files.py (which the hub loads by
-# path) load it on their own: every copy keeps its pins in one shared place, so a test's pin reaches all of them.
 _STATE = sys.modules.setdefault("_zero_home_state", types.ModuleType("_zero_home_state"))
 if not hasattr(_STATE, "pinned"):
     _STATE.pinned = []
@@ -141,10 +134,6 @@ _pinned: list = _STATE.pinned
 _cache: dict = {}
 
 
-# What a file that exists but cannot be read counts as, when no good copy of it was read before: a home that is
-# not Colin's, so none of his facts (name, mailboxes, Tally, Trello, background documents, connectors) reach it.
-# The hub stops on such a file instead (hub/taffy_hub/home.py); a tool call must not crash, so the plugin fails
-# closed. Night review, Oct 9: an unreadable stranger's file used to read as "no file", which is Colin's home.
 UNREADABLE = {"home_id": "unreadable"}
 
 
@@ -183,14 +172,14 @@ def load() -> dict:
     base = _merge(DEFAULTS, COLIN_FACTS) if colin else copy.deepcopy(DEFAULTS)
     out = _merge(base, data or {})
     if not str((data or {}).get("home_id") or ""):
-        out["home_id"] = COLIN if colin else NO_ID   # the defaults' "colin" never names another home
+        out["home_id"] = COLIN if colin else NO_ID
     return out
 
 
 @contextlib.contextmanager
 def pinned(settings: dict | None):
     """Tests: read `settings` as the file (None: no file at all, so Colin's defaults) for the duration."""
-    _pinned.append((copy.deepcopy(settings),))   # a pinned None stands for "no file": raw() returns None
+    _pinned.append((copy.deepcopy(settings),))
     _person_cache.clear()
     try:
         yield
@@ -220,8 +209,6 @@ def home_id() -> str:
 def is_colin() -> bool:
     return home_id() == COLIN
 
-
-# ── Paths ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def expand(value, real_home=None) -> Path:
     """A settings path as a real path: "~" is the running user's home, or `real_home` when given (the plugin passes
@@ -256,8 +243,6 @@ def preview_range() -> range:
         base, per, count = 18200, 10, 6
     return range(base, base + per * count)
 
-
-# ── The person ────────────────────────────────────────────────────────────────────────────────────────────
 
 _person_cache: dict = {}
 
@@ -329,8 +314,6 @@ def units_line() -> str:
     hours = "24-hour times" if str(clock).lower().startswith("24") else "12-hour times"
     return f"{spell}, and {first_name()}'s units: {measures}, {hours}."
 
-
-# ── What the home can use ─────────────────────────────────────────────────────────────────────────────────
 
 def connectors() -> str:
     """"claude", "chatgpt" or "none": whose plan carries connectors (a shared plan never does). Anything else is
@@ -406,8 +389,6 @@ def zips_max() -> int | None:
     except (TypeError, ValueError):
         return None
 
-
-# ── Words ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 _PRONOUNS = [(re.compile(r"\bhimself\b"), "themselves"), (re.compile(r"\bHimself\b"), "Themselves"),
              (re.compile(r"\b[Hh]e's\b"), "{first}'s"), (re.compile(r"\b[Hh]e\b"), "{first}"),

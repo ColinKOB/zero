@@ -164,7 +164,7 @@ class Tokens(GoogleCase):
             status_code = 401
 
         def get(self, url, params=None, headers=None):
-            google.disconnect("sam.rivera@gmail.com")   # the person disconnects while the call is out
+            google.disconnect("sam.rivera@gmail.com")
             return R()
         with mock.patch("httpx.Client.get", get):
             with self.assertRaises(google.GoogleError):
@@ -218,7 +218,7 @@ class Tokens(GoogleCase):
         self.assertEqual(str(e.exception), "Google asked you to sign in again.")
         self.assertEqual(google.state("sam.rivera@gmail.com"), google.NEEDS_SIGN_IN)
         self.assertEqual(google.describe("sam.rivera@gmail.com")["detail"], "Google asked you to sign in again.")
-        with self.assertRaises(google.GoogleError):   # no further refresh is tried until a new sign-in
+        with self.assertRaises(google.GoogleError):
             google.access_token("sam.rivera@gmail.com")
 
     def test_disconnect_revokes_and_forgets(self):
@@ -234,7 +234,6 @@ class Tokens(GoogleCase):
             with self.assertRaises(google.GoogleError) as e:
                 google.exchange("good-code", VERIFIER)
             self.assertEqual(str(e.exception), google.NOT_SET_UP)
-            # the app's own client id is enough: it is the one the app signed in with
             acct = google.exchange("good-code", VERIFIER, app_client_id=CLIENT)
             self.assertEqual(acct["state"], google.CONNECTED)
 
@@ -268,16 +267,13 @@ class ConnectGoogle(GoogleCase):
             self.assertEqual((c["kind"], c["address"], c["calendar_id"]),
                              ("google_oauth", "sam.rivera@gmail.com", "primary"))
             self.assertNotIn("rt-", f.read_text())
-            # the hub reads the mailbox through the Gmail API
             [e] = mail.envelopes(m["id"], "INBOX", 5, ["from", "dana@example.org"])
             self.assertEqual((e["from_addr"], e["subject"], e["flags"]), ("dana@example.org", "The form", set()))
             self.assertIn("send the form", mail.read(m["id"], "INBOX", "18f0a1"))
             q = [p for p, _ in self.fake.calls if p.startswith("/gmail/v1/users/me/messages?")]
             self.assertIn("q=from%3Adana%40example.org", q[0])
-            # and the calendar through the Calendar API
             [ev] = calsources.google_events(c, 0, 4e9)
             self.assertEqual((ev["title"], ev["location"], ev["my_response"]), ("Dentist", "12 Main St", "accepted"))
-            # disconnecting removes both and revokes
             out = mailboxes.disconnect_google("sam.rivera@gmail.com")
             self.assertTrue(out["ok"])
             saved = json.loads(f.read_text())
@@ -297,7 +293,7 @@ class ConnectGoogle(GoogleCase):
             mailboxes.connect_google({"code": "good-code", "code_verifier": VERIFIER})
             [m] = home.mail_accounts()
             mailboxes.remove_mailbox(m["id"])
-            self.assertEqual(google.accounts(), ["sam.rivera@gmail.com"])   # the calendar still uses it
+            self.assertEqual(google.accounts(), ["sam.rivera@gmail.com"])
             [c] = home.calendars()
             mailboxes.remove_calendar(c["id"])
             self.assertEqual(google.accounts(), [])
@@ -378,7 +374,6 @@ class Endpoints(AppCase):
         self.assertEqual(s["google"]["accounts"][0]["state"], "connected")
         self.assertEqual(s["mail"]["accounts"][0]["provider"], "google")
         self.assertEqual(s["calendars"][0]["provider"], "google")
-        # the plugin's token, with the internal key only
         self.assertEqual(self.client.post("/internal/google/token", json={"address": "sam.rivera@gmail.com"})
                          .status_code, 404)
         tok = self.client.post("/internal/google/token", json={"address": "sam.rivera@gmail.com"},
@@ -389,7 +384,6 @@ class Endpoints(AppCase):
         other = self.client.post("/internal/google/token", json={"address": "someone@gmail.com"},
                                  headers=self.internal()).json()
         self.assertFalse(other["ok"])
-        # the plugin's own request shape (WP2): by account id or address
         [m] = home.mail_accounts()
         for args in ({"account": m["id"], "purpose": "mail"}, {"address": "sam.rivera@gmail.com",
                                                                 "purpose": "calendar"}):
@@ -404,7 +398,6 @@ class Endpoints(AppCase):
         none = self.client.post("/internal/accounts/google_token", json={"bot_id": "default", "args": {
             "account": "nope"}}, headers=self.internal()).json()
         self.assertEqual((none["ok"], none["result"]["connected"]), (True, False))
-        # expired at Google: the app hears it plainly
         self.fake.refresh_ok = False
         f = config.HUB_DIR / "google" / "sam.rivera@gmail.com.json"
         data = json.loads(f.read_text())
@@ -420,7 +413,6 @@ class Endpoints(AppCase):
                                                       "message": "Google asked you to sign in again."}})
         s = self.client.get("/api/accounts/google").json()
         self.assertEqual(s["accounts"][0]["detail"], "Google asked you to sign in again.")
-        # disconnect
         r = self.client.delete("/api/accounts/google/sam.rivera@gmail.com").json()
         self.assertTrue(r["ok"])
         self.assertEqual(self.client.get("/api/accounts/google").json()["accounts"], [])
@@ -457,13 +449,12 @@ class Endpoints(AppCase):
         self.assertEqual(got, {"inbox": True, "todo": False, "brief": True, "meetings": False, "coder": True})
         self.assertEqual(templates[0]["pitch"], "Keeps Sam's inbox calm.")
         self.assertEqual(templates[0]["needs"], ["Which email should I watch for Sam?"])
-        with home_fixture.use(None):   # Colin's home: everything can be connected
+        with home_fixture.use(None):
             got = {t["id"]: t["available"] for t in self.client.get("/api/templates").json()["templates"]}
             self.assertTrue(all(got.values()))
 
     def test_pair_qr_is_for_scripts_on_this_server_only(self):
         self.assertEqual(self.client.get("/api/pair/qr?code=ABCD2345").status_code, 404)
-        # A home with no address of its own (this one) never borrows Colin's.
         self.assertEqual(self.client.get("/api/pair/qr?code=ABCD2345", headers=self.internal()).status_code, 409)
         with home_fixture.use(None):
             r = self.client.get("/api/pair/qr?code=ABCD2345", headers=self.internal()).json()
@@ -513,7 +504,6 @@ class PasswordMailboxes(unittest.TestCase):
         self.assertEqual((m["id"], m["kind"], m["default"]), ("icloud", "imap", True))
         self.assertNotIn("abcd", self.home.read_text())
         self.assertEqual(list(mail.ACCOUNTS), ["icloud"])
-        # removed again: the block and the password go, a hand-written account stays
         cfg_path = self.dir / "himalaya" / "config.toml"
         cfg_path.write_text("[accounts.mine]\nemail = \"x@y.z\"\n\n" + cfg_path.read_text())
         self.assertTrue(mailboxes.remove_mailbox("icloud")["ok"])

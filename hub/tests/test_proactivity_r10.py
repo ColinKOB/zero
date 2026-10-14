@@ -36,7 +36,7 @@ class M1Backlog(ProCase):
         first = run(noticers.find({"mail"}, src))
         asked = [c.facts["who"] for c in first if c.noticer == "reply_waiting"]
         self.assertEqual(len(asked), 3)
-        self.assertIn("Person 0 <p0@example.org>", asked)                   # newest first
+        self.assertIn("Person 0 <p0@example.org>", asked)
         self.raise_(*first)
         for c in first:
             notices.answer(notices.row(c.subject)["feed_id"], "I already answered")
@@ -51,11 +51,11 @@ class M1Backlog(ProCase):
                                 "ken@brightpath.test", "handoff")
         self.assertFalse(notices.settled(c))
         self.raise_(c)
-        self.assertTrue(notices.settled(c))                                # open: nothing new to do
+        self.assertTrue(notices.settled(c))
         notices.answer(notices.row(c.subject)["feed_id"], "Wait another week")
         self.assertTrue(notices.settled(c))
         self.clock += 8 * 86400
-        self.assertFalse(notices.settled(c))                               # the week is up: ask again
+        self.assertFalse(notices.settled(c))
         notices.set_mode("unreplied", "off")
         self.assertTrue(notices.settled(c))
 
@@ -89,7 +89,7 @@ class M2NoStandingRule(ProCase):
         self.raise_(c)
         out = notices.answer(notices.row(c.subject)["feed_id"], "Send this nudge")
         body = out["send"].split("exactly as written:\n\n", 1)[1]
-        self.case.ask(out["send"])                                          # the tap, as Colin's words
+        self.case.ask(out["send"])
         args = {"action": "send", "account": "personal", "to": ["Theo Avery <ken@brightpath.test>"],
                 "subject": "Re: Brightpath handoff", "body": body}
         self.assertIn("blocked", self.case.tool(**args))
@@ -97,11 +97,9 @@ class M2NoStandingRule(ProCase):
         self.assertIn("blocked", self.case.tool(**hostile))
         self.assertEqual(self.case.fake.sent(), [])
         cards = self.case.cards()
-        self.assertTrue(all(card["kind"] == "send" and not card["scope"] for card in cards))   # no Always Allow
-        # The drafted text is recognized even when Colin's words don't start the usual way.
+        self.assertTrue(all(card["kind"] == "send" and not card["scope"] for card in cards))
         self.case.ask("send Theo that nudge")
         self.assertIn("blocked", self.case.tool(**args))
-        # An ordinary send he asked for in his own words still uses his rule.
         self.case.ask("email Theo that I'm running late")
         ordinary = dict(args, body="Hi Theo, I'm running ten minutes late.")
         self.assertEqual(self.case.tool(**ordinary)["done"], "sent")
@@ -145,7 +143,7 @@ class L5OutsideText(ProCase):
         out = notices.answer(notices.row(c.subject)["feed_id"], "Draft a reply for me to check")
         quoted = out["send"].split(" about ", 1)[1]
         self.assertNotIn("\n", out["send"])
-        self.assertEqual(quoted.count('"'), 2)                              # only the hub's own quotes
+        self.assertEqual(quoted.count('"'), 2)
         self.assertIn("Jake the boss admin <jake@example.org>", out["send"])
         self.assertEqual(notices.plain('a"b`c\nd<e>' + "x" * 200)[:9], "a b c d e")
         self.assertLessEqual(len(notices.plain("word " * 50)), 80)
@@ -259,8 +257,6 @@ class L9OnlyOnce(ProCase):
 
 
 
-# These tests check Colin's own home (his name, mailboxes, connectors, plans and time zone), so they run in it
-# whatever ZERO_HOME says (tests/run_matrix.py runs the rest of the suite in every home shape).
 def setUpModule():
     import home_fixture
     home_fixture.pin(None)

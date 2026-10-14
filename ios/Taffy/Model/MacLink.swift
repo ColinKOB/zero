@@ -53,7 +53,6 @@ final class MacLink {
               let cls = bundle.principalClass as? NSObject.Type else { return false }
         let b = cls.init()
         bridge = b
-        // Stop on the in-use bar ends the bot's turn on the Mac at once.
         let stop: @convention(block) () -> Void = { [weak self] in
             Task { @MainActor in self?.send(["event": "stop"]) }
         }
@@ -109,15 +108,12 @@ final class MacLink {
                 case .failure:
                     self.socket = nil
                     if task.closeCode.rawValue == 4403 {
-                        // Another paired device holds the Mac link; retrying cannot help until Colin frees it.
                         self.running = false
                         self.onRefused?()
                         return
                     }
                     let wait = self.retry
                     self.retry = min(self.retry * 2, 30)
-                    // A short drop keeps Colin's go-ahead, the same 15 seconds the hub waits. If the link is still
-                    // down after that, the in-use bar must not linger.
                     let dropped = Date()
                     Task { @MainActor [weak self] in
                         try? await Task.sleep(for: .seconds(15))
@@ -133,19 +129,15 @@ final class MacLink {
     }
 
     private func handle(_ msg: [String: Any]) {
-        // The hub may send the paired person's name; it only changes wording.
         if msg["event"] as? String == "person", let name = msg["name"] as? String {
             setPerson(name)
             return
         }
-        // Phones that can allow a Zip's task from afar; the bridge asks Colin once before trusting a new one.
         if msg["event"] as? String == "approvers" {
             call(op: "approvers", args: ["keys": msg["keys"] as? [[String: Any]] ?? []]) { _ in }
             return
         }
         if msg["event"] as? String == "replaced" {
-            // Another copy of Taffy on this Mac took over the link; two copies would keep bumping each other. This
-            // one checks back every few minutes in case the other copy has quit.
             running = false
             socket?.cancel(with: .normalClosure, reason: nil)
             socket = nil
@@ -154,7 +146,7 @@ final class MacLink {
                 while true {
                     try? await Task.sleep(for: .seconds(300))
                     guard let self, !self.running, let client = self.client else { return }
-                    if await client.macLinkOnline() == false {   // only when no other copy holds the link
+                    if await client.macLinkOnline() == false {
                         self.running = true
                         self.connect()
                         return

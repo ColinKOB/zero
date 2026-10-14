@@ -1,8 +1,5 @@
 import SwiftUI
 
-// Screen 5: the person's own AI plan. A new account's home has no plan signed in, so its Zips cannot think until the
-// person signs in to Claude here (hub plansignin.py). A home on a shared plan, or one already signed in, goes straight on.
-
 /// Sign In With Claude: open Claude's sign-in page, then paste the code it shows. Used by the onboarding and Settings.
 struct ClaudeSignInPanel: View {
     @Environment(AppState.self) private var state

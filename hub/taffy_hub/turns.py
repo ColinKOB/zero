@@ -34,13 +34,13 @@ class Turn:
         self.started = time.time()
         self.events: list[dict] = []
         self.done = False
-        self.run_id: str | None = None   # the Hermes run, for steering a live job
-        self.own_words = ""               # what Colin himself said to start this turn (see start)
-        self.stopped = False              # the person pressed Stop (see stop)
-        self.typed = True                 # the person's own words were typed in the chat (not heard on a call)
-        self.yielded = False              # held on a card, it made way for the person's new message (see send)
-        self.replied = False              # Hermes gave the reply; it may still be held while it is shortened (_short)
-        self.device: str | None = None    # the device the person typed on (looking.py), for a reply after they leave
+        self.run_id: str | None = None
+        self.own_words = ""
+        self.stopped = False
+        self.typed = True
+        self.yielded = False
+        self.replied = False
+        self.device: str | None = None
         self._changed = asyncio.Condition()
 
     async def push(self, ev: dict) -> None:
@@ -74,8 +74,8 @@ class Turn:
 
 
 _turns: dict[str, Turn] = {}
-_recent: dict[str, "Turn"] = {}        # by id, so a reconnecting app finds its own turn, running or just done
-_queued: dict[str, list[Turn]] = {}   # messages Colin sent while the bot was busy, in order
+_recent: dict[str, "Turn"] = {}
+_queued: dict[str, list[Turn]] = {}
 _locks: dict[str, asyncio.Lock] = {}
 
 
@@ -119,7 +119,7 @@ def send(bot_id: str, text: str, reply_to: dict | None = None, device: str | Non
 
     `device` is the one it was typed on (looking.key): if that device has left the app when the reply comes, the
     reply goes to the person as a notification (_tell_away)."""
-    release(bot_id)   # the person is talking again: work held by Stop may go on after this message
+    release(bot_id)
     try:
         return start(bot_id, text, reply_to=reply_to, device=device)
     except Busy:
@@ -152,7 +152,7 @@ async def _make_way(bot_id: str, waiting_for: Turn) -> None:
             log.info("%s's turn was waiting on a card; it made way for the person's message (run %s)", bot_id, run)
             return
         hermes.yielded_runs.discard(run)
-        hermes.last_yield.pop(bot_id, None)   # it did not make way: a follow-up that ends with nothing says so
+        hermes.last_yield.pop(bot_id, None)
         if cur:
             cur.yielded = False
     await waiting_for.push({"type": "queued", "position": 1, "text": QUEUED_LINE})
@@ -164,7 +164,7 @@ QUEUED_LINE = "Queued, it will see this next."
 async def _run_queued(turn: Turn, text: str) -> None:
     try:
         while True:
-            if turn.stopped:   # Stop handed this message back to the person (see stop)
+            if turn.stopped:
                 return
             q = _queued.get(turn.bot_id) or []
             if q and q[0] is turn and turn.bot_id not in _turns and not _lock(turn.bot_id).locked():
@@ -199,7 +199,7 @@ def start(bot_id: str, text: str, consent_text: str | None = None, reply_to: dic
         raise Busy(bot_id)
     release(bot_id)
     turn = Turn(bot_id, "app")
-    turn.typed = consent_text is None    # a call's hand-off passes the words it heard as consent_text
+    turn.typed = consent_text is None
     turn.device = device
     _turns[bot_id] = turn
     own_words = text if consent_text is None else consent_text
@@ -233,7 +233,6 @@ def _with_reactions(bot_id: str, text: str) -> str:
     told = store.take_untold_reactions(bot_id)
     if not told:
         return text
-    # One line: history.peel takes the note off at its first line break.
     notes = "; ".join(f'{r["kind"]} on "{" ".join((r["excerpt"] or "").split())[:80]}"' for r in told)
     return (f"[Reactions from {who.first()} since your last message: {notes}. Context only; no need to mention "
             f"them.]\n{text}")
@@ -243,34 +242,31 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
     lock = _lock(turn.bot_id)
     failed: str | None = None
     if own_words.strip():
-        try:   # cards raised before this are no longer what the Zip waits on (signin.waiting)
+        try:
             store.note_said(turn.bot_id)
             choices.close_open(turn.bot_id)
         except Exception:
             log.warning("could not note when the person spoke", exc_info=True)
     try:
         async with lock:
-            # Colin's own message is a go-ahead for sign-ins this request needs (see consent.py).
             try:
                 sid = await hermes.ensure_session(turn.bot_id)
                 if own_words.strip():
                     consent.open_pass("message", own_words, bot_id=turn.bot_id, session_id=sid)
             except Exception:
                 log.warning("could not record the request for sign-in consent", exc_info=True)
-            try:   # "I signed in, try again": the open card is answered and the Zip checks the page (#59-#61)
+            try:
                 from . import signin
-                # Typed words only: "okay, go ahead" said on a call about something else must not close a card
-                # as signed in (and record an allowed sign-in for its site). On a call the card is tapped.
                 site = signin.done_in_chat(turn.bot_id, own_words) if turn.typed else None
                 if site:
                     log.info("%s's sign-in card for %s answered from the chat", turn.bot_id, site)
             except Exception:
                 log.warning("could not read the message as a finished sign-in", exc_info=True)
-            activity.expect(turn.bot_id, own_words)   # the app can offer Retry with these words
+            activity.expect(turn.bot_id, own_words)
             answered = False
             async for ev in hermes.stream_turn(turn.bot_id, text):
                 if ev["type"] == "run" and turn.stopped:
-                    await hermes.stop(turn.bot_id, ev["id"])   # Stop came before Hermes named the run
+                    await hermes.stop(turn.bot_id, ev["id"])
                 if ev["type"] == "reply" and chatter.interrupted(ev["text"]):
                     # Hermes's "Operation interrupted: ..." is its note about the run, never the Zip's words: after
                     # Stop the chat shows "Stopped."; otherwise the turn ended without an answer (live convo QA).
@@ -278,17 +274,16 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
                         continue
                     ev = {"type": "error", "text": silent_line(turn.bot_id)}
                 if ev["type"] == "reply" and chatter.empty(ev["text"]) and not turn.stopped:
-                    ev = {"type": "error", "text": silent_line(turn.bot_id)}   # a "." after typing (#51)
+                    ev = {"type": "error", "text": silent_line(turn.bot_id)}
                 if ev["type"] == "reply" and not turn.stopped:
-                    turn.replied = True   # Stop from here on comes too late: the answer exists (see stop)
+                    turn.replied = True
                     if turn.typed:
                         ev = await _short(turn, ev, own_words)
                 if ev["type"] == "done" and not answered and not turn.stopped and not turn.yielded:
-                    # The run ended with no reply and no error: the typing dots would just stop (#50-#52).
                     failed = silent_line(turn.bot_id)
                     await turn.push({"type": "error", "text": failed})
                 if ev["type"] == "error" and turn.yielded:
-                    continue   # the run made way for the person's message (send); its card stays open
+                    continue
                 if ev["type"] == "error":
                     if turn.stopped:
                         ev = {"type": "stopped", "text": STOPPED_LINE}
@@ -296,15 +291,12 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
                         failed = ev.get("text") or ""
                 if ev["type"] == "done" and turn.stopped and \
                         not any(e.get("type") in ("stopped", "reply") for e in turn.events):
-                    # A stopped run whose stream just ends: the open chat hears it before "done" ends its stream.
                     await turn.push({"type": "stopped", "text": STOPPED_LINE})
                 answered = answered or ev["type"] in ("reply", "error", "stopped", "yielded")
                 await turn.push(ev)
                 if ev["type"] == "reply" and not turn.stopped:
                     await _tell_away(turn, ev["text"])
                 if ev["type"] == "reply" and turn.bot_id != "default":
-                    # Recorded for the home preview and the bot's activity; never a notification,
-                    # because Colin started this conversation in the app.
                     store.add_feed("message_local", turn.bot_id, None, config.BOTS_BY_ID[turn.bot_id].name,
                                    ev["text"][:600])
     except Exception as e:
@@ -313,7 +305,6 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
         await turn.push({"type": "error", "text": failed})
         await turn.push({"type": "done"})
     finally:
-        # A reply that already arrived is the answer; Stop came too late to say "Stopped." over it.
         if turn.stopped and not any(e.get("type") in ("stopped", "reply") for e in turn.events):
             await turn.push({"type": "stopped", "text": STOPPED_LINE})
         if not turn.done:
@@ -323,7 +314,7 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
             activity.finished(turn.bot_id, None if replied else failed, own_words, stopped=turn.stopped)
         except Exception:
             log.warning("could not record how the turn ended", exc_info=True)
-        try:   # his words covered this turn; later hub-started turns in the same chat need their own go-ahead
+        try:
             sid = store.session_for(turn.bot_id)
             if sid:
                 consent.close_message_passes(sid)
@@ -331,12 +322,10 @@ async def _run(turn: Turn, text: str, own_words: str) -> None:
             log.warning("could not close the request's sign-in pass", exc_info=True)
         if _turns.get(turn.bot_id) is turn:
             _turns.pop(turn.bot_id, None)
-        choices.flush(turn.bot_id)            # choice cards offered in this turn go up under its reply
-        notices.chat_activity(turn.bot_id)   # a quiet wake waits for two idle hours after this
-        briefing.refresh_soon(turn.bot_id)   # the call voice's knowledge stays current
+        choices.flush(turn.bot_id)
+        notices.chat_activity(turn.bot_id)
+        briefing.refresh_soon(turn.bot_id)
         if turn.typed and own_words.strip() and not turn.stopped:
-            # Facts in the person's own words (a brand, a store, a decision) are saved for the whole team; a code
-            # check decides first whether there is anything to read (extract.signal), so most turns cost nothing.
             try:
                 from . import extract
                 reply = next((e.get("full") or e.get("text") or "" for e in reversed(turn.events)
@@ -354,8 +343,6 @@ async def _tell_away(turn: Turn, text: str) -> None:
     if not turn.typed or not looking.away(turn.device) or chatter.empty(text):
         return
     from . import watcher
-    # The reply's first paragraph is its key point (the short version leads with it), so the notification is that
-    # paragraph in the Zip's own words, with no second rewrite (Fable's usage review, Oct 11).
     first = next((p for p in re.split(r"\n\s*\n", text.strip()) if p.strip() and not p.lstrip().startswith("MEDIA:")),
                  text)
     try:
@@ -415,15 +402,14 @@ async def follow_up(bot_id: str, note: str, session_id: str | None, urgent: bool
         reply = None
     name = _name(bot_id)
     if not reply and hermes.last_yield.pop(bot_id, False):
-        return None   # it was held on a card and made way for the person's own message, which is answered instead
+        return None
     if reply and not chatter.empty(reply):
-        from . import shortreply   # the chat and the notification show it short when it is long (shortreply.py)
+        from . import shortreply
         shown = await shortreply.for_reply(bot_id, None, reply) or reply
         store.add_feed("message", bot_id, None, name, shown)
-        if push:   # not for a card answered in the open app: the reply shows in the chat he is looking at
+        if push:
             await watcher.push(name, shown, bot_id, urgent=urgent, kind="needs")
         return reply
-    # He tapped, and nothing came back (#50-#53): the chat says so plainly, with the cause when there is one.
     why = hermes.last_error.pop(bot_id, "")
     line = (f"{name} didn't pick this back up after your answer." + (f" {why}" if why else "") +
             f" Ask {name} here to carry on.")
@@ -433,19 +419,10 @@ async def follow_up(bot_id: str, note: str, session_id: str | None, urgent: bool
 
 
 # MARK: Stop (fluid app, Oct 9)
-#
-# Grok Bot staff on a "Stop didn't work" report: "Stop did work each time, but your other bots' queued messages
-# immediately started a new turn, so it looked like he ignored it" (research row #55). Here Stop interrupts the
-# Zip's running turn, hands the person's own queued messages back to the app (they go back in the message box, not
-# sent), and holds the work the hub would start in that chat (board updates, teammates' news, call wrap-ups) until
-# the person talks to the Zip again or HOLD_SEC passes. A card the person answers still picks the chat back up.
 
 HOLD_SEC = 15 * 60
 STOPPED_LINE = "Stopped."
 _held: dict[str, float] = {}
-# The request the person stopped, told to the Zip with their next message. Without it the Zip read its cut-off
-# turn as a glitch and finished the stopped work in its next reply (live convo QA, Oct 9: To-Do built the stopped
-# prep list while answering a different question). Protocol string: history.strip hides it like the reactions line.
 STOPPED_PREFIX = "[Stopped by "
 _stopped: dict[str, str] = {}
 
@@ -487,10 +464,6 @@ async def stop(bot_id: str) -> dict:
         await t.push({"type": "done"})
     _queued.pop(bot_id, None)
     turn = _turns.get(bot_id)
-    # A reply held while it is shortened (_short, up to shortreply.TIMEOUT_SEC with the typing dots still showing)
-    # already exists: Stop comes too late, as for a reply that already arrived. Marking the turn stopped then sent the
-    # reply as written while the history showed it short, and told the Zip with the next message that the request it
-    # had just answered was cancelled.
     answered = bool(turn and not turn.done and turn.replied)
     running = (bool(turn and not turn.done) or _lock(bot_id).locked()) and not answered
     if turn and not turn.done and not answered:

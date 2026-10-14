@@ -47,10 +47,9 @@ def _work() -> Path:
     return home.path("work", consent.REAL_HOME)
 
 
-TEMPLATE_PROFILE = "school"   # Colin's specialist whose settings new Zips start from; any other home uses its own
+TEMPLATE_PROFILE = "school"
 RESERVED = {"default", "taffy", "zero", "hub", "chip", "admin", "root", "system", "all", "team"}
 SHAPES = ("pebble", "capsule", "circle", "squircle", "triangle", "hexagon", "cloud", "droplet", "egg")
-# Colin's built-in Zips and their shapes. Any other home's Zips are in its registry (bots.json) and looks.
 COLIN_BUILTINS = {"school": ("School", "droplet"), "builder": ("Builder", "squircle"), "clients": ("Clients", "cloud"),
                   "money": ("Money", "hexagon"), "career": ("Career", "triangle")}
 
@@ -167,8 +166,6 @@ You are one of {lead}'s specialists (a Zip, as the app calls Colin's agents) on 
 """
 
 
-# ── The house rules for any home ──────────────────────────────────────────────────────────────────────────
-
 _SCHOOL_WORDS = re.compile(r"\b(school|schoolwork|coursework|course|courses|class|classes|homework|assignment|"
                            r"assignments|syllabus|semester|professor|teacher|grade|graded|exam|exams|student)\b", re.I)
 
@@ -243,7 +240,6 @@ def house_rules(school: bool | None = None) -> str:
         elif line.startswith("- Fine without asking:") and not home.trello():
             line = line.replace("(Trello cards, ", "(")
         elif line.startswith("- Internals stay out") and not home.is_colin():
-            # Sam's Inbox said "your Gmail drafts" about a mailbox that is not Gmail (live convo QA, Oct 9).
             line = line.replace("your Gmail just now", "your email just now")
         if line is not None:
             out.append(line)
@@ -363,8 +359,6 @@ _SERVICE_WORDS = {"mail": "a mailbox", "calendar": "a calendar", "drive": "a Goo
                   "trello": "a Trello board"}
 
 
-# WP3's renderer, installed on a server with homes made by the home scripts (/srv/zero/bin). A new Zip in such a home
-# gets its own container settings, preview ports and network from it instead of the clone's.
 RENDERER = Path("/srv/zero/bin/zero-home-render")
 
 
@@ -415,7 +409,6 @@ def _add_to_taffy_table(bot_id: str, description: str) -> None:
     if f"| `{bot_id}` |" in s:
         return
     lines = s.split("\n")
-    # Append after the last row of the team table (the one under "| Assignee | Owns |").
     try:
         start = next(i for i, l in enumerate(lines) if l.startswith("| Assignee"))
     except StopIteration:
@@ -486,14 +479,12 @@ def add_bot(args: dict, bot: str, session_id: str) -> str:
     if problem:
         return _err(f"The new Zip's computer could not be set up, so it was not added to the team: {problem}")
 
-    # The schoolwork rule goes to a Zip whose job or template is about school, and to every Zip in Colin's home.
     school = home.is_colin() or "school" in (tpl or {}).get("services", []) or bool(_SCHOOL_WORDS.search(
         " ".join([job, role, description])))
     soul = profile / "SOUL.md"
     soul.write_text(_soul(name, job, bot_id, school=school))
     os.chmod(soul, 0o600)
     _set_env_key(profile / ".env")
-    # Keep the shared profile of the person (USER.md); start with an empty working memory, not the template's.
     mem = profile / "memories" / "MEMORY.md"
     if mem.exists():
         mem.write_text("")
@@ -510,7 +501,6 @@ def add_bot(args: dict, bot: str, session_id: str) -> str:
     tmp.replace(registry)
 
     if tpl and tpl.get("look"):
-        # The template's look, so the Zip shows up dressed in the app (the person can change it in Change Look).
         looks_path = _looks()
         try:
             looks = json.loads(looks_path.read_text()) if looks_path.exists() else {}
@@ -521,7 +511,6 @@ def add_bot(args: dict, bot: str, session_id: str) -> str:
         tmp.write_text(json.dumps(looks, indent=1))
         tmp.replace(looks_path)
 
-    # Serve the new profile on the running gateway now (otherwise the periodic rescan picks it up).
     served = None
     try:
         from gateway.control_socket import rescan_gateway_profiles

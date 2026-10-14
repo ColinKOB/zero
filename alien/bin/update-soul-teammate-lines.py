@@ -24,18 +24,12 @@ STEPS = ("- Show your steps: when a request takes a step, start with \"Will do\"
          "in the same message as each step he would notice, such as \"Opening eLearning now.\" Each shows as its own "
          "message. End with \"Done.\" and what you set, never what you left alone. Never send \"still working\", "
          "\".\" or \"ok\".")
-# The Oct 10 morning wording, which a SOUL updated then still has; it becomes STEPS (Colin, Oct 10 afternoon: "Add both
-# to Trello" should read "Will do", then "Done. I set a deadline of Monday at 5pm ...", with no "I didn't change
-# anything else on the board").
 OLD_STEPS = ("- Show your steps: like a teammate texting as they go, put one short line in the same message as each step "
              "he would notice, such as \"Opening eLearning now.\" Each shows as its own message. Skip quick look-ups; "
              "never send \"still working\", \".\" or \"ok\".")
 STAY = ("- Stay on what he asked: answer his request and nothing else, and offer other news as a choice only if it is "
         "urgent. One short point per paragraph (each shows as its own message). End with `offer_choices` when there "
         "are next steps.")
-# Room for the two rules: Zero's SOUL sits near Hermes's 20,000-character limit. The length rule's sentence about
-# narrating is covered by "Stay on what he asked", the intro's history is not needed to do the job, and the
-# questions Zero raises on its own are on unless turned off (Oct 10).
 EDITS = [
     (" Do not narrate your search or list what you could not find unless it changes the plan.", ""),
     (" You replaced his ChatGPT dot on 2026-10-07 and took over its job; until 2026-10-08 you were called Taffy, and "
@@ -101,7 +95,7 @@ def update_text(text: str) -> str:
             continue
         out.append(line)
     if not placed_steps or not placed_stay:
-        return text   # a SOUL without the Oct 9 lines: nothing to put these beside
+        return text
     new = "\n".join(out)
     for before, after in EDITS:
         new = new.replace(_p(before, text), _p(after, text))

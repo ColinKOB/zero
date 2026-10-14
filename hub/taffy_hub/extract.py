@@ -25,13 +25,12 @@ from . import config, facts, home, store
 
 log = logging.getLogger("taffy.extract")
 
-ENABLED = False           # set by the running hub (app.lifespan); tests call the parts directly or turn it on
-HAIKU_DAILY = 80          # extractor and order reads together, per home, on top of the proactive checks' own budget
+ENABLED = False
+HAIKU_DAILY = 80
 TIMEOUT_SEC = 60
 ORDERS_EVERY_SEC = 30 * 60
 ORDER_BODY_MAX = 6000
 
-# The person speaking about themselves (not "me" alone: "can you order coffee for me" is a request, not a fact).
 _SELF = re.compile(r"\b(i|i'm|im|i've|ive|i'd|my|mine|we|we're|our|ours)\b", re.I)
 _SIGNAL = re.compile(
     r"\b(prefer|preference|like|likes|love|hate|can't stand|cant stand|favorite|favourite|usual|usually|always|never|"
@@ -224,7 +223,6 @@ def save_answer(out: dict | None, bot_id: str, session_id: str | None, source: s
                                 subject=str(item.get("subject") or ""), kind=str(item.get("kind") or "other"),
                                 replaces=rep, session_id=session_id, source=source, source_ref=source_ref,
                                 confidence=conf if conf in ("said", "inferred") else "said",
-                                # Capability first: Haiku's "private" counts only for health details or amounts.
                                 private=bool(item.get("private")) and facts.sensitive(text),
                                 data=item.get("data") if isinstance(
                                     item.get("data"), dict) else None, observed_at=observed_at, limits=False)

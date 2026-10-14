@@ -32,7 +32,7 @@ from . import config, home, mail, notices, who
 from .notices import Candidate, Option
 
 log = logging.getLogger("taffy.noticers")
-P = notices.plain   # outside text in the person's words: one plain line, no quotes (QA round 10, L5)
+P = notices.plain
 
 
 class _AllMail:
@@ -51,14 +51,11 @@ class _AllMail:
         return f
 
 
-ACCOUNTS = mail.ACCOUNTS     # live: a mailbox added in the app is read on the next pass
+ACCOUNTS = mail.ACCOUNTS
 ALL_MAIL = _AllMail()
 MAIL_FRESH_SEC = 60 * 60
-PER_NOTICER = 3          # candidates each noticer hands on per pass, so a pass stays inside the Haiku budget
+PER_NOTICER = 3
 BODY_READS_PER_PASS = 6
-
-# Who follows through, by the account or the other person's domain (home.json: each mailbox's `owner_zip` and
-# `mail.owner_by_domain`). Anything else is the lead's.
 
 
 def owner_by_account() -> dict:
@@ -273,7 +270,7 @@ class Sources:
             found = await asyncio.to_thread(mail.envelopes, account, "Sent", 5, ["to", addr])
             answer = any(any(p[1] == addr for p in x["to"]) for x in found)
         except Exception:
-            answer = False   # can't tell: no prepared send, the question still goes up
+            answer = False
         self._replied[key] = (_now(), answer)
         return answer
 
@@ -338,8 +335,6 @@ def _plugin_tools():
 
 SOURCES = Sources()
 
-# Which noticers each kind of wake runs. A timer pass runs everything but the chat read, which runs hourly and on a
-# quiet wake.
 WAKES = {
     "timer": ("unreplied", "reply_waiting", "waiting_in_app", "renewal", "form", "school_deadline", "due_soon",
               "conflict", "prep", "followup", "window", "charge", "bill", "running_low"),
@@ -371,8 +366,6 @@ async def find(wakes: set[str], src: Sources | None = None) -> list[Candidate]:
         except Exception:
             log.exception("noticer %s failed", name)
             found = []
-        # Each noticer's share goes to what can still become a question, soonest deadline first and then newest
-        # (QA round 10, M1: the same three answered items took the share every pass).
         fresh = [c for c in found if not notices.settled(c)]
         fresh.sort(key=lambda c: (c.deadline is None, c.deadline or 0, -float(c.facts.get("_at") or 0)))
         out.extend(fresh[:PER_NOTICER])
@@ -403,7 +396,7 @@ async def check_new_mail(src: Sources | None = None) -> bool:
 # MARK: 1. An email Colin sent with no reply
 
 WAIT_BUSINESS_DAYS = 5
-SENT_WINDOW_DAYS = 21   # older than three weeks, a sharp assistant would have asked already; it is moot now
+SENT_WINDOW_DAYS = 21
 
 
 async def unreplied(src: Sources) -> list[Candidate]:
@@ -418,20 +411,20 @@ async def unreplied(src: Sources) -> list[Candidate]:
             key = (people[0][1], mail.norm_subject(e["subject"]))
             if key not in latest or e["date"] > latest[key]["date"]:
                 latest[key] = {**e, "who": people[0]}
-        for (addr, ns), e in sorted(latest.items(), key=lambda kv: -kv[1]["date"]):   # newest first
+        for (addr, ns), e in sorted(latest.items(), key=lambda kv: -kv[1]["date"]):
             if t < business_days_after(e["date"], WAIT_BUSINESS_DAYS):
                 continue
             if notices.settled(_unreplied(account, e, addr, ns)):
-                continue   # already asked: its text need not be read again
+                continue
             replied = await src.replied(account, addr, e["date"])
             if replied is not False:
                 continue
             body = await src.body(e)
             if body is None or not mail.asks_something(body):
-                continue   # nothing is owed back unless he asked something (Oct 9: files sent to a print shop)
+                continue
             c = _unreplied(account, e, addr, ns)
             c.facts["_at"] = e["date"]
-            c.prepare = {"bot": c.owner}   # Colin wrote to them, so the Zip may prepare the nudge
+            c.prepare = {"bot": c.owner}
             found.append(c)
     return found
 
@@ -469,8 +462,6 @@ def _unreplied(account: str, e: dict, addr: str, ns: str) -> Candidate:
 
 REPLY_AFTER_SEC = 48 * 3600
 REPLY_WINDOW_DAYS = 14
-# The same sender on a regular cadence with a new subject each time, to someone who never writes back: a newsletter
-# written in a person's name (Oct 10: a weekly creator letter for four months). Three in four months is enough.
 REGULAR_SENDS = 3
 REGULAR_DAYS = 120
 
@@ -493,32 +484,32 @@ async def reply_waiting(src: Sources) -> list[Candidate]:
     for account in ACCOUNTS:
         inbox = await src.envelopes(account, "INBOX")
         sent = None
-        for e in sorted(inbox, key=lambda x: -x["date"]):   # newest first
+        for e in sorted(inbox, key=lambda x: -x["date"]):
             age = t - e["date"]
             if age < REPLY_AFTER_SEC or age > REPLY_WINDOW_DAYS * 86400:
                 continue
             if not mail.is_person(e["from_addr"], e["from_name"]) or "answered" in e["flags"]:
                 continue
             if mail.is_notification(e["subject"]):
-                continue   # a course site's notice in the teacher's name is not a reply owed (Oct 9)
+                continue
             ns = mail.norm_subject(e["subject"])
             if sent is None:
                 sent = await src.envelopes(account, "Sent")
             if any(s["date"] > e["date"] and mail.norm_subject(s["subject"]) == ns
                    and any(p[1] == e["from_addr"] for p in s["to"]) for s in sent):
-                continue   # he answered (the Sent folder is the source of truth, as the email skill says)
+                continue
             old = notices.row(f"mail-in:{account}:{e['from_addr']}:{ns}")
             if old and old["state"] in ("picked", "dismissed", "stopped", "handled", "preparing", "open"):
-                continue   # already asked: its body need not be read again (QA round 10, M1)
+                continue
             if await regular_sender(src, account, e["from_addr"]):
-                continue   # a newsletter in a person's name (Oct 10)
+                continue
             body = await src.body(e)
             if body is None or not mail.asks_something(body) or mail.is_notification("", body) or mail.is_bulk(body):
-                continue   # a list or bulk send asks its readers, not the person
+                continue
             c = _reply_waiting(account, e, ns, mail.own_text(body))
             c.facts["_at"] = e["date"]
             if await src.wrote_to(account, e["from_addr"]):
-                c.prepare = {"bot": c.owner}   # only someone the person has written to may be a prepared send's target
+                c.prepare = {"bot": c.owner}
             found.append(c)
     return found
 
@@ -531,8 +522,6 @@ def _reply_waiting(account: str, e: dict, ns: str, text: str) -> Candidate:
     re_subject = subject if re.match(r"\s*re\s*:", subject, re.I) else f"Re: {subject}"
     ask_draft = (f"Please draft a reply to {P(name)} <{addr}> about \"{P(subject)}\" (their {notices.date_short(e['date'])} "
                  f"email) from my {account} account, and show it to me before anything is sent.")
-    # Said to the person, as a teammate would ("I don't see a reply from you"), never about them (Oct 10). The facts
-    # are in the same voice, so the model's wording starts from it.
     return Candidate(
         noticer="reply_waiting", subject=f"mail-in:{account}:{addr}:{ns}", owner=owner_for(account, addr),
         evidence=f"{name} wrote to you {when} about \"{subject}\" and asked you something. I don't see a reply "
@@ -789,7 +778,7 @@ async def promise(src: Sources) -> list[Candidate]:
                 words = {w for w in re.findall(r"[a-z]{4,}", p["what"].lower())}
                 if any(len(words & set(re.findall(r"[a-z]{4,}", (x.get("title") or "").lower()))) >= 2
                        and float(x.get("created_at") or 0) >= ts for x in tasks):
-                    continue   # a board task already covers it
+                    continue
                 later = "\n".join(f"{who.first() if n.get('role') == 'user' else bot.name}: "
                                   f"{' '.join((n.get('display') or '').split())[:300]}" for n in msgs[i + 1:i + 9])
                 found.append(_promise(bot.id, m, p, later, end))
@@ -844,13 +833,13 @@ async def form(src: Sources) -> list[Candidate]:
                 continue
             service = bool(SIGN_SENDERS.search(e["from_addr"] or ""))
             if not (service or (SIGN.search(e["subject"]) and mail.is_person(e["from_addr"], e["from_name"]))):
-                continue   # a signing service, or a person; never a newsletter's "invitation"
+                continue
             if DONE_WORDS.search(e["subject"]):
                 continue
             ns = mail.norm_subject(e["subject"])
             if any(x["date"] > e["date"] and mail.norm_subject(x["subject"]).endswith(ns[-40:]) and
                    DONE_WORDS.search(x["subject"]) for x in inbox):
-                continue   # a "completed" or "thank you for signing" notice came after it
+                continue
             body = await src.body(e)
             if body is None:
                 continue

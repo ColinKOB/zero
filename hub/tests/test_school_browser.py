@@ -34,7 +34,7 @@ class FakeBrowser:
 
     def __init__(self, url, links, wrapped=()):
         self.url = url
-        self.links = links            # ref -> (role, name, href or None)
+        self.links = links
         self.wrapped = set(wrapped)
         self.calls = []
 

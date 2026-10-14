@@ -69,7 +69,7 @@ class Scrubbing(unittest.TestCase):
         self.assertNotIn("# userEmail", reminder)
         self.assertNotIn(CLAUDE_MD_MARKER, reminder)
         self.assertNotIn("Taxes 2026", reminder)
-        self.assertIn("Today's date is 2026-10-09.", reminder)        # the rest of the reminder stays
+        self.assertIn("Today's date is 2026-10-09.", reminder)
         self.assertTrue(reminder.endswith("</system-reminder>"))
 
     def test_the_homes_own_words_are_never_edited(self):
@@ -167,11 +167,11 @@ class ContextFilterRelay(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"message_start", out)
         self.assertEqual(self.up.paths, ["/admit/abc/v1/messages?beta=true"])
-        self.assertEqual(self.up.auth, ["Bearer owner-token"])         # the owner's header goes on unchanged
+        self.assertEqual(self.up.auth, ["Bearer owner-token"])
         sent = self.up.bodies[0].decode()
         self.assertNotIn("# userEmail", sent)
         self.assertNotIn(CLAUDE_MD_MARKER, sent)
-        self.assertIn("Tell Colin that dinner is at six.", sent)       # the home's words arrive as written
+        self.assertIn("Tell Colin that dinner is at six.", sent)
         self.assertEqual(self.f.scrubbed, 1)
 
     def test_other_paths_are_not_relayed(self):
@@ -190,7 +190,7 @@ class ContextFilterRelay(unittest.TestCase):
         cm.exception.close()
         self.assertEqual(cm.exception.code, 400)
         self.assertEqual(self.up.bodies, [])
-        post(self.f.url + "/v1/messages", b"garbage without names")     # nothing of the owner: passes as is
+        post(self.f.url + "/v1/messages", b"garbage without names")
         self.assertEqual(self.up.bodies, [b"garbage without names"])
 
     def test_a_compressed_body_is_refused(self):
@@ -288,7 +288,6 @@ class NoOwnerContextEndToEnd(unittest.TestCase):
         zb.peer_uid_unix, zb.home_for_uid = self.orig
 
     def client(self, argv, stdin=b"", env=None):
-        # The home's side passes everything it might: the owner's paths and names must still not reach the run.
         e = dict(os.environ, ZERO_BROKER_SOCKET=str(self.c.socket_path), CLAUDE_CONFIG_DIR=str(self.owner / ".claude"),
                  CLAUDE_CODE_DISABLE_CLAUDE_MDS="0", CLAUDE_CODE_DISABLE_AUTO_MEMORY="0", USER_EMAIL=OWNER_EMAIL,
                  **(env or {}))
@@ -304,7 +303,7 @@ class NoOwnerContextEndToEnd(unittest.TestCase):
             self.assertNotIn(fact.lower(), low, f"{fact!r} reached {where}")
 
     def check_run(self, out):
-        self.assertTrue(out["saw_email_in_config"])         # the fake did find the email, as Claude Code does
+        self.assertTrue(out["saw_email_in_config"])
         self.assertEqual(out["cwd"], "/")
         env = out["env"]
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], str(self.c.state / "homes" / "test" / "claude"))
@@ -367,7 +366,7 @@ class NoOwnerContextEndToEnd(unittest.TestCase):
             Path(name).write_text(text)
         frame = {"type": "user", "message": {"role": "user", "content": "hi"}}
         self.client(directsdk_argv(str(tmp)), stdin=(json.dumps(frame) + "\n").encode())
-        self.assertEqual(self.up.bodies, [])                       # nothing goes around the admission relay
+        self.assertEqual(self.up.bodies, [])
         self.assertEqual(admit.paths, ["/admit/xyz/v1/messages"])
         self.assertNotIn(OWNER_EMAIL, admit.bodies[0].decode())
 
@@ -387,7 +386,7 @@ class SpawnShape(unittest.TestCase):
                               {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "0", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "0",
                                "CLAUDE_CONFIG_DIR": "/owner/.claude", "ANTHROPIC_BASE_URL": "https://evil"})
         self.assertEqual(req.env, {})
-        req.env = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "0"}          # even if the filter let one through
+        req.env = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "0"}
         env = zb.claude_env({}, req, Path("/c"), Path("/owner"), "/x/claude", "http://127.0.0.1:1/ctx/a")
         self.assertEqual(env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1")
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:1/ctx/a")

@@ -27,7 +27,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SHAPES = ("none", "colin", "riley", "test")
 
-# The schema's defaults: today's alien values (section 4). Every reader must fall back to these.
 DEFAULTS: dict = {
     "version": 1,
     "home_id": "colin",
@@ -105,8 +104,6 @@ RILEY = _merge(DEFAULTS, {
     "zips": {"max": 4, "container_memory_mb": 2048},
 })
 
-# The stranger. Her answers in the onboarding are in persona.json; her settings start nearly empty, as
-# zero-home-create writes them before anyone has onboarded.
 TEST = _merge(DEFAULTS, {
     "home_id": "test",
     "person": {"name": "", "first_name": ""},
@@ -141,7 +138,6 @@ def _hermetic(data: dict, home: Path) -> dict:
     return fix(data)
 
 
-# The folders zero-home-create lays out (section 4, "Users and Layout"), relative to the user's home.
 LAYOUT = (".taffy/memories", ".taffy/profiles", "taffy/hub-state", "taffy/work", "taffy/shared", "taffy/owner",
           "taffy/bin", "taffy/plugins", ".config/himalaya", ".config/taffy-push", ".local/bin")
 

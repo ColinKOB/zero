@@ -38,13 +38,9 @@ def use(settings: str | dict | None):
     if isinstance(settings, str):
         f.write_text(json.dumps(sample(settings)))
     elif isinstance(settings, dict):
-        # Laid over Colin's defaults: a file without home_id is not his home unless it is his own file at its known
-        # path (home.is_colin), so the fixture names his home; a test of another home gives its own home_id.
         f.write_text(json.dumps(settings if "home_id" in settings else {"home_id": "colin", **settings}))
     home.FILE = f
     home.reset_cache()
-    # The plugin's reader and the scripts (zero-calls, update-soul-*) read ZERO_HOME, so they see the same home;
-    # for None the file does not exist, which every reader takes as Colin's home.
     saved_env = os.environ.get("ZERO_HOME")
     os.environ["ZERO_HOME"] = str(f)
     try:

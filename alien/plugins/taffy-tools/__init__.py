@@ -63,19 +63,16 @@ def register(ctx):
     except Exception:
         pass
     on = available()
-    if on["connectors"]:   # a shared plan carries no connectors of the person's own (plan.connectors = none)
+    if on["connectors"]:
         ctx.register_tool(name="connectors", toolset="taffy", schema=schemas.connectors(), handler=tools.connectors)
     if on["tally"]:
         ctx.register_tool(name="tally", toolset="taffy", schema=schemas.tally(), handler=tools.tally)
 
     def browser_steps(args: dict, **kwargs) -> str:
-        # Reuse the calling bot's own browser session: forward its task/agent context to the browser tools.
         forward = {k: v for k, v in kwargs.items() if k in ("task_id", "parent_agent", "session_id")}
         refused = fast_steps.refusal(args.get("steps") or [])
         if refused:
             return json.dumps({"error": refused})
-        # Same consent check as browser_navigate for every page it opens, and never on sensitive sites
-        # (its page snapshots go to the grounding model).
         for step in args.get("steps") or []:
             kind, _target, url = fast_steps.parse(str(step))
             if kind == "goto":
@@ -112,7 +109,6 @@ def register(ctx):
                 gate.post_tool_call(name, a, result=out, **forward)
             except Exception:
                 pass
-            # A click can land on a bank or account page; its snapshot must not go to the grounding model.
             if name in ("browser_click", "browser_navigate", "browser_press", "browser_type"):
                 try:
                     from tools.browser_vault_tool import _current_page_origin
@@ -135,7 +131,7 @@ def register(ctx):
                     + "; ".join(dict.fromkeys(told)) + ".")
         return out
 
-    if on["browser_steps"]:   # each step is a paid call, and its own switch (see fast_steps.browser_steps_on)
+    if on["browser_steps"]:
         ctx.register_tool(name="browser_steps", toolset="taffy", schema=home.personalize_schema(fast_steps.SCHEMA),
                           handler=browser_steps)
 
@@ -200,48 +196,36 @@ def register(ctx):
     ctx.register_tool(name="close_card", toolset="taffy", schema=said(asksignin.CLOSE_CARD_SCHEMA),
                       handler=asksignin.close_card)
 
-    # The person's mail, run on the home's own computer so mail passwords and tokens never enter a Zip's container
-    # (email_tool.py): himalaya for app-password mailboxes, the Gmail API for a Google sign-in.
     if on["email"]:
         ctx.register_tool(name="email", toolset="taffy", schema=email_tool.schema(), handler=email_tool.email_tool)
 
-    # The person's calendars without connectors: CalDAV, a read-only iCal address, or Google Calendar (calendar_tool.py).
     if on["calendar"]:
         ctx.register_tool(name="calendar", toolset="taffy", schema=calendar_tool.schema(),
                           handler=calendar_tool.calendar_tool)
 
-    # Apps connected in Zero's Connect Apps, through each provider's own API (apps_tool.py). Always registered: a call
-    # before the person connected the app says so, and the Zip asks them to connect it.
     ctx.register_tool(name="trello", toolset="taffy", schema=apps_tool.trello_schema(), handler=apps_tool.trello_tool)
     ctx.register_tool(name="drive", toolset="taffy", schema=apps_tool.drive_schema(), handler=apps_tool.drive_tool)
     for name in apps_tool.READ_ONLY:
         ctx.register_tool(name=name, toolset="taffy", schema=apps_tool.read_only_schema(name),
                           handler=apps_tool.read_only_handler(name))
 
-    # The person's Mac: only when asked, after the task is approved on the Mac (see mac.py and the hub).
     for name, op in mac.TOOLS.items():
         ctx.register_tool(name=name, toolset="taffy", schema=said(mac.schema(name)), handler=mac.handler(op))
 
-    # Talking with teammates (see teammates.py and the hub's team.py).
     for name in teammates.SCHEMAS:
         ctx.register_tool(name=name, toolset="taffy", schema=said(teammates.SCHEMAS[name]),
                           handler=teammates.handler(name))
     ctx.register_hook("pre_llm_call", teammates.pre_llm_call)
 
-    # Saved logins are used only with Colin's go-ahead (see gate.py and consent.py).
     ctx.register_hook("pre_tool_call", gate.pre_tool_call)
     ctx.register_hook("post_tool_call", gate.post_tool_call)
 
-    # The hub, not Hermes, reports finished board work back to the bot that asked (see board_news below), and a
-    # "tell" action's result reminds the bot to mention it (see gate._tiered).
     ctx.register_hook("transform_tool_result", transform_result)
 
-    # One line per model call in hub-state/usage (usage_log.py): what the plan's usage goes to, by Zip and origin.
     ctx.register_hook("post_api_request", usage_log.post_api_request)
     ctx.register_hook("post_auxiliary_call", usage_log.post_auxiliary_call)
 
 
-# The handoff in one line now, the result in the lead's own words later (fluid chat, #80-#82).
 LEAD_HEARS = ("Tell Colin in one line who has it now. The hub will post a board update in this conversation when the "
               "task finishes, gets blocked or needs review, about a minute after the change. Tell Colin the result "
               "then, in your own words, without him asking. Never tell him to check back or to remind you.")
@@ -295,7 +279,7 @@ def transform_result(tool_name: str = "", result=None, **kw):
     except ValueError:
         return result + "\n\n" + note
     if isinstance(data, dict):
-        data["tell_person"] = note   # was "tell_colin" (the hub accepts both for one release)
+        data["tell_person"] = note
         return json.dumps(data, ensure_ascii=False)
     return result + "\n\n" + note
 

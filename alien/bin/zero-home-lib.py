@@ -28,15 +28,11 @@ HERE = Path(__file__).resolve().parent
 SRV = Path(os.environ.get("ZERO_SRV", "/srv/zero"))
 REGISTRY = SRV / "homes.json"
 OWNER_USER = os.environ.get("ZERO_OWNER_USER", "jdoe")
-# A home made by hand (riley, test), or one made by the account service (alien/frontdoor): "u-<slug>" for a person
-# who signed up in the app and "qa-<slug>" for a throwaway test account. Its Linux user is zero-<home id>.
 ACCOUNT_HOME_RE = re.compile(r"^(u|qa)-[a-z0-9]{2,14}$")
 HOME_ID_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$|^(u|qa)-[a-z0-9]{2,14}$")
 HOME_ID_RULE = "a home id is 2 to 16 lowercase letters or digits starting with a letter, or u- or qa- and 2 to 14 of them"
 ZIP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
-# Where the templates live: the repo (alien/systemd/templates, alien/bin/zero-home-templates) or the
-# deployed copy under /srv/zero (systemd-templates, zero-home-templates beside the scripts).
 def _first_dir(*candidates: Path) -> Path:
     for c in candidates:
         if c.is_dir():
@@ -46,10 +42,6 @@ def _first_dir(*candidates: Path) -> Path:
 
 UNIT_TEMPLATES = _first_dir(HERE.parent / "systemd" / "templates", SRV / "systemd-templates")
 HOME_TEMPLATES = _first_dir(HERE / "zero-home-templates", SRV / "bin" / "zero-home-templates")
-
-# ---------------------------------------------------------------------------------------------------------
-# The settings file
-# ---------------------------------------------------------------------------------------------------------
 
 DEFAULTS: dict = {
     "version": 1,
@@ -78,13 +70,8 @@ DEFAULTS: dict = {
     "google": {"client_id": None},
 }
 
-# Zero's own iOS OAuth client (project zero-signin, CONFIGURE.md). Public, not a secret; the
-# hub's reader has the same default, and every new home is written with it so Sign In with Google works at once.
 ZERO_GOOGLE_CLIENT_ID = "000000000000-yourgoogleclientid.apps.googleusercontent.com"
 
-# What a home that is not Colin's falls back to for a key its file leaves out: the same rule as the hub's and the
-# plugin's readers (hub/taffy_hub/home.py, alien/plugins/taffy-tools/home.py), so a key missing from a stranger's
-# file never brings Colin's name, connectors, paid judge, lead backend or Mac copy check.
 NEUTRAL: dict = {
     "person": {"name": "", "first_name": "", "pronoun_free": True},
     "host": {"lead_backend": "docker"},
@@ -110,7 +97,7 @@ def merge(base: dict, over: dict) -> dict:
     return out
 
 
-NO_ID = "unnamed"   # the home_id a file without one reads as, anywhere but the owner's own file (as in both readers)
+NO_ID = "unnamed"
 
 
 def owner_settings_file() -> Path:
@@ -145,7 +132,7 @@ def load_home(path: Path | None) -> dict:
     colin = is_owner_settings(data, path)
     out = merge(DEFAULTS, data or {}) if colin else merge(merge(DEFAULTS, NEUTRAL), data)
     if not str((data or {}).get("home_id") or ""):
-        out["home_id"] = "colin" if colin else NO_ID   # the defaults' "colin" never names another home
+        out["home_id"] = "colin" if colin else NO_ID
     return out
 
 
@@ -219,20 +206,16 @@ def new_home_settings(home_id: str, person: str, timezone: str, ports: dict, *, 
                             "chatgpt": {"mode": "own", "codex_command": "~/.local/bin/codex", "codex_base_url": None},
                             "connectors": "none", "frugal": True}
     if google_account:
-        # The account she signs in with through Sign In with Google. Mailboxes are added by the hub when that
-        # sign-in succeeds, so mail.accounts stays empty here.
         settings["google"]["expected_account"] = google_account
     return settings
 
 
-# Known homes keep the ports the plan gave them; any other home gets the next free set.
 PRESETS = {
     "riley": {"person": "Riley Ellis", "first_name": "Riley", "timezone": "America/New_York",
               "google_account": "riley@example.com", "index": 1},
     "test": {"person": "Sam Rivera", "first_name": "Sam", "timezone": "America/New_York", "index": 2},
 }
 
-# Settings a script may change after creation (zero-home-render set). Everything else is the app's or the hub's.
 SETTABLE = {
     "google.client_id": re.compile(r"^[0-9]{6,20}-[a-z0-9]{10,64}\.apps\.googleusercontent\.com$"),
     "network.public_url": re.compile(r"^https://[a-z0-9.-]+(:[0-9]{2,5})?$"),
@@ -253,10 +236,6 @@ def set_value(settings: dict, dotted: str, value: str) -> dict:
     node[last] = value
     return out
 
-
-# ---------------------------------------------------------------------------------------------------------
-# The registry of homes (/srv/zero/homes.json, root-owned, written by zero-home-sudo-prep)
-# ---------------------------------------------------------------------------------------------------------
 
 OWNER_ENTRY = {"user": OWNER_USER, "owner": True, "plan": "own",
                "ports": {"hub": 8650, "hermes_api": 8642, "serve_port": 6443, "preview_base": 18200,
@@ -305,7 +284,7 @@ def allocate_ports(home_id: str, registry: dict, listening: set[int]) -> dict:
         raise RuntimeError("no free port set for a new home")
 
     span = 60
-    base = 18200 + 100 * i     # riley 18300, test 18400 when free
+    base = 18200 + 100 * i
     while True:
         rng = set(range(base, base + span))
         clash = rng & listening or any(lo < base + span and base < hi for lo, hi in used_previews)
@@ -333,11 +312,6 @@ def listening_ports() -> set[int]:
     return ports
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Zips: slots for preview ports and Docker subnets
-# ---------------------------------------------------------------------------------------------------------
-
-# Colin's five containerized Zips already have these (zip-networks.sh and their configs, Oct 8).
 OWNER_SLOTS = {"builder": 0, "clients": 1, "school": 2, "career": 3, "money": 4}
 
 
@@ -375,10 +349,6 @@ def preview_range(settings: dict, slot: int) -> tuple[int, int]:
 def subnet(settings: dict, slot: int) -> str:
     return f"{settings['ports']['docker_subnet_base']}.{slot}.0/24"
 
-
-# ---------------------------------------------------------------------------------------------------------
-# The renderer
-# ---------------------------------------------------------------------------------------------------------
 
 LEAD = "default"
 CHATGPT_MODEL = "gpt-6.1-sol"
@@ -427,8 +397,6 @@ def managed_config(settings: dict, home_dir: Path, zip_id: str, slot: int | None
                                       "model": "claude-haiku-5-5"}},
     }
     if settings["plan"].get("brain") == "chatgpt":
-        # A home signed in to ChatGPT only: the Zips think with it through Codex, as Zero for Mac does
-        # (mac/engine/zero_engine.py, model_block). Without the key, Claude, as before.
         cfg["model"] = {"provider": "openai-codex", "default": CHATGPT_MODEL}
         cfg["fallback_providers"] = []
         cfg["auxiliary"] = {"background_review": {"provider": "openai-codex", "model": CHATGPT_MODEL},
@@ -440,12 +408,9 @@ def managed_config(settings: dict, home_dir: Path, zip_id: str, slot: int | None
     return cfg
 
 
-# Keys --check compares for Colin's home. allow_private_urls and container_memory are expected to differ
-# and are left alone (integration step 2).
 CHECK_KEYS = ["plugins.enabled", "model.provider", "terminal", "bot_desktop.placement", "fallback_providers",
               "gateway.multiplex_profiles"]
 CHECK_IGNORE = {"terminal.container_memory", "browser.allow_private_urls",
-                # Per-Zip data the person chose (Builder forwards GH_TOKEN); kept as it is on every render.
                 "terminal.docker_forward_env"}
 
 
@@ -492,7 +457,7 @@ def apply_managed(existing: dict, managed: dict) -> dict:
     for k, v in managed.items():
         if k == "terminal":
             keep = (out.get(k) or {}).get("docker_forward_env") if isinstance(out.get(k), dict) else None
-            out[k] = copy.deepcopy(v)          # the whole block, so a stale docker setting cannot linger
+            out[k] = copy.deepcopy(v)
             if keep and "docker_forward_env" in out[k]:
                 out[k]["docker_forward_env"] = keep
         elif isinstance(v, dict) and isinstance(out.get(k), dict):
@@ -640,11 +605,6 @@ def render_profile_yaml(settings: dict) -> str:
                                      "of everything.", "description_auto": False})
 
 
-# ---------------------------------------------------------------------------------------------------------
-# YAML: a small writer for the files the renderer creates (deterministic, so golden tests are stable),
-# and a reader that uses whichever YAML library the venv has.
-# ---------------------------------------------------------------------------------------------------------
-
 _PLAIN = re.compile(r"^[A-Za-z_/][A-Za-z0-9_./@+-]*$")
 _YAML_WORDS = {"true", "false", "yes", "no", "on", "off", "null", "~", "y", "n"}
 
@@ -711,10 +671,6 @@ def load_yaml(text: str):
     except ValueError:
         raise RuntimeError("no YAML reader here: run this with the Hermes venv (~/taffy/.venv/bin/python)")
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Doing things, or saying what would be done
-# ---------------------------------------------------------------------------------------------------------
 
 class Ops:
     """Every change goes through here. With dry_run nothing changes and each step is printed as

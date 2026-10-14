@@ -35,13 +35,10 @@ log = logging.getLogger("taffy.approvals")
 GATE_DECIDES = re.compile(r"^(delete in root path|recursive delete|find -delete|find -exec|xargs with rm|"
                           r"git clean with force|script execution via|shell execution via heredoc|shell command via -c)",
                           re.I)
-# Card titles live in consent.py, so the gate words a command it finds inside a script the same way (Oct 8 QA round 6).
 plain = consent.plain_command
-ALLOWED_LATER_SEC = 30 * 60   # Allow Once after Hermes gave up covers that command's next try for this long
-# (bot, command) -> (until, the folder it was allowed in, as consent.place_hash). The same command in another folder
-# gets its own card (Oct 8 QA round 5, M2).
+ALLOWED_LATER_SEC = 30 * 60
 _allowed_later: dict[tuple[str, str], tuple[float, str]] = {}
-_commands: dict[str, str] = {}   # card fingerprint -> the command as Hermes sent it (the card keeps a scrubbed copy)
+_commands: dict[str, str] = {}
 
 
 def one_part(command: str) -> bool:
@@ -104,9 +101,8 @@ async def handle(bot_id: str, run_id: str, data: dict, session_id: str | None = 
     asked = bool(session_id) and consent.live_pass(session_id=session_id) is not None
     fp = fingerprint(run_id, request_id)
     _commands[fp] = command
-    while len(_commands) > 200:   # cards nobody answered
+    while len(_commands) > 200:
         _commands.pop(next(iter(_commands)))
-    # The card names the part the gate did not judge, not Hermes's first finding (often a routine delete).
     consent.action_request(bot_id, "command", "", plain((seen or {}).get("flagged") or description, command), "", "",
                            fp, session_id, None, why="asked" if asked else "background", details=command,
                            likeness={"place": place})
@@ -122,7 +118,7 @@ async def decide(card: dict, allow: bool) -> bool:
     if not parsed:
         return False
     ok = await answer(card["bot_id"], parsed[0], parsed[1], "once" if allow else "deny")
-    if ok:   # the run goes on with the answer: no longer held on the card (activity.resumed)
+    if ok:
         from . import activity
         activity.resumed(card["bot_id"], parsed[0])
     command = _commands.pop(fp, None) or card.get("details")

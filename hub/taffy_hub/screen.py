@@ -20,15 +20,12 @@ from . import config, who
 log = logging.getLogger("taffy.screen")
 
 VIEWER_ID = "taffy-app"
-_tickets: dict[str, tuple[str, bool, float]] = {}  # ticket -> (bot, wants_control, expires_at)
-# Open control sockets per bot, and when the last one closed. The watcher hands control back to a
-# bot whose takeover has had no open socket for RELEASE_GRACE_SEC, so a killed app never strands it.
+_tickets: dict[str, tuple[str, bool, float]] = {}
 _control_sockets: dict[str, int] = {}
-_viewers: dict[str, int] = {}      # every open screen view, watching or in control
+_viewers: dict[str, int] = {}
 _control_closed_at: dict[str, float] = {}
 _taken_at: dict[str, float] = {}
 RELEASE_GRACE_SEC = 120
-# A Zip counts as using its computer for this long after its last computer or browser step in a chat turn.
 USE_WINDOW_SEC = 90
 _agent_used: dict[str, float] = {}
 SNAPSHOT_MAX = (720, 450)
@@ -56,7 +53,7 @@ def status(bot_id: str) -> dict:
             "reason": l.reason or ""}
 
 
-UNIX_TABLE = Path("/proc/net/unix")   # the kernel's list of Unix sockets (tests point it at a fixture)
+UNIX_TABLE = Path("/proc/net/unix")
 _ACCEPTING = 0x10000                   # __SO_ACCEPTCON: the socket is listening
 
 
@@ -73,7 +70,7 @@ def _socket_alive(sock: Path) -> bool:
     try:
         lines = UNIX_TABLE.read_text().splitlines()[1:]
     except OSError:
-        return True   # no socket table (not Linux): the socket file is the best sign there is
+        return True
     paths = {str(sock), os.path.realpath(sock)}
     for line in lines:
         parts = line.split()
@@ -114,7 +111,7 @@ def sweep_stale_control() -> None:
             hand_back(b)
 
 
-IDLE_STOP_SEC = 4 * 3600          # a running desktop keeps the bot's browser signed in, so it stays a while
+IDLE_STOP_SEC = 4 * 3600
 IDLE_STOP_LOW_MEMORY_SEC = 20 * 60
 LOW_MEMORY_MB = 3000
 
@@ -150,7 +147,7 @@ def sweep_idle_desktops(busy: set[str], waiting: set[str] = frozenset(),
             last = max((d / n).stat().st_mtime for n in ("activity", "env") if (d / n).exists())
         except ValueError:
             continue
-        if time.time() - last < limit or still_busy(b):   # a turn may have started since busy was read
+        if time.time() - last < limit or still_busy(b):
             continue
         ok, out = _cli(b, "stop")
         if ok:
@@ -286,7 +283,7 @@ async def bridge(ws, bot_id: str, wants_control: bool) -> None:
                 writer.write(out)
                 await writer.drain()
 
-    opening = bytearray()   # the screen's first words, kept to tell a refusal apart from a normal start
+    opening = bytearray()
 
     async def to_viewer():
         last = 0.0
@@ -297,7 +294,7 @@ async def bridge(ws, bot_id: str, wants_control: bool) -> None:
             if len(opening) < 256:
                 opening.extend(chunk[:256 - len(opening)])
             await ws.send_bytes(chunk)
-            if time.time() - last > 60:  # an open viewer counts as use, so the idle stop leaves it alone
+            if time.time() - last > 60:
                 last = time.time()
                 try:
                     activity.touch()

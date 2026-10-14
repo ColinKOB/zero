@@ -256,7 +256,7 @@ class AppDecodesTheHub(AppCase):
         self.assertNotIn("{name}", text)
         self.assertNotIn("Colin", text)
         by_id = {t["id"]: t for t in out}
-        self.assertTrue(by_id["inbox"]["available"])     # mail can be added in the app
+        self.assertTrue(by_id["inbox"]["available"])
         self.assertTrue(by_id["errands"]["available"])
 
 
@@ -280,7 +280,7 @@ class ProtocolStrings(unittest.TestCase):
 
     def test_mac_start_asks_for_the_person_words_by_a_neutral_name(self):
         with tt.home.pinned(None):
-            self.assertEqual(tt.mac.schema("mac_start"), tt.mac.SCHEMAS["mac_start"])   # Colin's, unchanged
+            self.assertEqual(tt.mac.schema("mac_start"), tt.mac.SCHEMAS["mac_start"])
         with tt.home.pinned(self.SAM):
             params = tt.mac.schema("mac_start")["parameters"]
         self.assertIn("person_said", params["properties"])
@@ -295,7 +295,7 @@ class ProtocolStrings(unittest.TestCase):
 
     def test_call_request_and_reactions_markers_match_the_app(self):
         self.assertIn(voice.CALL_REQUEST_MARKER, history.CALL_REQUEST_MARKERS)
-        self.assertIn("Colin's request: ", history.CALL_REQUEST_MARKERS)   # the old form, for one release
+        self.assertIn("Colin's request: ", history.CALL_REQUEST_MARKERS)
         if not APP_STATE.exists():
             self.skipTest("the app is not in this tree")
         swift = APP_STATE.read_text()

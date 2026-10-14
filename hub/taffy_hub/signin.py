@@ -16,8 +16,6 @@ from . import config, consent, store, turns, who
 log = logging.getLogger("taffy.signin")
 
 KIND = "login"
-# The hub's event loop. Save Login and Sign In Myself are answered on worker threads, and the bot's follow-up
-# turn has to start on the loop.
 loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -40,7 +38,7 @@ def card_owner(feed_id: int) -> str | None:
     return row["bot_id"] if row else None
 
 
-REPUSH_SEC = 120   # asked again sooner than this, the card moves down without a second notification
+REPUSH_SEC = 120
 
 
 def ask(bot_id: str, url: str, why: str, session_id: str | None) -> tuple[int | None, str]:
@@ -52,8 +50,6 @@ def ask(bot_id: str, url: str, why: str, session_id: str | None) -> tuple[int | 
     site = consent.site_of(url)
     if not site:
         raise AskError("Give the sign-in page's full https address.")
-    # The reason is shown to the person on the card, so it speaks to them (Oct 9: "so Zero can see Colin's last
-    # contacts order and price").
     why = who.to_you(" ".join(str(why or "").split())[:200])
     row = _open_card(bot_id, site)
     if row:
@@ -85,13 +81,6 @@ def ask(bot_id: str, url: str, why: str, session_id: str | None) -> tuple[int | 
 
 
 # MARK: Which cards the Zip is waiting on (Oct 9, 11:18 p.m.)
-#
-# Zero asked Colin to sign in to 1800contacts.com at 11:54 a.m. The card stayed open, and at 11:18 p.m., when he wrote
-# "I think I actually bought them over the phone", the app still said "Zero is paused for your okay" over the running
-# reply. An open card is a live wait only while the conversation has not moved past it: it was raised (or raised
-# again) in the person's latest turn or after it. Once the person writes again, an older card stays in the chat for
-# them to use, but the Zip is not paused on it, and the Zip hears it is still open so it can close it if the new
-# message makes it moot (close_sign_in_card, `retire`).
 
 ASK_KINDS = ("login", "account")
 
@@ -114,7 +103,7 @@ def waiting(row: dict, said: float | None = None) -> bool:
     """Whether the Zip is waiting on this open card now: raised (or moved down by a new ask) no earlier than the
     start of the person's latest turn."""
     said = store.said_at(row["bot_id"]) if said is None else said
-    return float(row["created_at"] or 0) >= int(said)   # the feed keeps whole seconds
+    return float(row["created_at"] or 0) >= int(said)
 
 
 def live_asks(bot_id: str) -> list[tuple[dict, dict]]:
@@ -170,8 +159,6 @@ def old_cards_note(bot_id: str) -> str | None:
             f"send {who.first()} to the old one.")
 
 
-# The round trip (#59-#61): the Zip goes back to the page and checks, and if it still cannot read it, it says exactly
-# what it sees instead of "it still doesn't work".
 CHECK_AGAIN = ("Open the page again now and check before you answer. If you still cannot read it, tell {first} "
                "exactly what the page shows (its title and the message on it, such as a sign-in form or \"Access "
                "denied\") and what would get past it.")
@@ -192,7 +179,6 @@ def resolve(bot_id: str, feed_id: int, outcome: str, follow: bool = True) -> dic
     store.update_feed(feed_id, row["title"], json.dumps(card))
     site, session_id = card.get("site") or "", card.get("session_id")
     if outcome == "declined":
-        # The bot told Colin it would wait; it must hear that he is not signing in, or the chat just stops.
         note = (f"{who.hub_note()} {who.first()} closed the card without signing in to {site}. Do not "
                 f"sign in there. Finish what you can without it and tell {who.first()} in a sentence what you could "
                 "not check and why.")
@@ -201,7 +187,6 @@ def resolve(bot_id: str, feed_id: int, outcome: str, follow: bool = True) -> dic
         return card
     if outcome == "signed_in":
         consent.mark_signed_in(bot_id, site)
-    # His sign-in is the go-ahead to use that site for this conversation (like Allow Once).
     with consent.db() as c:
         c.execute("INSERT INTO requests (bot_id, site, reason, session_id, status, created, decided) "
                   "VALUES (?,?,?,?, 'allowed', ?, ?)",
@@ -218,10 +203,6 @@ def resolve(bot_id: str, feed_id: int, outcome: str, follow: bool = True) -> dic
     return card
 
 
-# "I signed in", "ok I'm in", "done, try again": the person finished on the Zip's screen and said so in the chat
-# instead of tapping I'm Done (#61: "told dot I was done and asked it to try again, but it still couldn't read the
-# page"). Only a short statement in the first person or a bare "done": a request like "log back in with the saved
-# login" or a question like "what does it say once you are logged in?" is not it.
 _SIGNED = re.compile(r"\bi(?:'ve|'m| am| have| just|'ve just| have just)?\s+(?:signed|logged)\s+(?:back\s+)?(?:in|on)\b|"
                      r"\bi(?:'?m| am) (?:back )?in(?: now)?(?:[\s,.!]*$|[,.!])|"
                      r"^(?:ok(?:ay)?[\s,.!]*)?(?:all\s+)?(?:signed|logged)\s+in(?: now)?\b", re.I)
@@ -249,12 +230,12 @@ def done_in_chat(bot_id: str, text: str) -> str | None:
         if _SIGNED.search(t) or _JUST_DONE.match(t) or (named and re.search(r"\b(done|finished)\b", t, re.I)):
             resolve(bot_id, row["id"], "signed_in", follow=False)
             return site
-        return None   # only the newest open card counts
+        return None
     return None
 
 
 async def _continue(bot_id: str, note: str, session_id: str | None = None) -> None:
     try:
-        await turns.follow_up(bot_id, note, session_id, urgent=True)   # he asked for this in the chat
+        await turns.follow_up(bot_id, note, session_id, urgent=True)
     except Exception:
         log.exception("could not tell %s about the sign-in", bot_id)

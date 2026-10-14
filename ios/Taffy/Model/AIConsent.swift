@@ -22,7 +22,6 @@ enum AIDataSharing {
     /// true once the person has saved a Google key for the free voice.
     static func providers(plan: String?, googleVoice: Bool, owner: String? = nil) -> [AIProvider] {
         if plan == "shared" {
-            // A plan someone shares with the person: the same two companies, without saying the plan is theirs.
             let who = owner.map { "a Claude plan that \($0) shares with you" } ?? "a Claude plan shared with you"
             return [
                 AIProvider(id: "anthropic", company: "Anthropic",
@@ -45,7 +44,6 @@ enum AIDataSharing {
                 sent: (known ? "You use a ChatGPT plan, so OpenAI receives" : "If you use a ChatGPT plan, OpenAI receives")
                     + " the same kinds of things, and the sound of your voice on calls."))
         } else {
-            // A Claude plan still uses ChatGPT's voice for calls, for now.
             out.append(AIProvider(
                 id: "openai", company: "OpenAI",
                 sent: "Calls use ChatGPT's voice for now, so OpenAI receives the sound of your voice on calls."))
@@ -67,7 +65,6 @@ enum AIDataSharing {
         let uses = speaker == "I" ? "I use" : "\(speaker) uses"
         let plan = shared ? (owner.map { "a Claude and ChatGPT plan that \($0) shares with you" } ?? "a Claude and ChatGPT plan shared with you")
                           : "the AI plan you already pay for"
-        // A home on Zero's own computers is the person's account, not a computer of theirs.
         let place = shared ? "your phone and the computer your Zips use" : server ? "Zero" : "your phone and your computer"
         return "To think and talk, \(uses) \(plan). \(settings ? "When sharing is on" : "If you agree"), this is what leaves \(place)."
     }
@@ -190,7 +187,7 @@ struct AIConsentSheet: View {
         .background(Color.white.ignoresSafeArea())
         .environment(\.colorScheme, .light)
         .presentationDetents([.large])
-        .interactiveDismissDisabled()   // Agree or Not Now, so a waiting message is never left hanging
+        .interactiveDismissDisabled()
         .task { await AccountsModel.shared.refresh(state) }
     }
 }

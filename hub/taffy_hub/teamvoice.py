@@ -31,7 +31,7 @@ from . import shortreply, store
 
 log = logging.getLogger("taffy.teamvoice")
 
-ENABLED = False           # the running hub turns this on (app.lifespan); tests call rewrite() with their own `ask`
+ENABLED = False
 TIMEOUT_SEC = 15
 ATTEMPTS = 2
 MAX_CHARS = 700
@@ -119,7 +119,7 @@ async def rewrite(kind: str, sender: str, receiver: str, person: str, text: str,
                                         "Write it again without that.")
         try:
             plain = (await ask(p, timeout=TIMEOUT_SEC, system=SYSTEM)).strip().strip('"').strip()
-        except Exception as e:   # slow, signed out, or the plan's limit: the original shows
+        except Exception as e:
             log.info("team rewrite failed: %s", type(e).__name__)
             return None
         why = faithful(text, plain, (sender, receiver, person), shape_kind)
@@ -129,7 +129,6 @@ async def rewrite(kind: str, sender: str, receiver: str, person: str, text: str,
     return None
 
 
-# One rewrite per message: the same answer lands in two chats (the answering Zip's and the asker's).
 _done: dict[str, str | None] = {}
 _running: dict[str, asyncio.Task] = {}
 
@@ -261,7 +260,6 @@ async def apply_step(feed_id: int, ask=None) -> str | None:
         return None
     if row["plain_title"]:
         return row["plain_title"]
-    # A sign-in's title says what happened; an action's title is "Done" and its body says it.
     text = row["body"] if (row["title"] or "").startswith("Done") or not row["title"] else row["title"]
     text = str(text or "").strip()
     if not text:

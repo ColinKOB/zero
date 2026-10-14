@@ -50,7 +50,6 @@ def answer(bot_id: str, feed_id: int, picked: str | None, custom: bool = False) 
         raise ChoiceError("That card is gone.")
     card = json.loads(row["body"] or "{}")
     if card.get("notice"):
-        # A proactive question from Zero (notices.py): the chosen answer stays checked, with a follow-through line.
         from . import notices
         try:
             return notices.answer(feed_id, picked, custom)

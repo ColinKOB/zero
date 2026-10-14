@@ -39,7 +39,6 @@ from . import config, home, store
 log = logging.getLogger("taffy.facts")
 
 KINDS = ("preference", "place", "purchase", "supply", "person", "plan", "decision", "other")
-# Kinds every Zip hears about when they are saved (the team notes stream); the rest come up when they are relevant.
 BROADCAST = ("person", "plan", "decision", "other")
 SOURCES = ("zip", "chat", "mail", "cart", "call", "app", "import")
 CONFIDENCE = ("said", "inferred", "receipt")
@@ -85,7 +84,7 @@ CREATE TABLE IF NOT EXISTS fact_shown (session_id TEXT NOT NULL, fact_id INTEGER
     PRIMARY KEY (session_id, fact_id));
 """
 
-_ready = None   # the connection and database file the schema was made for
+_ready = None
 
 
 class FactError(Exception):
@@ -140,13 +139,10 @@ def now() -> float:
 # MARK: Saving
 
 _AMOUNT = re.compile(r"\$\s?\d|\b\d[\d,]*(\.\d\d)?\s*(dollars|bucks|usd|cad)\b", re.I)
-# Health details: conditions and treatment. Where someone buys contact lenses, or that a store needs a prescription card,
-# is shopping, not health (Oct 10 seeding dry run).
 _HEALTH = re.compile(r"diagnos|medication|\bprescribed\b|\b(takes|taking|on) (\w+ )?prescription|therapy|\bsymptom|\ballerg(y|ic)\b.*\b(medic|epipen|inhaler)",
                      re.I)
 _SECRET_WORDS = re.compile(r"(password|passcode|\bpin\b|\botp\b|security code|verification code|confirmation code|"
                            r"\bcode\s*(is|:|=)|social security|\bssn\b|routing number|\bcvv\b)", re.I)
-# Nine or more digits in a run, not dates or phone numbers (team._SECRET).
 _LONG_NUMBER = re.compile(r"(?<![\d-])(?!\d{4}-\d{2}-\d{2}\b)(?!\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b)(?!1-?800)"
                           r"\d(?:[ -]?\d){8,}(?![\d-])")
 MONEY_BOTS = ("money",)
@@ -198,7 +194,6 @@ def save(bot_id: str, text: str, subject: str = "", kind: str = "other", replace
     why = secret(text)
     if why:
         raise FactError(why)
-    # Amounts in Money's area and health details stay with the Zip that owns them; everything else is the team's.
     visibility = "owner" if (private or bot_id in MONEY_BOTS and _AMOUNT.search(text) or _HEALTH.search(text)) \
         else "team"
     t = int(now())
@@ -225,8 +220,6 @@ def save(bot_id: str, text: str, subject: str = "", kind: str = "other", replace
                 replaces = _newest(c, replaces)
             subject = subject or old["subject"]
         elif subject and kind != "purchase":
-            # Nearly the same sentence about the same subject is an update, not a second fact. Each purchase is its
-            # own event, so two orders of the same thing both stay (supplies.py reads the gap between them).
             for r in c.execute("SELECT id, text FROM facts WHERE replaced_by IS NULL AND subject=? AND kind=?",
                                (subject, kind)):
                 if _similar(r["text"], text) >= 0.5:
@@ -384,8 +377,6 @@ def search(query: str, bot_id: str | None, limit: int = 5, kinds: tuple | None =
         for i in ids:
             hits[i] = hits.get(i, 0.0) + idf
             matched.setdefault(i, []).append((w, df))
-    # One shared word is enough only when it is a real word that few facts have ("coffee", "accountant"); "bag" or
-    # "work" alone pulled in unrelated facts (Oct 10 eval).
     for i, ms in list(matched.items()):
         if len(ms) == 1 and (len(ms[0][0]) < 4 or ms[0][1] > max(2, total * 0.02)):
             hits.pop(i, None)
@@ -398,7 +389,6 @@ def search(query: str, bot_id: str | None, limit: int = 5, kinds: tuple | None =
         if r is None or (kinds and r["kind"] not in kinds):
             continue
         d = dict(r)
-        # What the fact is about counts most: "order new coffee" wants the coffee fact before "ordering on Wednesdays".
         subject = d.get("subject") or ""
         if subject and any(w[:5] in subject for w in ws):
             score += 2.0
@@ -409,7 +399,6 @@ def search(query: str, bot_id: str | None, limit: int = 5, kinds: tuple | None =
     return rows[:limit]
 
 
-# Turns that are not the person's words: a board task's prompt (the Zip reads the task with its tools).
 _PLUMBING = re.compile(r"^work kanban task \S+$", re.I)
 
 # The person's own words in any Zip's chats (Hermes keeps every message in an FTS5 index per profile).
@@ -576,7 +565,7 @@ def relevant(message: str, bot_id: str, session_id: str = "", given: set[int] | 
     under RELEVANT_MAX_CHARS. Facts this conversation was already given (here or in the team notes stream, `given`)
     are left out, so a long chat is not told the same thing every turn."""
     raw = (message or "").strip()
-    asked = re.match(r"^\[From [^\]]{1,40}\]\s*", raw)   # a teammate's question: search its words
+    asked = re.match(r"^\[From [^\]]{1,40}\]\s*", raw)
     message = raw[asked.end():].split("\n\n(")[0] if asked else (_own_words(raw) or "")
     if len(message) < 6 or _PLUMBING.match(message):
         return ""
@@ -731,8 +720,6 @@ def call_context(text: str, bot_id: str, pushed: set | None = None) -> tuple[str
     pushed = pushed if pushed is not None else set()
     found = [f for f in search(text, bot_id, limit=CALL_FACTS + 4) if f["id"] not in pushed][:CALL_FACTS]
     if any(f["kind"] in ("plan", "decision") for f in found):
-        # Thinking a plan or decision through: the person's other plans are what it may clash with, even when no
-        # word matches ("it could get in the way of my other passions"; Oct 10 probe).
         have = {f["id"] for f in found} | pushed
         found += [f for f in reversed(current(bot_id, kinds=("plan", "decision"), limit=8))
                   if f["id"] not in have][:CALL_BACKGROUND]
@@ -778,7 +765,6 @@ def refine_material(text: str, bot_id: str) -> str:
     rows = [f"- {f['text']} ({source_words(f)})" for f in found]
     for s in message_search(text, bot_id, limit=5, width=240):
         rows.append(f'- Said to {_name(s["bot_id"])} on {_day(s["ts"])}: "{s["text"]}"')
-    # Plans, decisions and people are the background a decision is weighed against, even when no word matches.
     for f in current(bot_id, kinds=("plan", "decision", "person"), limit=12):
         line = f"- {f['text']} ({source_words(f)})"
         if line not in rows:

@@ -59,10 +59,10 @@ class Queue(unittest.TestCase):
             turns._run = fake_run
             try:
                 first = turns.send("default", "one")
-                second = turns.send("default", "two")   # the bot is busy: waits instead of failing
+                second = turns.send("default", "two")
                 self.assertIsNot(first, second)
                 events = [ev async for ev in second.follow() if ev]
-                self.assertEqual(events[0]["type"], "queued")    # the app shows it as queued (fluid app)
+                self.assertEqual(events[0]["type"], "queued")
                 self.assertEqual(events[1]["type"], "started")
                 self.assertEqual(events[-2], {"type": "reply", "text": "re two"})
             finally:
@@ -97,7 +97,7 @@ class Round7(unittest.TestCase):
             try:
                 task = asyncio.create_task(turns.run_internal("money", "board update"))
                 await asyncio.sleep(0.7)
-                self.assertEqual(order, [])          # still waiting behind Colin's message
+                self.assertEqual(order, [])
                 turns._queued["money"] = []
                 await asyncio.wait_for(task, 3)
             finally:
@@ -180,12 +180,12 @@ class NightHealth(unittest.TestCase):
         watcher._night, watcher.push = (lambda: True), push
         health.down_since.clear()
         try:
-            asyncio.run(health._set("bots", False))          # just went down at night: nothing yet
+            asyncio.run(health._set("bots", False))
             self.assertEqual(sent, [])
             health.down_since["bots"] -= health.NIGHT_DOWN_GRACE_SEC + 1
-            asyncio.run(health._set("bots", False))          # still down after 10 minutes: wake him
+            asyncio.run(health._set("bots", False))
             self.assertTrue(sent and sent[-1][1])
-            asyncio.run(health._set("bots", True))           # back: held for the morning, not urgent
+            asyncio.run(health._set("bots", True))
             self.assertFalse(sent[-1][1])
         finally:
             config.HUB_DB, watcher._night, watcher.push = real_db, real_night, real_push
@@ -206,10 +206,10 @@ class AddDevice(unittest.TestCase):
             out = hub_app.new_pairing_code("Mac")
             self.assertEqual(out["expires_in"], 900)
             self.assertIsNotNone(store.redeem_pairing_code(out["code"], "New iPhone"))
-            self.assertIsNone(store.redeem_pairing_code(out["code"], "Again"))      # one use only
+            self.assertIsNone(store.redeem_pairing_code(out["code"], "Again"))
             for _ in range(4):
                 hub_app.new_pairing_code("Mac")
-            with self.assertRaises(Exception):                                      # five an hour at most
+            with self.assertRaises(Exception):
                 hub_app.new_pairing_code("Mac")
         finally:
             config.HUB_DB = real

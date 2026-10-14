@@ -55,7 +55,6 @@ enum WorkLog {
         var placed = Set<Int>()
         for it in items {
             if let of = it.stepOf {
-                // No answer in this chat to sit before: the log goes where its first step was.
                 if answers[of] == nil, !placed.contains(of) {
                     out.append(log(of))
                     placed.insert(of)

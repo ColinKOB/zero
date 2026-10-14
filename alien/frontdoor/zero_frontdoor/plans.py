@@ -15,7 +15,6 @@ import re
 from . import store
 
 DEFAULT_PLAN = "free"
-# Billing may add plan names; each is a short lowercase word.
 PLAN_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 

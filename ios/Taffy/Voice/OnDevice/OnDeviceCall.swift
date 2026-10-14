@@ -1,8 +1,3 @@
-// On-Device Voice: one call. Listening, deciding when the person is done, asking the hub for the reply before
-// that is certain, speaking it, and letting the person interrupt. Ported from the call test's CallEngine
-// (/tmp/kokoro-call-test, version 3.1), with the reply coming from the hub (hub/taffy_hub/ondevice.py) instead of a
-// text model called from the phone. CallEngine owns the call (CallKit, routes, hold, the call screen); this owns
-// the conversation.
 import AVFoundation
 import Foundation
 
@@ -13,7 +8,7 @@ final class OnDeviceCall {
     /// One reply: asked for, maybe before the turn is certain, and spoken once it is.
     @MainActor private final class Attempt {
         let n: Int
-        let text: String          // the person's words, or "" for news and the greeting
+        let text: String
         let news: Int?
         let startHost = hostNow()
         var speculative: Bool
@@ -44,7 +39,6 @@ final class OnDeviceCall {
         }
     }
 
-    // Tunables from the call test.
     private static let fillerWait = 1.8
     private static let bargeMin: Float = 0.03
     /// How long before the planned confirmation the one finalize is asked for (35 to 140 ms on the phone).
@@ -82,7 +76,6 @@ final class OnDeviceCall {
     private var newsQueue: [Int] = []
     private var lastActivity = hostNow()
 
-    // The person's current turn.
     private var turnSeq = 0
     private var turnStartAudio: Double = 0
     private var smart1: Float?
@@ -93,11 +86,9 @@ final class OnDeviceCall {
     private var finalizeDone = false
     private var finalizeToken = 0
 
-    // Talking, as the hub hears it (so news waits for a pause).
     private var talkingSent = false
     private var talkingSentAt = 0.0
 
-    // Echo-safe interruption on the speaker: a loud sound while the voice talks, waiting for words.
     private struct Candidate {
         let onset: Double
         let info: BargeInfo
@@ -266,7 +257,7 @@ final class OnDeviceCall {
         phase = .thinking
         onTranscript?(botName, greeting)
         let client = self.client, id = callID, waited = waitedMs
-        Task { await client.voiceReady(call: id, waitedMs: waited) }   // the hub saves the greeting with the call
+        Task { await client.voiceReady(call: id, waitedMs: waited) }
     }
 
     /// Says a short line of the phone's own (not from the hub), such as asking for words that did not come through.
@@ -339,7 +330,6 @@ final class OnDeviceCall {
             if let a = attempt, a.speculative { cancelAttempt(reason: "spec_cancelled") }
             resetSmart()
         case .thinking:
-            // Kept talking after the turn was confirmed but before any audio: the same turn goes on.
             if let a = attempt, a.firstAudioHost == nil, !a.text.isEmpty {
                 note("resumed_before_audio", ["after_confirm_ms": ms(host - a.confirmHost) ?? -1])
                 cancelAttempt(reason: nil)
@@ -347,7 +337,6 @@ final class OnDeviceCall {
                 phase = .hearing
             }
         case .speaking:
-            // Talking in a gap between two sentences: only a clear voice counts, as with an interruption.
             if attempt?.firstAudioHost != nil, mic.level >= Self.bargeMin {
                 let info = BargeInfo(rms: mic.level, threshold: Self.bargeMin, echoPeak: 0, noiseFloor: mic.floor)
                 if mic.echoGuard {
@@ -418,7 +407,6 @@ final class OnDeviceCall {
                 if let a = attempt, a.speculative { cancelAttempt(reason: "spec_cancelled") }
                 phase = .listening
                 newTurn(at: mic.audioNow)
-                // The person talked for a while and nothing came through: say so instead of going quiet (#30).
                 if attempt == nil, !muted, CallRules.askAgain(voicedSeconds: voiced, sinceLastAsk: now - askedAgainHost) {
                     askedAgainHost = now
                     note("asked_again", ["voiced_ms": ms(voiced) ?? 0])
@@ -458,7 +446,6 @@ final class OnDeviceCall {
             }
         }
 
-        // Speculative start: ask the hub early, speak only once the turn is confirmed.
         if attempt == nil && !text.isEmpty {
             let specAt: Double
             switch shape {
@@ -474,7 +461,7 @@ final class OnDeviceCall {
         }
 
         guard let wait, silence >= wait else { return }
-        if !finalizeDone && silence < wait + 0.4 { return }   // waiting for the last words
+        if !finalizeDone && silence < wait + 0.4 { return }
         let finalText = listener.text(since: turnStartAudio)
         guard !finalText.isEmpty else { return }
         confirmTurn(text: finalText, lastVoice: lastVoice, shape: shape,
@@ -590,7 +577,6 @@ final class OnDeviceCall {
             return
         }
         if a.firstAudioHost != nil && phase == .thinking { phase = .speaking }
-        // The last word can arrive after the turn was confirmed. Before any audio, start over with it.
         if phase == .thinking, a.firstAudioHost == nil, !a.text.isEmpty, a.news == nil {
             let latest = listener.text(since: turnStartAudio)
             if latest.count > a.text.count && HeardText.norm(latest) != HeardText.norm(a.text) {

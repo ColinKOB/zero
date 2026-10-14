@@ -16,7 +16,6 @@ struct SignInView: View {
 
     var body: some View {
         content
-            // A pairing link (a QR code, or a link sent from another device): the code screen, which fills it in.
             .onAppear { if state.pendingPair != nil { mode = .code } }
             .onChange(of: state.pendingPair) { _, link in if link != nil { go(.code) } }
     }
@@ -65,7 +64,6 @@ struct SignInView: View {
                 VStack(spacing: 8) {
                     if mode == .choose {
                         if Theme.onMac {
-                            // On a Mac, a new person sets Zero up on this Mac; accounts are for homes that exist.
                             OnboardingButton("Set Up Zero on This Mac") {
                                 UserDefaults.standard.set(false, forKey: MacEngine.otherHomeKey)
                                 MacEngine.shared.setupShowing = true

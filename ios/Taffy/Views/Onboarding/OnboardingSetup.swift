@@ -1,9 +1,6 @@
 import AVFoundation
 import SwiftUI
 
-// Screens 4 to 8: the Mac, the access code, why we ask (with the switches and the voice), looking around,
-// and what the agent found.
-
 // MARK: 4. Your computer
 
 /// Where Should I Live?: the computer Zero will run on. A Mac that stays on comes first, since the Zips work there
@@ -41,7 +38,7 @@ struct MacScreen: View {
         } footer: {
             Button("I Have My Code") {
                 model.draft.noComputer = false
-                model.draft.computer = nil   // Back from the code screen returns here
+                model.draft.computer = nil
                 model.go(.code)
             }
             .font(Theme.text(16, .semibold)).foregroundStyle(Theme.ink)
@@ -157,13 +154,11 @@ struct GuideScreen: View {
     private func chatButton(_ tool: String, title: String, logo: String) -> some View {
         Button {
             copy()
-            // The app when it is installed, otherwise the website.
             openURL(OnboardingLinks.chat(tool, prompt: prompt)) { opened in
                 if !opened { openURL(OnboardingLinks.web(tool)) }
             }
         } label: {
             HStack(spacing: 8) {
-                // ChatGPT's mark is drawn black; on the black button it shows white.
                 Image(logo).renderingMode(tool == "chatgpt" ? .template : .original)
                     .resizable().scaledToFit().frame(width: 18, height: 18)
                     .foregroundStyle(Theme.mineText)
@@ -213,7 +208,7 @@ struct NoComputerScreen: View {
         }
         .sheet(isPresented: $explaining) { WhyComputerSheet() }
         #if DEBUG
-        .task { if CommandLine.arguments.contains("-explain") { explaining = true } }   // for screenshots
+        .task { if CommandLine.arguments.contains("-explain") { explaining = true } }
         #endif
     }
 }
@@ -241,7 +236,6 @@ private struct WhyComputerSheet: View {
 }
 
 /// A project someone without a computer could start a Zip for.
-// PLACEHOLDER: fixed ideas until project Zips exist; nothing is created from them yet.
 struct ProjectIdea: Identifiable {
     let id: String
     let name: String
@@ -270,7 +264,7 @@ struct CodeScreen: View {
     @State private var busy = false
     @State private var connected = false
     @State private var server = HubClient.savedServer
-    @State private var showServer = HubClient.savedServer.isEmpty   // open when this device has no home yet
+    @State private var showServer = HubClient.savedServer.isEmpty
     @FocusState private var typing: Bool
 
     private var cleaned: String { code.uppercased().filter { $0.isLetter || $0.isNumber } }
@@ -285,11 +279,10 @@ struct CodeScreen: View {
                     Text(Theme.onMac ? "On the Mac that runs Zero, open Settings with the round button showing your initials at the bottom left, and click Pair a Phone or Mac. On an iPhone that is already signed in, use Settings and Add a Device. If someone set up Zero for you, open the link they sent."
                                      : "Your Mac or home computer shows a code when Zero's setup finishes. Tap Scan a Code and point your iPhone at it. On a Mac, Settings and Pair a Phone or Mac makes a new one.")
                         .font(Theme.text(18)).foregroundStyle(Theme.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)   // never cut short; the art below gives way
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                     Spacer(minLength: 0)
-                    // Whatever room is left after the text and the field, so nothing slides under the keyboard.
                     let stage = max(0, min(geo.size.height - 280, 240))
                     AgentStage(look: model.draft.look, mood: connected ? .happy : (typing ? .watching : .idle),
                                size: stage)
@@ -376,7 +369,6 @@ struct CodeScreen: View {
             state.pairUnreachable = false
             if let link = state.pendingPair { fill(link) }
             #if DEBUG
-            // -server <address> -code <code>: the code screen filled in, for the simulator and the UI tests.
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-server"), i + 1 < args.count { server = args[i + 1]; showServer = true }
             if let i = args.firstIndex(of: "-code"), i + 1 < args.count { code = args[i + 1] }
@@ -402,10 +394,9 @@ struct CodeScreen: View {
         Task {
             busy = true
             if state.fixtureMode {
-                try? await Task.sleep(for: .milliseconds(600))   // fixture: any code connects
+                try? await Task.sleep(for: .milliseconds(600))
                 connected = true
             } else {
-                // The code shown on the Mac is the hub's pairing code.
                 await state.pair(code: cleaned, server: server,
                                  fingerprint: link?.server == server ? link?.fingerprint : nil)
                 connected = state.paired
@@ -504,9 +495,6 @@ struct VoiceScreen: View {
                     Text("Tap Play to hear each one, then pick the one you like.")
                         .font(Theme.text(17)).foregroundStyle(Theme.inkSoft)
                         .fixedSize(horizontal: false, vertical: true)
-                    // Above the voices, so it shows without scrolling on iPhone and Mac (voice setup QA, L1).
-                    // People without a computer have no Mac to keep a Google key on, and a home on a server has none
-                    // either, so the free voice waits there until Gemini calls exist.
                     if !model.draft.noComputer && !HomeModel.shared.serverHome { googleVoice }
                     else if HomeModel.shared.isShared || HomeModel.shared.serverHome {
                         Text(VoiceWording.chatGPTPlan)
@@ -565,7 +553,6 @@ struct VoiceScreen: View {
                         state.callVoice = call
                     }
                 }
-                // Looking around sends what I find to your AI company, so it waits for a yes.
                 let agreed = model.rehearsal ? model.draft.consent == "agreed" : state.aiConsent == .agreed
                 model.go(model.draft.noComputer || !agreed || HomeModel.shared.serverHome ? .found : .look)
             }
@@ -616,7 +603,6 @@ enum VoiceWording {
     /// On a plan someone shares with the person, calls go through that plan, so nothing needs signing in.
     @MainActor static var chatGPTPlan: String {
         HomeModel.shared.isShared ? "Calls use ChatGPT's voice through the plan shared with you."
-            // A home that is the person's account has no computer of theirs to install anything on.
             : HomeModel.shared.serverHome ? "For now, calls use ChatGPT's voice, so they need a ChatGPT plan."
             : "For now, calls use ChatGPT's voice. They need Codex on your computer, signed in with a ChatGPT plan."
     }
@@ -632,7 +618,6 @@ func sendPickedZips(_ model: OnboardingModel, _ state: AppState) async {
     model.sentPicks.formUnion(names.map(\.id))
     if state.fixtureMode { return }
     let list = names.map { "\($0.name) (the \($0.id) template)" }.joined(separator: ", ")
-    // What the person already answered for each Zip, so the lead doesn't ask again in its chat.
     let answered: [String] = names.compactMap { t in
         let pairs = t.needs.compactMap { q -> String? in
             let a = (model.needsAnswers[t.id]?[q] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -642,8 +627,6 @@ func sendPickedZips(_ model: OnboardingModel, _ state: AppState) async {
     }
     let more = answered.isEmpty ? "" : " I already answered some of their questions. " + answered.joined(separator: " ")
     let ask = "Please make me these Zips from their templates: \(list).\(more)"
-    // A new account's lead cannot think until a plan is signed in, and the ask would come back as a bare failure.
-    // It waits and goes out right after Sign In With Claude.
     if state.planMissing {
         UserDefaults.standard.set(ask, forKey: AppState.pendingPicksKey)
         return
@@ -655,17 +638,15 @@ func sendPickedZips(_ model: OnboardingModel, _ state: AppState) async {
 @MainActor
 func finishOnboarding(_ model: OnboardingModel, _ state: AppState) async {
     await sendPickedZips(model, state)
-    if model.rehearsal {   // nothing is sent; home is as it was
+    if model.rehearsal {
         state.rehearsingOnboarding = false
         return
     }
     state.savePersonName(model.personName)
     if Theme.onMac && MacEngine.shared.isLocalHome {
-        // The answers reached the hub at Looking Around; make sure, then name the person in the lead's SOUL.
         await saveOnboardingAnswers(model, state)
         await MacEngine.shared.refreshSoul()
     }
-    // Zero meets the person in its chat with first tasks made from these answers (Model/Fluid.swift, #6).
     FirstTasks.save(FirstTasks.make(
         agent: model.agentName, person: model.personName,
         picked: model.draft.noComputer ? [] : model.templates.filter { model.picked.contains($0.id) },
@@ -687,7 +668,6 @@ func saveOnboardingAnswers(_ model: OnboardingModel, _ state: AppState) async {
         model.draft.saved = true
         await state.refreshBots()
     } catch {
-        // Not shown: nothing on screen depends on it, and it is sent again at the end.
     }
 }
 
@@ -796,8 +776,6 @@ struct LookingScreen: View {
         .task { await saveOnboardingAnswers(model, state) }
     }
 
-    // PLACEHOLDER: the look-around does not exist yet (build step 4 in the design). This waits a moment and
-    // moves on, so the rest of the flow can be seen and tested.
     private func startLooking() {
         withAnimation { phase = .looking }
         Task {
@@ -822,7 +800,6 @@ struct FoundScreen: View {
                     AgentStage(look: model.draft.look, mood: .idle, size: 140)
                         .frame(maxWidth: .infinity)
                     if HomeModel.shared.serverHome && !model.draft.noComputer {
-                        // A home on a server had nothing to look around in, so this starts from what the person said.
                         OnboardingHeadline("Where Should We Start?")
                         Text("From what you told me, here are the Zips I'd start with. Pick any you like.")
                             .font(Theme.text(20, .semibold)).foregroundStyle(Theme.ink)
@@ -835,7 +812,6 @@ struct FoundScreen: View {
                         }
                         ForEach(model.templates) { t in templateCard(t) }
                     } else if model.draft.noComputer {
-                        // Without a computer nothing was looked at, so this suggests projects instead.
                         OnboardingHeadline("Where Should We Start?")
                         Text("Here are a few projects you could start with.")
                             .font(Theme.text(20, .semibold)).foregroundStyle(Theme.ink)
@@ -869,9 +845,6 @@ struct FoundScreen: View {
             }
             .scrollIndicators(.hidden)
         } footer: {
-            // A picked Zip that uses Gmail, Calendar or Drive leads to Connect Google (OnboardingGoogle.swift). In a
-            // home without connectors, a picked Zip that reads mail or a calendar leads back to the email step when
-            // nothing is connected yet.
             let google = !model.draft.noComputer && !native && !model.pickedGoogle.isEmpty
             let mail = !model.draft.noComputer && native && needsMail
             OnboardingButton(model.picked.isEmpty || model.draft.noComputer ? "Get Started"
@@ -933,7 +906,6 @@ struct FoundScreen: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    // PLACEHOLDER: the real summary comes from the look-around, which does not exist yet.
     private var summary: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Preview")
@@ -1054,7 +1026,6 @@ struct FoundScreen: View {
         #if DEBUG
         if state.fixtureMode {
             model.templates = Self.suggestions(Self.sampleTemplates, model: model, home: HomeModel.shared.settings)
-            // -pick inbox,errands: those cards picked, for screenshots of their questions.
             let a = CommandLine.arguments
             if let i = a.firstIndex(of: "-pick"), i + 1 < a.count { model.picked = Set(a[i + 1].split(separator: ",").map(String.init)) }
             return
@@ -1087,7 +1058,6 @@ struct FoundScreen: View {
     static var sampleTemplates: [ZipTemplate] {
         let home = HomeModel.shared.settings
         if home?.nativeAccounts == true {
-            // A home without connectors: what it can run depends on the mail and calendars added.
             func can(_ services: [String]) -> Bool {
                 services.allSatisfy { s in
                     s == "gmail" ? home?.hasMail == true : s == "calendar" ? home?.hasCalendar == true : false

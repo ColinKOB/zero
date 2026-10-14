@@ -20,7 +20,6 @@ struct WorkView: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Decided from the pane's live width, so resizing the window moves a thread between the side panel and a sheet.
             let wide = beside && geo.size.width >= ThreadPanel.minPaneWidth
             let width = ThreadPanel.clamp(panelWidth, pane: geo.size.width)
             HStack(spacing: 0) {
@@ -41,7 +40,7 @@ struct WorkView: View {
         .background(Theme.canvas)
         #if DEBUG
         .task {
-            let a = CommandLine.arguments   // for screenshots
+            let a = CommandLine.arguments
             if let i = a.firstIndex(of: "-task"), i + 1 < a.count {
                 try? await Task.sleep(for: .milliseconds(800))
                 selectedID = a[i + 1]
@@ -67,7 +66,7 @@ struct WorkView: View {
                 .padding(.bottom, 24)
             }
             #if DEBUG
-            .task {   // -showDone: Done at the top of the screen, for screenshots
+            .task {
                 guard CommandLine.arguments.contains("-showDone") else { return }
                 try? await Task.sleep(for: .milliseconds(600))
                 scroller.scrollTo("done", anchor: .top)
@@ -77,7 +76,7 @@ struct WorkView: View {
         .background(Theme.canvas)
         .safeAreaInset(edge: .top) {
             HStack(spacing: 12) {
-                if !ProcessInfo.processInfo.isMacCatalystApp {   // the Mac sidebar is always there
+                if !ProcessInfo.processInfo.isMacCatalystApp {
                     CircleButton(action: { dismiss() }) { Image(systemName: "chevron.left") }
                         .accessibilityLabel("Back")
                 }
@@ -96,7 +95,6 @@ struct WorkView: View {
     private func section(_ title: String, tasks: [TaskItem], empty: String, icon: String, emphasize: Bool = false,
                          requests: [SignInRequest] = [], folds: Bool = false) -> some View {
         let count = tasks.count + requests.count
-        // Only a section with tasks folds; an empty one keeps its plain note.
         let foldable = folds && !tasks.isEmpty
         VStack(alignment: .leading, spacing: 4) {
             if foldable {
@@ -136,7 +134,6 @@ struct WorkView: View {
                     ForEach(Array(tasks.enumerated()), id: \.element.id) { i, t in
                         Button { selectedID = t.id } label: { TaskRow(task: t, emphasize: emphasize) }
                             .buttonStyle(PressStyle(scale: 0.98))
-                            // The stack's cards become the first rows.
                             .modifier(Matched(id: "done-\(t.id)", space: doneSpace,
                                               on: foldable && !reduceMotion && i < DoneStack.depth))
                         if t.id != tasks.last?.id {
@@ -167,7 +164,6 @@ struct WorkView: View {
                     .background(emphasize ? Theme.taffyDeep : Theme.field, in: Capsule())
             }
             if folds {
-                // Points right when folded and down when open, like a Finder disclosure triangle.
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.inkSoft)
                     .rotationEffect(.degrees(doneOpen ? 90 : 0))
@@ -214,9 +210,8 @@ private struct DoneStack: View {
         let last = CGFloat(tasks.count - 1)
         Button(action: open) {
             ZStack(alignment: .topLeading) {
-                // Drawn oldest first, so the newest lands in front.
                 ForEach(Array(tasks.enumerated().reversed()), id: \.element.id) { i, t in
-                    let step = CGFloat(i)   // 0 is the front card, top left
+                    let step = CGFloat(i)
                     card(t, front: i == 0)
                         .modifier(Matched(id: "done-\(t.id)", space: space, on: matched))
                         .padding(.top, step * down)
@@ -467,7 +462,6 @@ struct TaskDetailView: View {
             fileError = "Could not open \(a.filename). Try again in a moment."
             return
         }
-        // Only the last path part of the name, so a strange filename cannot write outside the temp folder.
         let name = (a.filename as NSString).lastPathComponent
         let dir = WorkFiles.folder
         let url = dir.appendingPathComponent(name.isEmpty ? "file" : name)

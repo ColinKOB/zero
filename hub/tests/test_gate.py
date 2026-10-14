@@ -24,11 +24,9 @@ class GateCase(unittest.TestCase):
     """A fresh consent.db, a fixed bot, no saved logins and a judge that must be set per test."""
 
     bot = "school"
-    paid_on = False   # classes that test the (mocked) judge turn Colin's paid-calls switch on
+    paid_on = False
 
     def setUp(self):
-        # Colin's home, written out, whatever home the suite runs in: these tests read his wording and facts. Other
-        # homes have their own tests (test_plugin_home.py).
         pin = tt.home.pinned(tt.home.colin_settings())
         pin.__enter__()
         self.addCleanup(pin.__exit__, None, None, None)
@@ -41,8 +39,6 @@ class GateCase(unittest.TestCase):
                       "decide": fast_steps.decide_one, "env": gate._session_env, "task": gate._running_task,
                       "paid": fast_steps.paid_calls_on, "detect": gate._hermes_detect, "cwd": gate._terminal_cwd,
                       "home": gate._taffy_home}
-        # The judge is mocked and never reaches the network. Tests of the judge set self.paid to True; the default
-        # is Colin's: paid calls off, so the hard rules decide.
         self.paid = self.paid_on
         fast_steps.paid_calls_on = lambda: self.paid
         gate._bot = lambda: self.bot
@@ -51,16 +47,13 @@ class GateCase(unittest.TestCase):
         gate._lane = lambda sid: ""
         gate._session_env = lambda name: ""
         gate._running_task = lambda bot: None
-        # Hermes's own detector (the faithful copy when Hermes is not importable), and no terminal folder unless a
-        # test sets one, wherever the tests run (Oct 8 QA round 5, M1).
         gate._hermes_detect = lambda: hermes_detector.detect
         gate._terminal_cwd = lambda task_id: None
-        # The Zips' folder (scheduled scripts and job lists) is an empty temporary one, never the home folder's.
         taffy_home = Path(tempfile.mkdtemp()) / ".taffy"
         gate._taffy_home = lambda: taffy_home
         self.saved_sites = set()
         self.judge_calls = []
-        self.judge = None   # a function(body) -> answer dict, or None to fail the test if the judge is asked
+        self.judge = None
 
         def decide(body, timeout=3):
             self.judge_calls.append(body)
@@ -139,7 +132,7 @@ class Navigation(GateCase):
         self.saved_sites = {"netlify.com"}
         self.ask("check the Blue Heron preview")
         self.assertIsNone(self.call("browser_navigate", {"url": "https://app.netlify.com/sites/x"}))
-        self.assertEqual(self.judge_calls, [])     # ordinary sites never ask the judge
+        self.assertEqual(self.judge_calls, [])
 
 
 class CardWording(GateCase):

@@ -18,7 +18,6 @@ struct MacAskCard: View {
     private var open: Bool {
         guard let ask, ask.state == "open" else { return false }
         if Date().timeIntervalSince1970 > Double(ask.expires) { return false }
-        // The hub's live state wins once loaded: an answer from the Mac closes this card.
         if let live { return live.approvals.contains { $0.id == ask.id } }
         return true
     }
@@ -72,7 +71,6 @@ struct MacAskCard: View {
             Spacer(minLength: gap)
         }
         .task(id: ask.id) {
-            // Kept current while the card is open, so an answer on the Mac clears it here.
             while !Task.isCancelled, open {
                 await refresh()
                 try? await Task.sleep(for: .seconds(3))

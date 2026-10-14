@@ -41,9 +41,9 @@ class FakeGmail:
     """The Gmail API as far as the tool uses it, recording each call."""
 
     def __init__(self):
-        self.calls = []        # (method, path, params, body)
-        self.tokens = []       # tokens each request carried
-        self.fail_once = None  # an HTTP code for the next request
+        self.calls = []
+        self.tokens = []
+        self.fail_once = None
 
     def __call__(self, method, url, token, body=None, params=None):
         assert url.startswith(google_api.GMAIL), url
@@ -233,7 +233,6 @@ class Sending(GmailCase):
         self.assertIn("From: gmail (sam.rivera@gmail.com)", card["inputs"])
         self.assertIn("Hi Andrea,\n\nI can start Monday.\n\nSam", card["inputs"])
         self.assertFalse(any(p == "messages/send" for _m, p, _q, _b in self.gmail.calls))
-        # The same classification as the himalaya mailbox gives the same message.
         a = tt.tiers.classify("email", self.send_args())
         b = tt.tiers.classify("email", self.send_args(account="work"))
         self.assertEqual((a.kind, a.summary, a.target, a.scope), (b.kind, b.summary, b.target, b.scope))
@@ -248,7 +247,6 @@ class Sending(GmailCase):
         self.assertEqual(msg["References"], "<first@mail.example> <18a1@mail.example>")
         self.assertEqual(body["threadId"], "t-18a1")
         self.assertIn("I can start Monday.", msg.get_payload(decode=True).decode())
-        # Allow Once covers that one send: the same call again asks again.
         self.assertIn("blocked", self.tool(**self.send_args()))
 
     def test_a_draft_goes_to_gmail_drafts_with_its_attachment(self):

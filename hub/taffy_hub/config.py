@@ -11,8 +11,6 @@ from pathlib import Path
 
 from . import home
 
-# ZERO_USER_HOME: the person's home folder when it is not the account's (a Mac home tested in a temporary HOME; the
-# engine's LaunchAgents set it). Unset on alien, where the account's home is the one.
 HOME = Path(os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir)
 HERMES_HOME = home.path_of("hermes_home")
 HERMES_BIN = home.path_of("hermes_bin")
@@ -29,19 +27,16 @@ LISTEN_PORT = int(home.get("ports.hub") or 8650)
 
 @dataclass(frozen=True)
 class Bot:
-    id: str          # Hermes profile name; "default" is Taffy
+    id: str
     name: str
     role: str
-    color: str       # hex, used by the app
-    symbol: str      # SF Symbol name, used by the app
-    shape: str = "pebble"   # character shape in the app: circle, pebble, squircle, capsule, triangle, hexagon, cloud, droplet
+    color: str
+    symbol: str
+    shape: str = "pebble"
 
 
 LEAD = Bot("default", "Zero", "Lead. Talks with you and runs the team.", "#F2711C", "sparkles", "taffy")
-# Every home starts with the lead alone; the other Zips are listed in the home's registry (bots.json).
 BUILTIN = [LEAD]
-# The five Zips Colin's home had built in before Oct 9. They belong in his registry (`taffy-hub migrate-registry`
-# writes them there, first, in this order); until then the owner's home still shows them, so nothing changes for him.
 OWNER_ZIPS = [
     Bot("school", "School", "Lakeview classes, deadlines, readings and sources.", "#3B82F6", "graduationcap", "droplet"),
     Bot("builder", "Builder", "Lumenly, Fernhill AI, marketing and your builds.", "#8B5CF6", "hammer", "squircle"),
@@ -49,15 +44,11 @@ OWNER_ZIPS = [
     Bot("money", "Money", "Spending, bills, savings and the household sheet.", "#EAB308", "dollarsign.circle", "hexagon"),
     Bot("career", "Career", "Acme Homes, résumé and job decisions.", "#EC4899", "briefcase", "triangle"),
 ]
-# Bots Taffy creates with team_add_bot are listed here by the plugin.
 REGISTRY = HUB_DIR / "bots.json"
-# Names the person gave bots in the app, by bot id; they win over the names above and in the registry.
 NAMES = HUB_DIR / "bot-names.json"
 SHAPES = {"circle", "pebble", "squircle", "capsule", "triangle", "hexagon", "cloud", "droplet", "egg"}
-# How each Zip looks, chosen in the app's Change Look screen, by bot id (see looks.py).
 LOOKS = HUB_DIR / "bot-looks.json"
 
-# Mutated in place by reload_bots(), so every module sees new bots without re-importing.
 BOTS: list[Bot] = list(BUILTIN)
 BOTS_BY_ID: dict[str, Bot] = {b.id: b for b in BOTS}
 _registry_mtime: float | None = None

@@ -9,8 +9,8 @@ enum Theme {
     /// "Mac" or "iPhone", for copy that names the device Colin is holding.
     static let device = onMac ? "Mac" : "iPhone"
     static let canvas = shared("Canvas", mac: "#FCFCFC", dark: "#070707")
-    static let raised = shared("Raised", mac: "#FCFCFC", dark: "#181818")   // floating buttons and fields
-    static let composer = shared("Raised", mac: "#FCFCFC", dark: "#2F2F2F")   // the message box
+    static let raised = shared("Raised", mac: "#FCFCFC", dark: "#181818")
+    static let composer = shared("Raised", mac: "#FCFCFC", dark: "#2F2F2F")
     static let composerEdge = shared("Rule", mac: "#D9D9D9", dark: "#6D6D6D")
     /// Send and voice: black with a white glyph in light mode, near-white with a black glyph in dark, like Grok.
     static let action = shared("Mine", mac: "#070707", dark: "#FAFAFA")
@@ -20,7 +20,7 @@ enum Theme {
     static let bubble = shared("Bubble", mac: "#EEEEEE", dark: "#262626")
     static let field = Color("Field")
     static let rule = shared("Rule", mac: "#E0E0E0", dark: "#292929")
-    static let mine = shared("Mine", mac: "#070707", dark: "#5A5A5A")          // Colin's bubble
+    static let mine = shared("Mine", mac: "#070707", dark: "#5A5A5A")
     static let mineText = shared("MineText", mac: "#FCFCFC", dark: "#DCDCDC")
 
     /// Grok Bot for Mac's sidebar, selected row and profile circle.
@@ -46,13 +46,12 @@ enum Theme {
         return Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })
     }
     static let taffy = Color(hex: "#F2711C")
-    static let taffyDeep = Color(hex: "#C2500A")   // orange that holds white text (4.7:1)
+    static let taffyDeep = Color(hex: "#C2500A")
     static let danger = Color(hex: "#D93036")
     /// The warm amber of the Computer card's status pill and the take-over banner: amber text on a pale amber fill.
     static let amber = macColor("#8F5309", dark: "#F0B45C")
     static let amberFill = macColor("#F2E2C6", dark: "#3A2D18")
 
-    // Type ramp on text styles, so it follows Dynamic Type.
     static let largeTitle = Font.largeTitle.weight(.bold)
     static let title = Font.title2.weight(.semibold)
     static let headline = Font.headline

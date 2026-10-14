@@ -94,8 +94,6 @@ _ADDR = re.compile(r"^[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+$")
 _ID = re.compile(r"^[A-Za-z0-9_@.%+=:/-]{1,400}$")
 
 
-# ── The home's calendars ──────────────────────────────────────────────────────────────────────────────────────
-
 def calendars() -> dict[str, dict]:
     return {c["id"]: c for c in home.calendars(consent.REAL_HOME)}
 
@@ -135,8 +133,6 @@ def schema() -> dict:
     cal["description"] = cal["description"].replace("{default}", default_calendar())
     return s
 
-
-# ── Arguments ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def _tz() -> ZoneInfo:
     try:
@@ -232,7 +228,7 @@ def parse(args: dict) -> dict:
     if start is not None and end is None and action == "create":
         end = start + (dt.timedelta(days=1) if all_day else dt.timedelta(hours=1))
     elif all_day and isinstance(end, dt.date) and not isinstance(end, dt.datetime) and end == start:
-        end = start + dt.timedelta(days=1)   # "2026-10-14" to "2026-10-14" is that one day
+        end = start + dt.timedelta(days=1)
     if start is not None and end is not None:
         if (isinstance(start, dt.datetime)) != (isinstance(end, dt.datetime)):
             raise Invalid("start and end must both be dates, or both be times.")
@@ -241,8 +237,6 @@ def parse(args: dict) -> dict:
     m.update(start=start, end=end)
     return m
 
-
-# ── The gate's view (tiers.classify calls this) ──────────────────────────────────────────────────────────────
 
 def _site(c: dict) -> str:
     if c.get("kind") == "google_oauth":
@@ -310,8 +304,6 @@ def classify(args: dict):
                         extra={"request": inputs[:200]})
 
 
-# ── Events, in one shape for every kind of calendar ──────────────────────────────────────────────────────────
-
 def _iso(v) -> str:
     if isinstance(v, dt.datetime):
         return v.astimezone(_tz()).isoformat(timespec="minutes")
@@ -342,8 +334,6 @@ def _matches(ev: dict, query: str) -> bool:
     hay = " ".join([ev.get("title") or "", ev.get("location") or "", ev.get("notes") or ""]).lower()
     return all(w in hay for w in words)
 
-
-# ── iCalendar text ────────────────────────────────────────────────────────────────────────────────────────────
 
 def _unfold(text: str) -> list[str]:
     out = []
@@ -412,7 +402,7 @@ def parse_ical(text: str) -> list[dict]:
         if cur is None:
             continue
         if name == "BEGIN":
-            depth += 1   # a VALARM inside the event
+            depth += 1
         elif name == "END" and value.upper() == "VEVENT" and depth == 0:
             if "_start" in cur:
                 if "_end" not in cur:
@@ -501,7 +491,7 @@ def _occurrences(ev: dict, start: dt.datetime, end: dt.datetime, limit: int = 40
             try:
                 batch = [first.replace(year=key(first).year + y, month=mo + 1)]
             except ValueError:
-                batch = []   # the 31st in a short month
+                batch = []
         step += 1
         for occ in batch:
             if until is not None and as_dt(occ) > as_dt(until):
@@ -541,8 +531,6 @@ def _sort(events: list[dict]) -> list[dict]:
     return sorted(events, key=k)[:EVENTS_MAX]
 
 
-# ── iCal addresses (read-only) ───────────────────────────────────────────────────────────────────────────────
-
 def _secret_file(c: dict, key: str, suffix: str):
     return home.expand(c.get(key) or f"{SECRET_DIR}/{c['id']}{suffix}", consent.REAL_HOME)
 
@@ -568,10 +556,8 @@ def _ical_list(c: dict, m: dict) -> list[dict]:
     return _expand(c, parse_ical(fetch(_ical_url(c))), m["start"], m["end"])
 
 
-# ── CalDAV ───────────────────────────────────────────────────────────────────────────────────────────────────
-
 NS = {"d": "DAV:", "c": "urn:ietf:params:xml:ns:caldav", "cs": "http://calendarserver.org/ns/"}
-_collections: dict[str, str] = {}   # calendar id -> its collection URL, found once per process
+_collections: dict[str, str] = {}
 
 
 def dav(method: str, url: str, username: str, password: str, body: str | None = None,
@@ -659,7 +645,7 @@ def collection(c: dict) -> str:
             continue
         comps = [x.get("name") for x in resp.findall(".//c:supported-calendar-component-set/c:comp", NS)]
         if comps and "VEVENT" not in comps:
-            continue   # a reminders list
+            continue
         name = (resp.findtext(".//d:displayname", "", NS) or "").strip()
         found.append((name, urllib.parse.urljoin(final, resp.findtext("d:href", "", NS).strip())))
     pick = next((u for n, u in found if wanted and n.lower() == wanted), None) or (found[0][1] if found else None)
@@ -760,7 +746,7 @@ def _replace_props(lines: list[str], m: dict) -> list[str]:
     for line in lines:
         name, _params, value = _prop(line)
         if name == "BEGIN":
-            depth += 1   # a VALARM inside the event keeps its own lines
+            depth += 1
         elif name == "END":
             depth -= 1
         if depth or name == "END":
@@ -816,8 +802,6 @@ def _caldav_update(c: dict, m: dict) -> dict:
     _req(c, "PUT", target, "\r\n".join(_fold(l) for l in body) + "\r\n", headers)
     return {"id": m["id"], "title": m["title"] or ev.get("title") or ""}
 
-
-# ── Google Calendar ──────────────────────────────────────────────────────────────────────────────────────────
 
 _session = threading.local()
 
@@ -891,13 +875,10 @@ def _google_update(c: dict, m: dict) -> dict:
         have = [a for a in current.get("attendees") or [] if a.get("email")]
         known = {a["email"].lower() for a in have}
         body["attendees"] = have + [{"email": a} for a in m["attendees"] if a not in known]
-    # Guests hear about a change only when the card said so (an invitation or notify_guests).
     send = "all" if (m["attendees"] or m["notify"]) else "none"
     out = _gcal(c, "PATCH", f"events/{eid}", body=body, params={"sendUpdates": send}) or {}
     return {"id": out.get("id") or m["id"], "title": out.get("summary") or m["title"]}
 
-
-# ── The tool ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def _list(c: dict, m: dict) -> list[dict]:
     if c.get("kind") == "google_oauth":
