@@ -73,10 +73,6 @@ async def validation_error(_: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": f"Check these fields: {', '.join(fields) or 'request'}."})
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Sign-up jobs
-# ---------------------------------------------------------------------------------------------------------
-
 class Job:
     def __init__(self, username: str, home_id: str, person: str, timezone: str):
         self.id = secrets.token_urlsafe(24)
@@ -207,10 +203,6 @@ def sign_up_status(job_id: str):
         msg = STEP_TEXT.get(job.step, STEP_TEXT[""])
     return {"state": job.state, "step": job.step, "message": msg, "seconds": int(time.time() - job.started)}
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Sign-in
-# ---------------------------------------------------------------------------------------------------------
 
 class SignInBody(BaseModel):
     username: str

@@ -47,10 +47,6 @@ def _first_dir(*candidates: Path) -> Path:
 UNIT_TEMPLATES = _first_dir(HERE.parent / "systemd" / "templates", SRV / "systemd-templates")
 HOME_TEMPLATES = _first_dir(HERE / "zero-home-templates", SRV / "bin" / "zero-home-templates")
 
-# ---------------------------------------------------------------------------------------------------------
-# The settings file
-# ---------------------------------------------------------------------------------------------------------
-
 DEFAULTS: dict = {
     "version": 1,
     "home_id": "colin",
@@ -254,9 +250,7 @@ def set_value(settings: dict, dotted: str, value: str) -> dict:
     return out
 
 
-# ---------------------------------------------------------------------------------------------------------
 # The registry of homes (/srv/zero/homes.json, root-owned, written by zero-home-sudo-prep)
-# ---------------------------------------------------------------------------------------------------------
 
 OWNER_ENTRY = {"user": OWNER_USER, "owner": True, "plan": "own",
                "ports": {"hub": 8650, "hermes_api": 8642, "serve_port": 6443, "preview_base": 18200,
@@ -333,10 +327,6 @@ def listening_ports() -> set[int]:
     return ports
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Zips: slots for preview ports and Docker subnets
-# ---------------------------------------------------------------------------------------------------------
-
 # Colin's five containerized Zips already have these (zip-networks.sh and their configs, Oct 8).
 OWNER_SLOTS = {"builder": 0, "clients": 1, "school": 2, "career": 3, "money": 4}
 
@@ -375,10 +365,6 @@ def preview_range(settings: dict, slot: int) -> tuple[int, int]:
 def subnet(settings: dict, slot: int) -> str:
     return f"{settings['ports']['docker_subnet_base']}.{slot}.0/24"
 
-
-# ---------------------------------------------------------------------------------------------------------
-# The renderer
-# ---------------------------------------------------------------------------------------------------------
 
 LEAD = "default"
 CHATGPT_MODEL = "gpt-6.1-sol"
@@ -640,10 +626,8 @@ def render_profile_yaml(settings: dict) -> str:
                                      "of everything.", "description_auto": False})
 
 
-# ---------------------------------------------------------------------------------------------------------
 # YAML: a small writer for the files the renderer creates (deterministic, so golden tests are stable),
 # and a reader that uses whichever YAML library the venv has.
-# ---------------------------------------------------------------------------------------------------------
 
 _PLAIN = re.compile(r"^[A-Za-z_/][A-Za-z0-9_./@+-]*$")
 _YAML_WORDS = {"true", "false", "yes", "no", "on", "off", "null", "~", "y", "n"}
@@ -711,10 +695,6 @@ def load_yaml(text: str):
     except ValueError:
         raise RuntimeError("no YAML reader here: run this with the Hermes venv (~/taffy/.venv/bin/python)")
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Doing things, or saying what would be done
-# ---------------------------------------------------------------------------------------------------------
 
 class Ops:
     """Every change goes through here. With dry_run nothing changes and each step is printed as

@@ -76,10 +76,6 @@ def reset_for_tests(path: Path) -> None:
         DB_PATH = path
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Passwords
-# ---------------------------------------------------------------------------------------------------------
-
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode()
 
@@ -134,10 +130,6 @@ def username_problem(username: str) -> str | None:
                 "and start with a letter or number.")
     return None
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Accounts
-# ---------------------------------------------------------------------------------------------------------
 
 def get(username: str) -> dict | None:
     row = db().execute("SELECT * FROM accounts WHERE username = ?", (normalize_username(username),)).fetchone()
@@ -213,9 +205,7 @@ def _set_plan_row(username: str, plan: str) -> None:
             raise KeyError(username)
 
 
-# ---------------------------------------------------------------------------------------------------------
 # Invites: sign-up is closed by default; the owner lets one username in with `zero-account invite USERNAME`.
-# ---------------------------------------------------------------------------------------------------------
 
 def add_invite(username: str, hours: float = 72) -> dict:
     name = normalize_username(username)

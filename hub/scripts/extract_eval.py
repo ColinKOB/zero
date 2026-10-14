@@ -129,7 +129,6 @@ async def main(out: Path) -> dict:
             print(json.dumps({"order": subject, "facts": [facts.get(i)["text"] for i in ids]}), flush=True)
     finally:
         mail.read = real_read
-    # Checks.
     saved_all = [s for r in rows for s in r["saved"]]
     secretish = re.compile(r"password|pepper2026|4111|551204|verification", re.I)
     secrets = [s for s in saved_all if secretish.search(s["text"])]

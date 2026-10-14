@@ -94,9 +94,7 @@ class Config:
     run_timeout: float = 900.0
 
 
-# ---------------------------------------------------------------------------------------------------------
 # Framing between client.py and the broker: one type byte, a 4-byte big-endian length, the payload.
-# ---------------------------------------------------------------------------------------------------------
 
 HEADER, STDIN, STDIN_EOF, STDOUT, STDERR, EXIT, REFUSED, SIGNAL = (b"H", b"I", b"E", b"O", b"R", b"X", b"F", b"S")
 MAX_FRAME = 64 * 1024 * 1024
@@ -133,10 +131,6 @@ def recv_frame(f) -> tuple[bytes, bytes] | None:
         return None
     return kind, payload
 
-
-# ---------------------------------------------------------------------------------------------------------
-# What a home may ask for
-# ---------------------------------------------------------------------------------------------------------
 
 class Refused(Exception):
     """A request the broker will not run. The message is a plain sentence the home's logs may show."""
@@ -373,8 +367,6 @@ def sanitize_auth_status(raw: str, as_json: bool) -> str:
     return ("Signed in through a shared plan.\n" if keep["loggedIn"] else "The shared plan is not signed in.\n")
 
 
-# --- the owner's account context ------------------------------------------------------------------------------
-#
 # Claude Code prepends a <system-reminder> to the first user turn of every request that names the signed-in
 # account ("# userEmail\nThe user's email address is ..."). It reads the address from oauthAccount in
 # CLAUDE_CONFIG_DIR/.claude.json, which it fills from the owner's sign-in at every start (a per-home config
@@ -555,8 +547,6 @@ class ContextFilter:
         self.server.server_close()
 
 
-# --- codex ---------------------------------------------------------------------------------------------------
-
 def parse_codex(argv: list) -> str:
     if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
         raise Refused(NOT_SHARED.format(tool="Codex"))
@@ -668,9 +658,7 @@ def pin_thread(params: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------------------------------------------------
 # Sign-ins: each home's config folder links to the owner's live credential file
-# ---------------------------------------------------------------------------------------------------------
 
 def ensure_link(link: Path, target: Path) -> str:
     """Keeps `link` a symlink to `target`. When a program replaced the link with a newer regular file (a token
@@ -774,9 +762,7 @@ class Homes:
         return sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
 
 
-# ---------------------------------------------------------------------------------------------------------
 # Counts only
-# ---------------------------------------------------------------------------------------------------------
 
 class Stats:
     def __init__(self, path: Path):
@@ -799,10 +785,6 @@ class Stats:
             except OSError:
                 pass
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Who is calling
-# ---------------------------------------------------------------------------------------------------------
 
 def read_registry(path: Path) -> dict:
     try:
@@ -848,10 +830,6 @@ def peer_uid_tcp(client: tuple[str, int], server: tuple[str, int], proc_text: st
             return int(parts[7])
     return None
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Running a program for a home and relaying it
-# ---------------------------------------------------------------------------------------------------------
 
 def load_admission(path: Path):
     """The DirectSDK plugin's own admission relay, run on the owner's side so the owner's token never passes
@@ -978,8 +956,6 @@ class Broker:
         oh = self.c.owner_home
         files = [oh / ".claude.json", oh / ".claude" / ".claude.json", self.homes.dir(home) / "claude" / ".claude.json"]
         return owner_identity(files, [oh.name, str(oh)])
-
-    # --- the socket ---
 
     def handle(self, sock: socket.socket) -> None:
         with sock.makefile("rb") as rfile:
@@ -1124,10 +1100,6 @@ class Broker:
         os.chmod(path, 0o660)     # the folder is setgid zero-plans, so the socket's group is zero-plans
         return server
 
-
-# ---------------------------------------------------------------------------------------------------------
-# The Codex proxy for Hermes's own ChatGPT fallback
-# ---------------------------------------------------------------------------------------------------------
 
 class CodexTokens:
     """The owner's current ChatGPT access token through Hermes's own auth store (HERMES_HOME is the owner's
@@ -1302,10 +1274,6 @@ def make_http_server(broker: Broker) -> ThreadingHTTPServer:
     server.daemon_threads = True
     return server
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Command line
-# ---------------------------------------------------------------------------------------------------------
 
 def cmd_serve(c: Config) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
