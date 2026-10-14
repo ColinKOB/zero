@@ -40,10 +40,6 @@ SEARCH_DIRS = ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/loc
                "~/.bun/bin", "~/.volta/bin", "/usr/bin"]
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------------------------------------------
-
 class Ctx:
     def __init__(self, a):
         self.root = Path(a.root)
@@ -167,10 +163,6 @@ def full_name() -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# The AI sign-ins
-# ---------------------------------------------------------------------------------------------------------------
-
 def find_tool(name: str, home: Path) -> str | None:
     for d in SEARCH_DIRS:
         p = Path(d.replace("~", str(home), 1)) / name
@@ -249,10 +241,6 @@ def hermes_has_codex(ctx: Ctx) -> bool:
     data = read_json(ctx.hermes_home / "auth.json")
     return bool((data.get("providers") or {}).get("openai-codex") or (data.get("credential_pool") or {}).get("openai-codex"))
 
-
-# ---------------------------------------------------------------------------------------------------------------
-# Rendering the home
-# ---------------------------------------------------------------------------------------------------------------
 
 def settings_for(ctx: Ctx, ports: dict, ai: dict, existing: dict) -> dict:
     """home.json for this Mac. Paths, ports, host and plan are the engine's and are rewritten on every install; the

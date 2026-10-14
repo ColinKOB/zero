@@ -94,8 +94,6 @@ def verify(payload: bytes, header: str | None, secrets: list[str] | str, now: fl
     raise BadSignature("signature does not match")
 
 
-# ---- where people pay ----
-
 def checkout_url(link: str, account_id: str, email: str | None = None) -> str:
     """A plan's Payment Link for one account. Stripe hands client_reference_id back in checkout.session.completed."""
     q = {"client_reference_id": account_id}
@@ -103,8 +101,6 @@ def checkout_url(link: str, account_id: str, email: str | None = None) -> str:
         q["prefilled_email"] = email
     return link + ("&" if "?" in link else "?") + urllib.parse.urlencode(q)
 
-
-# ---- the handler ----
 
 class Billing:
     def __init__(self, accounts: Accounts, db_path: str | Path,
