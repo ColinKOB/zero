@@ -17,7 +17,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
     private let provider: CXProvider
     private let controller = CXCallController()
     private(set) var current: UUID?
-    /// Calls the app already ended, so their late end actions are recognized and never touch a newer call.
     private var ended: Set<UUID> = []
     /// Every call Zero has asked the system for and that the system may still list: the only calls Zero may close,
     /// and the only ones that are not a phone call. A CXCall carries just a uuid and a state, so ownership has to
@@ -28,22 +27,15 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
     /// asked for, so these are never forgotten as gone (Oct 10: a second start forgot the first call, then took it
     /// for a phone call).
     private var askedThisLaunch: Set<UUID> = []
-    /// Whether CallKit handed over the audio session for the current call.
     private var activated = false
     /// Whether the app took the audio session itself (the fallback, or CallKit never handed it over), so the
     /// app has to hand it back; CallKit deactivates the session it activated.
     private var appOwnsSession = false
-    /// True while a call runs without CallKit (the system refused one): interruptions are handled by the app.
     private(set) var usingFallback = false
-    /// Counts audio sessions taken, so a delayed hand-back never touches the session of a newer call.
     private var sessionGeneration = 0
-    /// The call screen's engine, told about actions taken from the system UI.
     weak var engine: CallEngine?
-    /// Why the system refused the last call, for the call's saved diagnostics (nil when it was accepted).
     private(set) var lastRefusal: NSError?
-    /// Leftover Zero calls closed before the last start.
     private(set) var ghostsClosed = 0
-    /// Whether the last start had to ask the system twice because the provider was not registered yet.
     private(set) var retriedProvider = false
 
     override init() {
@@ -63,7 +55,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         RTCAudioSession.sharedInstance().isAudioEnabled = false
     }
 
-    /// Starts the system call. Returns false if the system refused (for example during a phone call).
     func start(botName: String, botID: String) async -> Bool {
         // A call the system still lists for Zero (left behind by a crash or a reinstall) counts against the one
         // call Zero may have and makes the next start fail with "another call is going" (Oct 8). Close any such
@@ -141,23 +132,16 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         }
     }
 
-    /// How many live calls the system lists that Zero did not start: a phone call, a FaceTime call or another
-    /// app's call. Only these block a Zero call.
     var foreignCallCount: Int {
         controller.callObserver.calls.filter { !$0.hasEnded && !owned.contains($0.uuid) }.count
     }
 
-    /// Whether the phone is on a real phone or FaceTime call right now (not one of Zero's).
     var phoneCallActive: Bool { foreignCallCount > 0 }
 
     private func saveOwned() {
         UserDefaults.standard.set(owned.map(\.uuidString), forKey: Self.ownedKey)
     }
 
-    /// Runs a call without CallKit when the system refuses one: the app takes the audio session itself, so the
-    /// call still works, only without the lock-screen call controls. Like a CallKit call it starts at the ear, or
-    /// on whatever the audio is already going to (AirPods, the car); the Speaker button moves it to the
-    /// loudspeaker. Returns false when the session could not be activated, so the call is not run in silence.
     func startWithoutSystemCall() -> Bool {
         current = nil
         sessionGeneration += 1
@@ -183,8 +167,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         return true
     }
 
-    /// An interruption began (a phone call, Siri, an alarm) during a call without CallKit: the audio stops, as it
-    /// does when CallKit deactivates the session.
     func pauseForInterruption() {
         guard usingFallback, activated else { return }
         let rtc = RTCAudioSession.sharedInstance()
@@ -192,7 +174,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         rtc.isAudioEnabled = false
     }
 
-    /// The interruption is over: take the audio session back. Returns false if the system will not give it back.
     func resumeAfterInterruption() -> Bool {
         guard usingFallback, activated else { return false }
         let session = AVAudioSession.sharedInstance()
@@ -238,7 +219,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         }
     }
 
-    /// Mute from the call screen, so the lock screen and CarPlay show the same.
     func requestMute(_ muted: Bool) {
         guard let id = current else { return }
         Task { try? await controller.request(CXTransaction(action: CXSetMutedCallAction(call: id, muted: muted))) }
@@ -249,8 +229,6 @@ final class CallKitBridge: NSObject, CXProviderDelegate, CXCallObserverDelegate 
         provider.reportOutgoingCall(with: id, connectedAt: Date())
     }
 
-    /// Ends the system call from the app (End button, a failure, the far side hanging up). The engine stops the
-    /// call's audio first, so the audio session can be handed back at once.
     func end(failed: Bool = false) {
         guard let id = current else {
             if activated && appOwnsSession { handBackAudioSession() }

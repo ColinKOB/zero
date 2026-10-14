@@ -1,18 +1,12 @@
 import SwiftUI
 
-/// Grok Bot-style surfaces: one continuous white canvas, light gray bot bubbles, black bubbles for
-/// Colin, floating circular buttons, and the bots' candy colors as the only saturated thing.
 enum Theme {
-    /// Dark mode is Grok Bot for Mac's dark palette on both devices (sampled from its window, Oct 7). Light mode
-    /// is Grok's light palette on the Mac and the asset colors on the iPhone.
     static let onMac = ProcessInfo.processInfo.isMacCatalystApp
-    /// "Mac" or "iPhone", for copy that names the device Colin is holding.
     static let device = onMac ? "Mac" : "iPhone"
     static let canvas = shared("Canvas", mac: "#FCFCFC", dark: "#070707")
     static let raised = shared("Raised", mac: "#FCFCFC", dark: "#181818")
     static let composer = shared("Raised", mac: "#FCFCFC", dark: "#2F2F2F")
     static let composerEdge = shared("Rule", mac: "#D9D9D9", dark: "#6D6D6D")
-    /// Send and voice: black with a white glyph in light mode, near-white with a black glyph in dark, like Grok.
     static let action = shared("Mine", mac: "#070707", dark: "#FAFAFA")
     static let actionGlyph = shared("MineText", mac: "#FCFCFC", dark: "#070707")
     static let ink = Color("Ink")
@@ -23,18 +17,14 @@ enum Theme {
     static let mine = shared("Mine", mac: "#070707", dark: "#5A5A5A")
     static let mineText = shared("MineText", mac: "#FCFCFC", dark: "#DCDCDC")
 
-    /// Grok Bot for Mac's sidebar, selected row and profile circle.
     static let sidebar = macColor("#F7F7F7", dark: "#111111")
     static let sidebarSelected = macColor("#E1E1E1", dark: "#313131")
     static let profileCircle = macColor("#EBEBEB", dark: "#232323")
     static let profileText = macColor("#818181", dark: "#8E8E93")
 
-    /// The Mac chat is a centered column, like Grok Bot's, with bubbles capped at a readable width.
     static let chatColumn: CGFloat = 960
     static let bubbleMax: CGFloat = 560
 
-    /// One color for both devices: the same dark value everywhere; in light mode the Mac's sampled value or the
-    /// iPhone's asset color.
     private static func shared(_ asset: String, mac macHex: String, dark darkHex: String) -> Color {
         if onMac { return macColor(macHex, dark: darkHex) }
         let light = UIColor(named: asset) ?? .systemBackground, dark = UIColor(Color(hex: darkHex))
@@ -48,7 +38,6 @@ enum Theme {
     static let taffy = Color(hex: "#F2711C")
     static let taffyDeep = Color(hex: "#C2500A")
     static let danger = Color(hex: "#D93036")
-    /// The warm amber of the Computer card's status pill and the take-over banner: amber text on a pale amber fill.
     static let amber = macColor("#8F5309", dark: "#F0B45C")
     static let amberFill = macColor("#F2E2C6", dark: "#3A2D18")
 
@@ -60,22 +49,17 @@ enum Theme {
     static let caption = Font.footnote
     static let micro = Font.caption
 
-    /// Text at a set size that still follows the reader's text size, up to 1.4 times, so layouts built around
-    /// these sizes (bubbles, the call screen) hold at the largest settings.
     static func text(_ size: CGFloat = 17, _ weight: Font.Weight = .regular) -> Font {
         .system(size: min(UIFontMetrics.default.scaledValue(for: size), size * 1.4), weight: weight)
     }
 }
 
-/// Pressed state for every custom button: a small dip, like Grok Bot's circles.
 struct PressStyle: ButtonStyle {
     var scale: CGFloat = 0.96
     func makeBody(configuration: Configuration) -> some View {
         Pressed(configuration: configuration, scale: scale)
     }
 
-    /// A disabled button is dimmed, so it never looks live (Oct 8 QA round 2, L2: offline cards kept a solid
-    /// black Allow Once that did nothing).
     private struct Pressed: View {
         let configuration: Configuration
         let scale: CGFloat
@@ -91,8 +75,6 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-/// The floating look shared by circles, pills and the composer: a two-layer shadow in light mode,
-/// a hairline in dark mode where shadows vanish.
 struct Floating<S: Shape>: ViewModifier {
     let shape: S
     var dark = false
@@ -122,7 +104,6 @@ extension View {
         modifier(Floating(shape: shape, dark: dark, fill: fill))
     }
 
-    /// Solid canvas behind a top or bottom bar, with a short fade into the content instead of a seam.
     func barFade(_ edge: VerticalEdge) -> some View {
         background(alignment: edge == .top ? .top : .bottom) {
             Theme.canvas.ignoresSafeArea(edges: edge == .top ? .top : .bottom)
@@ -137,9 +118,6 @@ extension View {
     }
 }
 
-/// The circular button used across the top bars: 18 pt medium glyph in a 44 pt circle. Flat: a light fill and no
-/// shadow (Colin found the shadows read as a gray halo and smudged the header). The dark style, over photos and
-/// screens, keeps its translucent look.
 struct CircleButton<Label: View>: View {
     var size: CGFloat = 44
     var dark = false
@@ -161,7 +139,6 @@ struct CircleButton<Label: View>: View {
     }
 }
 
-/// The translucent dark circle for buttons over photos and screens; nothing for the flat light style.
 private struct DarkFloat: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
@@ -169,7 +146,6 @@ private struct DarkFloat: ViewModifier {
     }
 }
 
-/// Who you are talking to: avatar plus name. Tapping opens the bot's profile.
 struct NamePill: View {
     let bot: Bot?
     var dark = false
@@ -189,8 +165,6 @@ struct NamePill: View {
 }
 
 extension Color {
-    /// The bot's color darkened only as far as white text on it needs to read clearly (4.5:1), so a call
-    /// bubble keeps the bot's hue. Taffy's orange becomes about #C2500A, like `taffyDeep`.
     static func deepForWhite(_ hex: String) -> Color {
         var s = hex.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("#") { s.removeFirst() }
@@ -220,7 +194,6 @@ extension Color {
 }
 
 extension Date {
-    /// "8:41 AM", "Yesterday", "Tuesday", "Oct 2", like the Grok Bot list.
     var listStamp: String {
         let cal = Calendar.current
         let f = DateFormatter()
@@ -232,7 +205,6 @@ extension Date {
         f.dateFormat = "MMM d"; return f.string(from: self)
     }
 
-    /// "Today 7:58 AM", used for the centered separators in a chat.
     var separatorStamp: String {
         let f = DateFormatter()
         f.dateFormat = "h:mm a"
@@ -245,7 +217,6 @@ extension Date {
 }
 
 extension String {
-    /// "Taffy's", "Clients'": the possessive for a bot name.
     var possessive: String { hasSuffix("s") ? self + "'" : self + "'s" }
 }
 
@@ -261,8 +232,6 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
         viewControllers.count > 1
     }
 
-    /// The edge swipe goes first: a chat's own drags (a bubble's swipe to reply) wait for it to fail, which it does
-    /// at once unless the finger started at the left edge (Oct 10: the reply swipe took the swipe back).
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                   shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
@@ -270,7 +239,6 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
 }
 
 
-/// Three dots that pulse one after another, like a contact typing in Messages.
 struct TypingDots: View {
     var dot: CGFloat = 7
     var color: Color = Theme.inkSoft
@@ -295,8 +263,6 @@ struct TypingDots: View {
 }
 
 
-/// Lays out one view no wider than `max`, but no wider than it needs either, so chat bubbles hug
-/// short text and wrap long text at the cap.
 struct CapWidth: Layout {
     let max: CGFloat
 

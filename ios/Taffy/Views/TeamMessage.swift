@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// One bot's message to another, shown inside Colin's chats like Grok Bot's "Sent via" messages: a small
-/// caption with the sender's avatar ("Taffy asked Money"), then a box lightly tinted in the sender's color, on
-/// the right like Colin's own messages.
-/// An answer in the answering bot's own chat looks like its normal bubble, captioned "Replied to Taffy".
-/// A new team note is one small gray line.
 struct TeamMessage: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -13,20 +8,16 @@ struct TeamMessage: View {
     let vPad: CGFloat
     let radius: CGFloat
     let gap: CGFloat
-    /// The chat this shows in, for Reply (Replies.swift); nil where replies don't apply.
     var botID: String? = nil
     @State private var expanded = false
-    /// Showing the exact words instead of the plain version.
     @State private var original = false
 
     private var item: TeamItem? { message.team }
-    /// The plain version the hub wrote for the chat (teamvoice.py), when there is one that differs.
     private var plain: String? {
         guard let p = item?.plain?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty, p != message.text else { return nil }
         return p
     }
     private var shown: String { original ? message.text : (plain ?? message.text) }
-    /// A question or heads-up sent to this chat's bot.
     private var fromSide: Bool { item?.kind == "ask" || item?.kind == "tell" }
     private static let longText = 420
 
@@ -127,9 +118,6 @@ struct TeamMessage: View {
 }
 
 
-/// What a Zip did while answering a teammate, between the question and the answer: one quiet gray line, "Worked for
-/// 1m 25s" with a chevron, that opens into a short list of steps, each with a small symbol ("Signed in to
-/// elearning.lakeview.test"). No bubble, like ChatGPT's work log; everything else in the chat keeps its bubbles.
 struct WorkLogRow: View {
     let message: ChatMessage
     @State private var open: Bool = {
@@ -141,7 +129,6 @@ struct WorkLogRow: View {
     }()
 
     private var steps: [WorkStep] { message.steps ?? [] }
-    /// Showing each step's raw line instead of its short label.
     @State private var raw = false
 
     var body: some View {
@@ -197,8 +184,6 @@ struct WorkLogRow: View {
 }
 
 
-/// A quiet, centered gray caption in the chat, like Grok Bot's "can run commands on your computer" line.
-/// When it has steps behind it (what a bot did on the Mac), a tap lists them.
 struct NoteLine: View {
     let message: ChatMessage
     @State private var open = false
@@ -236,14 +221,6 @@ struct NoteLine: View {
 }
 
 
-/// Grok Bot's choice card: the bot's question with an X, then lettered rows. Colors are Grok Bot's (card in the
-/// bubble gray, rows a step lighter, a small letter badge on each). The X puts the card away.
-///
-/// Answering (Oct 10). Colin: "for it to click that option and for it to not leave the card, but the card transform."
-/// The option he taps fills with his message color for a beat, then the card folds away and that option glides into
-/// his own answer bubble on the right, with the question as a small gray caption above it (CardAnswerView). The same
-/// words go to the Zip as his message, and the chat draws them only as this answer (ChatTimeline). With Reduce Motion
-/// the card cross-fades into the answer instead.
 struct ChoiceCardView: View {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -253,9 +230,7 @@ struct ChoiceCardView: View {
     let gap: CGFloat
     @State private var busy = false
     @State private var own = ""
-    /// The option lit up for a beat after a tap, before the card turns into the answer.
     @State private var chosen: String?
-    /// An answered card opened again to look at.
     @State private var reopened = CommandLine.arguments.contains("-expandQuestions")
     @Namespace private var space
 
@@ -284,7 +259,6 @@ struct ChoiceCardView: View {
         }
     }
 
-    /// The card: open with its options, or (answered and opened again) the same card to look at, his answer checked.
     private func card(answer: CardAnswer?) -> some View {
         HStack {
             CapWidth(max: width) {
@@ -352,18 +326,15 @@ struct ChoiceCardView: View {
 }
 
 
-/// The ids a tapped option shares with the answer bubble it turns into, so its color and words glide there.
 struct CardMatch {
     let card: String
     let space: Namespace.ID
-    /// Off with Reduce Motion: the card cross-fades into the answer instead.
     let on: Bool
 
     enum Part: String { case shape, words }
     func id(_ part: Part) -> String { "card-answer-\(part.rawValue)-\(card)" }
 }
 
-/// One part of a tapped option or of the answer bubble, matched across the change when there is a match.
 struct MatchedIf: ViewModifier {
     let match: CardMatch?
     let part: CardMatch.Part
@@ -379,8 +350,6 @@ struct MatchedIf: ViewModifier {
     }
 }
 
-/// One lettered option on a choice card. Tapped, it fills with Colin's message color for a beat (`lit`) before the
-/// card turns into his answer; on a card opened again after answering, his answer is checked and the rest are faded.
 struct CardOptionRow: View {
     let index: Int
     let option: String
@@ -424,25 +393,17 @@ struct CardOptionRow: View {
 }
 
 
-/// A choice card once answered (Oct 10): the question as a small gray caption on the right, and under it his answer
-/// in his own bubble, like any message of his. Tapbacks and replies on the bubble belong to the message that carried
-/// the answer to the Zip, which the chat does not draw again (ChatTimeline). A tap on the caption, or Show Question in
-/// the bubble's menu, opens the whole card again to look at. A question from Zero that the hub carried out itself
-/// keeps its short follow-through line under the answer ("Closed. I won't ask about this again.").
 struct CardAnswerView: View {
     @Environment(AppState.self) private var state
     @Environment(\.cardAnswers) private var answers
     let card: ChatMessage
     let answer: CardAnswer
     let botID: String
-    /// The question above the answer; off while the whole card is open above it.
     var caption = true
     var follow: String? = nil
     var match: CardMatch? = nil
     let showCard: () -> Void
 
-    /// The answer as a message of his: the one that carried it, in the answer's own words, or the card itself when
-    /// no message went (an answer the hub handled) or it has not arrived yet.
     private var shown: ChatMessage {
         if var m = answers[card.id] {
             m.text = answer.text
@@ -486,7 +447,6 @@ struct CardAnswerView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    /// For simulator recordings: `-pickOption <n>` taps that option on an open card a moment after it shows.
     @MainActor
     static func autoPick(_ card: ChatMessage) -> String? {
         #if DEBUG
@@ -499,12 +459,10 @@ struct CardAnswerView: View {
         #endif
     }
 
-    /// The card turning into the answer: a soft spring, or a short cross-fade with Reduce Motion.
     static func motion(_ reduceMotion: Bool) -> Animation {
         reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.86)
     }
 
-    /// A tapped option: it lights up for a beat, the card turns into the answer, then the answer goes to the hub.
     @MainActor
     static func answer(_ option: String, card: ChatMessage, bot: String, state: AppState, reduceMotion: Bool,
                        light: @escaping (String?) -> Void, willAnswer: @escaping () -> Void = {},
@@ -525,7 +483,6 @@ struct CardAnswerView: View {
 }
 
 
-/// The chat's namespace for the field that slides from a choice card into the message box (ChatView sets it).
 private struct ComposerSpaceKey: EnvironmentKey {
     static let defaultValue: Namespace.ID? = nil
 }
@@ -538,11 +495,6 @@ extension EnvironmentValues {
 }
 
 
-/// "Type your own answer" on a choice card (Oct 10: Colin asked for it to slide down and merge with the message
-/// box). A tap moves it down into the chat's message box, where it becomes the box's header and the keyboard comes
-/// up; what he sends from there answers this card. Its place on the card keeps its height and says the answer goes
-/// below, so nothing in the chat jumps. With Reduce Motion it fades instead of sliding. Where there is no message box
-/// to go to, it stays a field on the card.
 struct OwnAnswerSlot: View {
     @Environment(AppState.self) private var state
     @Environment(\.composerSpace) private var space
@@ -617,13 +569,11 @@ struct OwnAnswerSlot: View {
         }
     }
 
-    /// The slide between the card and the message box: a soft spring, or a short fade with Reduce Motion.
     static func motion(_ reduceMotion: Bool) -> Animation {
         reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.42, dampingFraction: 0.88)
     }
 }
 
-/// A matched-geometry slide that Reduce Motion turns off.
 struct Matched: ViewModifier {
     let id: String
     let space: Namespace.ID
@@ -635,7 +585,6 @@ struct Matched: ViewModifier {
 }
 
 
-/// An icon from the Tabler set (Resources/Assets.xcassets/Tabler*), drawn in the text color around it.
 struct TablerIcon: View {
     let name: String
     var size: CGFloat = 16
@@ -647,14 +596,6 @@ struct TablerIcon: View {
 }
 
 
-/// A question Zero raised on its own, like Grok Bot's proactive messages: what it found and where, one short
-/// question, and two or three answers to tap. A draft it already wrote, or the summary Approve covers, opens under
-/// the question. Once answered, the card turns into his answer, like a Zip's choice card (CardAnswerView), with the
-/// hub's follow-through line under it when the hub carried the answer out itself ("Closed.", "Approved ...").
-/// An unanswered question closes after a week or at its date (the hub's state "expired", shown as Closed), but Colin
-/// can still open it and answer it. Closed and dismissed cards fold into one compact row so they take little room; a
-/// tap opens the full card.
-/// A send never happens from this card: it goes to Zero as Colin's words, and the send card asks for his okay.
 struct QuestionCardView: View {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -667,14 +608,11 @@ struct QuestionCardView: View {
     @State private var own = ""
     @State private var showDetail = CommandLine.arguments.contains("-showDraft")
     @State private var confirmStopKind = false
-    /// A closed or answered card Colin tapped open. On a closed card this also makes the answers tappable again.
     @State private var expanded = CommandLine.arguments.contains("-expandQuestions")
-    /// The answer lit up for a beat after a tap, before the card turns into it.
     @State private var chosen: String?
     @Namespace private var space
 
     private var closed: Bool { card.state == "expired" }
-    /// Open, or closed and opened again: the answers can be tapped.
     private var open: Bool { card.isOpen || (closed && expanded) }
     private var folded: Bool { !card.isOpen && !expanded }
     private var big: CGFloat { Theme.onMac ? 15 : 17 }
@@ -710,16 +648,11 @@ struct QuestionCardView: View {
         }
     }
 
-    /// The hub's follow-through line, under his answer, when it says something his answer and the Zip's reply don't:
-    /// "Closed.", "Approved ...", "Sent to ken@...". "Sent to Zero at 2:14 p.m." only says his words went, which the
-    /// chat already shows.
     private var quietFollow: String? {
         guard let f = card.follow?.trimmingCharacters(in: .whitespacesAndNewlines), !f.isEmpty else { return nil }
         return f.hasPrefix("Sent to \(state.bot("default")?.name ?? "Zero")") ? nil : f
     }
 
-    /// One calm row: the question in a line or two and a gray Closed label, or, once answered, the question and the
-    /// answer he picked on one line. A tap opens the full card.
     private var compactRow: some View {
         Button {
             withAnimation(.easeOut(duration: 0.2)) { expanded = true }
@@ -752,7 +685,6 @@ struct QuestionCardView: View {
         .accessibilityHint(closed ? "Opens the question so you can still answer it" : "Shows the whole question")
     }
 
-    /// The small gray Closed (or Dismissed) label with its icon.
     private var stateLabel: some View {
         HStack(spacing: 4) {
             TablerIcon(name: "TablerClockX", size: 13)
@@ -777,7 +709,6 @@ struct QuestionCardView: View {
         }
     }
 
-    /// Folds an opened closed or answered card back into its row.
     private var fold: some View {
         Button { withAnimation(.easeOut(duration: 0.2)) { expanded = false } } label: {
             TablerIcon(name: "TablerChevronUp", size: 16)

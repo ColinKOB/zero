@@ -7,12 +7,8 @@ import UIKit
 struct MacComposerField: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    /// A new value puts the field in focus (a choice card's own answer slid into it).
     var focusRequest: Int = 0
-    /// Gets the text as it is in the field, so a send never depends on the binding having caught up.
-    /// Escape: returns true when it closed something (the reply header), so the key goes no further.
     var onEscape: () -> Bool = { false }
-    /// Returns true when the text was sent; only then does the field clear.
     var onSubmit: (String) -> Bool
 
     private static let font = UIFont.systemFont(ofSize: 15)
@@ -21,7 +17,6 @@ struct MacComposerField: UIViewRepresentable {
     final class Field: UITextView {
         var onSubmit: (String) -> Bool = { _ in false }
         var onEscape: () -> Bool = { false }
-        /// Sends what is in the field and clears it here, so the field never waits on the binding.
         func submit() {
             guard onSubmit(text ?? "") else { return }
             text = ""

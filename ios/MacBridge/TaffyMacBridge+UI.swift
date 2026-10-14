@@ -11,17 +11,13 @@ import ApplicationServices
 /// with no title of its own. The way unlabeled controls borrow the words on their row, and the idea of scrolling
 /// and clicking through accessibility first, follow trycua's cua-driver (MIT License, Copyright (c) 2025 trycua).
 extension TaffyMacBridge {
-    /// One control from the last UI list.
     struct Item {
         let element: AXUIElement
         let role: String
-        /// Its own words: title, description, or text.
         let label: String
-        /// What a field holds, or a switch's state.
         let value: String?
         let center: CGPoint?
         let depth: Int
-        /// The words a person would call it by: its label, or the text on its row when it has none.
         var name: String
     }
 
@@ -57,7 +53,6 @@ extension TaffyMacBridge {
 
     // MARK: Reading
 
-    /// Walks the app's windows on this screen (the focused one first) and its menu bar into `items`.
     func readItems(_ app: NSRunningApplication) -> (items: [Item], windows: Int) {
         let root = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(root, 2)
@@ -101,8 +96,6 @@ extension TaffyMacBridge {
         return (Self.borrowNames(found), windows.count)
     }
 
-    /// A control with no words of its own (a switch, a search box, a sidebar row) takes the text on its row, so
-    /// "the switch for Zero" and "Privacy & Security" both have something to match.
     static func borrowNames(_ items: [Item]) -> [Item] {
         var out = items
         let borrowers: Set<String> = ["AXCheckBox", "AXSwitch", "AXTextField", "AXSearchField", "AXTextArea",
@@ -130,7 +123,6 @@ extension TaffyMacBridge {
         return out
     }
 
-    /// The app the bot works in: the one it opened or clicked into, or the front app.
     func workingApp() -> NSRunningApplication? {
         let app = targetPid != 0 ? NSRunningApplication(processIdentifier: targetPid) : nil
         return (app?.isTerminated == false ? app : nil) ?? NSWorkspace.shared.frontmostApplication
@@ -179,11 +171,6 @@ extension TaffyMacBridge {
 
     // MARK: Finding a control by name (the free fast mode)
 
-    /// Picks the control an instruction means, with no model: the words of the instruction against each control's
-    /// name, a nudge for the kind of control it mentions ("button", "field", "switch"), and a bonus for the whole
-    /// phrase in order. On Oct 10 this matched 24 of 26 real instructions in about a third of a millisecond each,
-    /// where a small model on the ChatGPT plan matched 23 in about 2 seconds each. Returns nil when two controls
-    /// are about as likely, so the bot looks at the list itself instead of acting on a guess.
     static func ranked(_ phrase: String, in items: [Item], roles: Set<String>? = nil) -> [(score: Double, index: Int)] {
         let stop: Set<String> = ["the", "a", "an", "my", "me", "in", "into", "on", "onto", "for", "of", "to", "it", "this",
                                  "that", "please", "and", "with", "under", "list", "app", "apps", "settings", "setting",
@@ -235,7 +222,6 @@ extension TaffyMacBridge {
         return (best.index, best.score >= 1.2 || (best.score - second) / best.score >= 0.25)
     }
 
-    /// The element a request means: `element` by number from the last list, or `name` by its words.
     func target(_ args: [String: Any], _ fail: (String) -> Void) -> (AXUIElement, Int)? {
         if let n = args["element"] as? Int {
             guard n >= 1, n <= elements.count else {
@@ -281,7 +267,6 @@ extension TaffyMacBridge {
         return (elements[hit.index], hit.index + 1)
     }
 
-    /// Instructions whose words send, buy, pay, delete or sign out: pressed by name only on an exact match.
     static func weighty(_ phrase: String) -> Bool {
         let words = Set(phrase.lowercased().split { !$0.isLetter }.map(String.init))
         let risky: Set<String> = ["send", "delete", "remove", "buy", "pay", "purchase", "submit", "confirm",
@@ -290,8 +275,6 @@ extension TaffyMacBridge {
             || phrase.lowercased().contains("log out")
     }
 
-    /// Why a control must not be pressed for a bot: the switches, and the Add and Remove buttons, in System Settings'
-    /// Privacy & Security panes, which give apps (or Zero itself) access to the Mac. Colin changes those himself.
     static func switchRefusal(_ e: AXUIElement) -> String? {
         var pid: pid_t = 0
         AXUIElementGetPid(e, &pid)
@@ -327,8 +310,6 @@ extension TaffyMacBridge {
         return nil
     }
 
-    /// The same blocks typing and clicks have, for a press: never in Zero, never in an app where input runs commands,
-    /// and never a Privacy & Security switch.
     func pressRefusal(_ e: AXUIElement) -> String? {
         var pid: pid_t = 0
         AXUIElementGetPid(e, &pid)
@@ -341,7 +322,6 @@ extension TaffyMacBridge {
 
     // MARK: Pressing and filling
 
-    /// Presses, selects, chooses or fills an element with no mouse at all, then says what it reads now.
     func press(_ args: [String: Any], _ ok: (Any) -> Void, _ fail: (String) -> Void) {
         if needAccessibility(fail) { return }
         if let reason = appRefusal(targetPid) { return fail(reason) }
@@ -382,7 +362,6 @@ extension TaffyMacBridge {
         fail("Element \(n) could not be pressed. Try clicking its position instead.")
     }
 
-    /// The row a cell or a row's text belongs to, for lists and sidebars that select rather than press.
     static func rowOf(_ e: AXUIElement) -> AXUIElement? {
         var cur: AXUIElement? = e
         for _ in 0..<4 {
@@ -456,7 +435,6 @@ extension TaffyMacBridge {
         u?.postToPid(pid)
     }
 
-    /// Picks an option in a pop-up menu: opens it, presses the option with those words, and checks the result.
     func choose(_ e: AXUIElement, _ n: Int, _ option: String, _ ok: (Any) -> Void, _ fail: (String) -> Void) {
         let want = option.lowercased().trimmingCharacters(in: .whitespaces)
         var pid: pid_t = 0
@@ -574,7 +552,6 @@ extension TaffyMacBridge {
             .compactMap { frame($0)?.height }.max()
     }
 
-    /// The window number of the app's window under a point, so events sent to it land in that window.
     static func windowNumber(pid: pid_t, at p: CGPoint) -> Int? {
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         for w in list where (w[kCGWindowOwnerPID as String] as? pid_t) == pid && (w[kCGWindowLayer as String] as? Int) == 0 {
@@ -588,10 +565,6 @@ extension TaffyMacBridge {
 
     // MARK: Several steps in one call (the fast mode)
 
-    /// Runs a short list of plain steps without a round trip to the bot for each one: "click Privacy & Security",
-    /// "type practice@example.com into Email", "choose Green in Favorite color", "press return". Each target is found
-    /// by name on the screen as it is at that moment. It stops at the first step it is not sure about and returns
-    /// what it did and the screen's controls, so the bot decides from there.
     func steps(_ args: [String: Any], _ ok: (Any) -> Void, _ fail: (String) -> Void) {
         if needAccessibility(fail) { return }
         let list = (args["steps"] as? [Any] ?? []).compactMap { $0 as? String }.prefix(15)
@@ -642,8 +615,6 @@ extension TaffyMacBridge {
 }
 
 extension TaffyMacBridge {
-    /// Presses the control at a hit-tested element, or the row it sits in. Returns what it pressed, or nil when the
-    /// element is not a control (a canvas, a picture, plain text outside a list), so the caller sends a click.
     static func pressAt(_ hit: AXUIElement) -> String? {
         let pressable: Set<String> = ["AXButton", "AXCheckBox", "AXRadioButton", "AXLink", "AXMenuItem", "AXMenuBarItem",
                                       "AXPopUpButton", "AXMenuButton", "AXDisclosureTriangle", "AXTab", "AXSwitch"]

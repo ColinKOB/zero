@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// Holds the UIKit field so a sheet can read what is really in it when the person taps Save.
 final class LoginFieldReader {
     weak var field: UITextField?
     var text: String { field?.text ?? "" }

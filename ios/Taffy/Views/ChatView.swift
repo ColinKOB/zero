@@ -1,25 +1,19 @@
 import Speech
 import SwiftUI
 
-/// A conversation with one bot, laid out like Grok Bot: floating back button, a pill with the
-/// bot's name, its computer one tap away, gray bubbles for the bot and black ones for Colin, and a
-/// composer with a plus button, dictation and voice chat.
 struct ChatScreen: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     let botID: String
     var onCall: () -> Void
-    /// On the Mac the chat sits beside the sidebar: no back button, and the name pill centered.
     var embedded = false
     var onRemoved: (() -> Void)?
     @State private var showScreen = false
     @State private var showProfile = false
-    /// The profile opens half height; dragged up it shows the notification kinds in full.
     @State private var profileDetent: PresentationDetent = .medium
 
     private var bot: Bot? { state.bot(botID) }
 
-    /// The Zip's screen. For screenshots, `-screenSite <address>` opens it as a sign-in take-over.
     private var screenView: ScreenView {
         #if DEBUG
         let a = CommandLine.arguments
@@ -106,36 +100,21 @@ struct ChatView: View {
     @State private var justSent: (text: String, at: Date)?
     @FocusState private var composing: Bool
     @State private var dictation = Dictation()
-    /// Whether the newest message is on screen; news only pulls the chat down when Colin is already there.
     @State private var atBottom = true
-    /// He is reading the newest messages: true until he scrolls up himself. Unlike `atBottom`, a chat that got shorter
-    /// (a card folding, a call ending, a reload while the app was away) does not clear it, so the chat follows the
-    /// bottom back instead of showing blank space past the last message (Colin, Oct 10, iPhone and Mac).
     @State private var followsBottom = true
     @State private var contentHeight: CGFloat = 0
     @State private var lastShrink: Date?
     @Environment(\.scenePhase) private var scenePhase
     @State private var newBelow = false
-    /// The message box's height. It sits over the chat as an inset, so the scroll view's own size never changes
-    /// when it grows to a second line; the chat follows it here instead.
     @State private var composerHeight: CGFloat = 0
-    /// Zero's first tasks after the onboarding (Model/Fluid.swift), until started or put away.
     @State private var firstTasks: FirstTasks? = FirstTasks.load()
-    /// A choice card's "Type your own answer" slides from the card into the message box in this space (OwnAnswerSlot).
     @Namespace private var composerSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Bumped to put the Mac's message field in focus (the iPhone's uses `composing`).
     @State private var macFocus = 0
-    /// The message lit up for a moment after its quote above a reply was tapped.
     @State private var flashID: String?
 
     private var bot: Bot? { state.bot(botID) }
-    /// The conversation in time order. Open sign-in and account cards are not in it: they wait at the bottom of the
-    /// chat until answered, like the live Computer card, so a card asked for at 11:54 is still where Colin looks at
-    /// 12:59 (Oct 9).
     private var messages: [ChatMessage] { timeline.messages }
-    /// The conversation as drawn: a choice card he answered stands for the message that carried his answer, which is
-    /// not drawn again (ChatTimeline).
     private var timeline: ChatTimeline { ChatTimeline((state.chats[botID] ?? []).filter { !Self.waitsAtBottom($0) }) }
     private var openAsks: [ChatMessage] { (state.chats[botID] ?? []).filter(Self.waitsAtBottom) }
     static func waitsAtBottom(_ m: ChatMessage) -> Bool { m.kind == .login || m.kind == .account }
@@ -288,7 +267,6 @@ struct ChatView: View {
         } message: { Text(dictation.problem ?? "") }
     }
 
-    /// Grok Bot's rhythm on the Mac: one sender's messages stack close, a new sender gets room.
     private func macGap(before i: Int, in messages: [ChatMessage]) -> CGFloat {
         guard i > 0 else { return 0 }
         if folded(messages[i]) && folded(messages[i - 1]) { return 3 }
@@ -296,7 +274,6 @@ struct ChatView: View {
         return mine(messages[i]) == mine(messages[i - 1]) ? 5 : 16
     }
 
-    /// Closed and dismissed questions from Zero fold into compact rows; several in a row sit close together.
     private func phoneGap(before i: Int, in messages: [ChatMessage]) -> CGFloat {
         i > 0 && folded(messages[i]) && folded(messages[i - 1]) ? -5 : 0
     }
@@ -306,7 +283,6 @@ struct ChatView: View {
         return !q.isOpen && m.answer == nil
     }
 
-    /// A centered time stamp when an hour or more passed since the previous message.
     private func separator(before i: Int, in messages: [ChatMessage]) -> String? {
         guard let d = messages[i].date else { return nil }
         if i == 0 { return d.separatorStamp }
@@ -338,7 +314,6 @@ struct ChatView: View {
         .accessibilityLabel("More")
     }
 
-    /// Grok Bot for Mac's composer: one capsule with the plus, the field, dictation and voice inside.
     private var macComposer: some View {
         VStack(alignment: .leading, spacing: 0) {
             answeringHeader
@@ -413,8 +388,6 @@ struct ChatView: View {
         state.answering[botID] != nil ? "Your answer" : "Message \(bot?.name ?? "Zero")"
     }
 
-    /// The card being answered, as the message box's header: the card's "Type your own answer" field slid down and
-    /// became this, so the box reads as the card's answer field. The X puts it back on the card.
     @ViewBuilder private var answeringHeader: some View {
         if let m = state.answering[botID] {
             HStack(spacing: 8) {
@@ -444,7 +417,6 @@ struct ChatView: View {
         withAnimation(OwnAnswerSlot.motion(reduceMotion)) { state.answering[botID] = nil }
     }
 
-    /// The message being replied to (Replies.swift). A card's answer header and this one replace each other.
     @ViewBuilder private var replyingHeader: some View {
         if let target = state.replying[botID], state.answering[botID] == nil {
             ReplyingHeader(target: target, onCancel: cancelReply)
@@ -456,7 +428,6 @@ struct ChatView: View {
         withAnimation(ReplyMotion.header(reduceMotion)) { state.replying[botID] = nil }
     }
 
-    /// Scrolls to the message a quote points at, when it is loaded, and lights it up for a moment.
     private func showOriginal(_ quote: ReplyQuote, before replyID: String, proxy: ScrollViewProxy) {
         let timeline = self.timeline
         let all = timeline.messages
@@ -537,8 +508,6 @@ struct ChatView: View {
         onCall()
     }
 
-    /// Whether text that appeared in the box is the keyboard putting back the message just sent (possibly with
-    /// its last word autocorrected), rather than something new.
     static func isEcho(_ text: String, of sent: String) -> Bool {
         func words(_ s: String) -> [String] {
             s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
@@ -619,7 +588,6 @@ struct MessageRow: View {
     let message: ChatMessage
     var botID: String = "default"
     @State private var showCall = false
-    /// Empty space beside a bubble; wider on the Mac so lines stay readable in a big window.
     static let gap: CGFloat = Theme.onMac ? 40 : 50
     static let size: CGFloat = Theme.onMac ? 15 : 17
     static let hPad: CGFloat = Theme.onMac ? 12 : 16
@@ -730,7 +698,6 @@ struct MessageRow: View {
 
     // MARK: Calls
 
-    /// A call in the chat: a hang-up symbol on red, "Voice Call" and how long it lasted, in the bot's color.
     private var callBubble: some View {
         let color = state.bot(message.botID ?? botID).map { Color.deepForWhite($0.color) } ?? Theme.taffyDeep
         return HStack(spacing: 10) {
@@ -804,7 +771,6 @@ struct MessageRow: View {
 
     private func markdown(_ raw: String) -> AttributedString { ChatText.render(raw) }
 
-    /// A check-in saying a card closed with no answer, and it is the newest thing in the chat: what the card asked.
     private var expiredCard: String? {
         guard message.kind == .checkin, message.text.hasPrefix("No answer in time"),
               state.chats[botID]?.last(where: { $0.kind != .event && $0.kind != .status })?.id == message.id else { return nil }
@@ -813,14 +779,8 @@ struct MessageRow: View {
     }
 }
 
-/// The conversation as drawn (Oct 10, card answers): a choice card he answered shows his answer itself, so the message
-/// that carried that answer to the Zip is drawn only there, never again under the card. The pairing is
-/// CardAnswers.pairs (Model/ChatSync.swift), checked in ios/LogicTests.
 struct ChatTimeline {
-    /// What the chat draws, in order.
     let messages: [ChatMessage]
-    /// Answered card id to the message of his that carried the answer. Its tapbacks and replies are the answer
-    /// bubble's.
     let answers: [String: ChatMessage]
 
     init(_ all: [ChatMessage]) {
@@ -841,8 +801,6 @@ struct ChatTimeline {
 }
 
 extension ChatTimeline {
-    /// The steps a Zip took to answer a teammate, folded into one work log row between the question and the answer
-    /// (WorkLog.fold). Repeated steps (a sign-in and its "Done" line) show once.
     static func foldingWork(_ all: [ChatMessage]) -> [ChatMessage] {
         guard all.contains(where: { $0.kind == .step || $0.team?.msg != nil }) else { return all }
         let items = all.map { m in
@@ -878,20 +836,16 @@ extension ChatTimeline {
 private struct CardAnswersKey: EnvironmentKey { static let defaultValue: [String: ChatMessage] = [:] }
 
 extension EnvironmentValues {
-    /// Answered card id to the message of his that carried the answer (ChatTimeline).
     var cardAnswers: [String: ChatMessage] {
         get { self[CardAnswersKey.self] }
         set { self[CardAnswersKey.self] = newValue }
     }
 }
 
-/// Colin's own bubble on the right, in his message color. A choice card he answered shows its answer in one of these
-/// (CardAnswerView), whose background and words glide there from the option he tapped (`match`).
 struct MineBubble: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
     let botID: String
-    /// The matched-geometry ids and space the tapped option shares with this bubble, while a card turns into it.
     var match: CardMatch? = nil
     var extra: BubbleAction? = nil
 
@@ -918,13 +872,9 @@ struct MineBubble: View {
     }
 }
 
-/// Grok Bot's draft card, for anything a bot needs Colin to approve or answer: the content in a
-/// white inner box, a black primary button and a gray secondary one. The note field makes the
-/// card editable, which Grok Bot reviewers asked for.
 struct ApprovalCard: View {
     @Environment(AppState.self) private var state
     let task: TaskItem
-    /// In a chat the card leaves a gutter like a bot bubble; on the task screen it fills the width.
     var inChat = true
     @State private var note = ""
     @State private var busy = false
@@ -943,7 +893,6 @@ struct ApprovalCard: View {
         }
     }
 
-    /// A bot needs a login: save it to the bot's vault, or sign in on its computer yourself.
     private func signInCard(_ site: URL) -> some View {
         let bot = state.bot(task.assignee ?? "default")
         return HStack {
@@ -1054,8 +1003,6 @@ struct ApprovalCard: View {
     }
 }
 
-/// What the bot is doing right now: its candy, working, beside the live status line.
-/// The bot is working: a gray bubble with three pulsing dots, and what it is doing underneath.
 struct TypingRow: View {
     let text: String
     var bot: Bot?
@@ -1082,15 +1029,11 @@ struct TypingRow: View {
     }
 }
 
-/// Dictation into the composer. You read and edit before sending. On the iPhone it is Apple's speech
-/// recognition; on the Mac the button starts and stops Wispr Flow's hands-free mode, which types into the
-/// message box itself.
 @Observable
 final class Dictation {
     var active = false
     private var viaFlow = false
     var text = ""
-    /// Why dictation couldn't start, for an alert; nil when fine.
     var problem: String?
     var problemNeedsSettings = false
     private let engine = AVAudioEngine()
@@ -1101,7 +1044,6 @@ final class Dictation {
     private var starting = false
     private var prefix = ""
 
-    /// Starts dictation that adds to whatever is already typed, or stops it.
     @MainActor
     func toggle(appendingTo draft: String = "") async {
         if active { stop(); return }
@@ -1178,7 +1120,6 @@ final class Dictation {
     }
 }
 
-/// Who a bot is and what it can reach, opened by tapping its name.
 struct BotProfile: View {
     @Environment(AppState.self) private var state
     let botID: String
@@ -1298,8 +1239,6 @@ struct BotProfile: View {
     }
 }
 
-/// A bot asking to sign in to a site. Allow Once covers what it is doing now; Always Allow sets the
-/// site to Anytime for that bot; Not Now tells it to carry on without the site.
 struct SignInRequestCard: View {
     @Environment(AppState.self) private var state
     let request: SignInRequest
@@ -1314,7 +1253,6 @@ struct SignInRequestCard: View {
         return request.reason == "Scheduled or background work" || request.reason.isEmpty ? "scheduled" : ""
     }
 
-    /// What the card says about the request, in Colin's terms.
     private var explanation: String {
         let asked = request.reason.trimmingCharacters(in: .whitespacesAndNewlines)
         switch why {
@@ -1341,15 +1279,12 @@ struct SignInRequestCard: View {
         }
     }
 
-    /// Always Allow lets the bot sign in at any time, scheduled work included, so it is not offered for
-    /// sensitive sites or for requests that don't match what Colin asked, and it asks once more otherwise.
     private var offerAlways: Bool { request.sensitive != true && why != "mismatch" }
 
     var body: some View {
         if request.isAction { actionBody } else { signInBody }
     }
 
-    /// The app a card's action goes through, for its small icon: Gmail, Google Calendar, Google Drive or Trello.
     static func appIcon(for site: String?) -> String? {
         switch (site ?? "").lowercased() {
         case "gmail.com", "mail.google.com": return "AppGmail"
@@ -1370,7 +1305,6 @@ struct SignInRequestCard: View {
         }
     }
 
-    /// What the Zip wants to do, in Colin's words, for the card's title.
     private var actionTitle: String {
         let name = bot?.name ?? "A Zip"
         switch request.kind {
@@ -1415,8 +1349,6 @@ struct SignInRequestCard: View {
         }
     }
 
-    /// A send, publish, delete or other change that needs Colin's yes: exactly what will happen, then Allow Once
-    /// (Send for messages), Not Now, and Always Allow only where a standing rule makes sense.
     private var actionBody: some View {
         HStack {
             VStack(alignment: .leading, spacing: 12) {
@@ -1598,8 +1530,6 @@ struct SignInRequestCard: View {
     }
 }
 
-/// One line at the top of Work and each chat while the hub can't be reached; the cards' buttons wait for it
-/// (Oct 8 QA, L2: offline cards showed live-looking buttons that failed on tap).
 struct OfflineNote: View {
     @Environment(AppState.self) private var state
 
@@ -1612,7 +1542,6 @@ struct OfflineNote: View {
     }
 }
 
-/// A picture a bot shared: its screen or an image it made, with its caption. Tap to view full screen.
 struct SharedPictureView: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -1653,7 +1582,6 @@ struct SharedPictureView: View {
     }
 }
 
-/// Full-screen picture with pinch to zoom, double tap to zoom, and Share.
 struct PictureViewer: View {
     @Environment(\.dismiss) private var dismiss
     let image: UIImage
@@ -1718,7 +1646,6 @@ struct PictureViewer: View {
 
 
 extension View {
-    /// On the Mac, cards in the chat stay as wide as the widest bubble instead of the whole column.
     @ViewBuilder func macBubbleWidth() -> some View {
         if Theme.onMac {
             HStack(spacing: 0) {
@@ -1733,9 +1660,6 @@ extension View {
 }
 
 
-/// The iPhone's top bar sits on a solid strip that fades into the chat. On the Mac the name pill floats
-/// over the transcript like Grok Bot's, with the text fading out beneath it over about 60 pt (measured
-/// from Grok Bot's window) so the two never collide.
 private struct TopBar: ViewModifier {
     let solid: Bool
     func body(content: Content) -> some View {
@@ -1754,7 +1678,6 @@ private struct TopBar: ViewModifier {
 }
 
 
-/// Only real bot replies take tapbacks; team updates and check-ins do not. All of them take replies.
 private struct BotTapback: ViewModifier {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -1769,8 +1692,6 @@ private struct BotTapback: ViewModifier {
 }
 
 
-/// Keeps a chat on its newest message while he is reading there (Colin, Oct 10: after a card folded or a call ended,
-/// coming back to the app showed a blank chat until he scrolled). Scrolling up himself (the bottom leaving view without the chat getting shorter) is the only thing that stops it.
 /// No drag gesture here: one on the whole chat kept iOS's swipe-back from starting (Oct 10).
 private struct FollowsBottom: ViewModifier {
     @Binding var follows: Bool

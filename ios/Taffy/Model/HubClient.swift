@@ -1,14 +1,9 @@
 import Foundation
 import UIKit
 
-/// Talks to the person's own computer (the hub), at the address saved when they connected. There is no built-in
-/// address: the app finds a home only through onboarding or the pairing screen, and an install from before keeps
-/// the address it stored then (UserDefaults "server").
 final class HubClient {
-    /// The address saved at pairing, or "" when this device is not connected to a home yet.
     static var savedServer: String { UserDefaults.standard.string(forKey: "server") ?? "" }
 
-    /// What a person typed, as an address: spaces and a closing slash dropped, and https added when no scheme was typed.
     static func normalizedAddress(_ typed: String) -> String {
         var s = typed.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if !s.isEmpty && !s.lowercased().hasPrefix("http://") && !s.lowercased().hasPrefix("https://") {
@@ -19,7 +14,6 @@ final class HubClient {
     }
 
     var server: String
-    /// Sample home (demo mode): every request fails at once, so nothing reaches a real service.
     var demo = false
     var token: String?
 
@@ -39,7 +33,6 @@ final class HubClient {
         var code: Int { if case .http(let c, _) = self { return c } else { return 401 } }
     }
 
-    /// Plain words for network failures instead of the system's raw text.
     static func describe(_ error: Error) -> String {
         if let e = error as? HubError { return e.localizedDescription }
         if let u = error as? URLError {
@@ -55,7 +48,6 @@ final class HubClient {
         return "Something went wrong. Try again in a moment."
     }
 
-    /// The home couldn't be reached at all, as opposed to answering with a problem.
     static func unreachable(_ error: Error) -> Bool {
         guard let u = error as? URLError else { return false }
         return [.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost,
@@ -99,7 +91,6 @@ final class HubClient {
         return try await send(try request("/api/templates"), as: Resp.self).templates
     }
 
-    /// What the person told the onboarding. The hub saves it and renames the lead Zip to `agent_name`.
     struct OnboardingAnswers: Encodable {
         struct Look: Encodable { let body: String; let outfit: String }
         let agent_name: String
@@ -127,7 +118,6 @@ final class HubClient {
         return (r.messages, r.busy, r.reactions ?? [:])
     }
 
-    /// Colin's tapback on a message; nil removes it.
     func react(bot: String, message: String, kind: String?, excerpt: String) async throws {
         struct Body: Encodable { let kind: String?; let excerpt: String }
         struct Ok: Decodable { let ok: Bool }
@@ -145,7 +135,6 @@ final class HubClient {
         try await send(try request("/api/settings"), as: HubSettings.self)
     }
 
-    /// Whether calls are saved on Colin's own computer for 30 days (Settings, Save Call Transcripts).
     func setSaveCallTranscripts(_ on: Bool) async throws -> Bool {
         struct Body: Encodable { let save_call_transcripts: Bool }
         let r = try request("/api/settings", method: "PUT", body: Body(save_call_transcripts: on))
@@ -172,8 +161,6 @@ final class HubClient {
         let has_otp: Bool?
     }
 
-    /// Allow Once ("once"), Always Allow ("always") or Not Now ("deny") on a sign-in request.
-    /// Returns the hub's confirmation when Always Allow made a standing rule ("Allowed from now on: ...").
     @discardableResult
     func decideSignIn(_ id: Int, _ decision: String) async throws -> (title: String, text: String)? {
         struct Body: Encodable { let decision: String }
@@ -193,7 +180,6 @@ final class HubClient {
         let message: String
     }
 
-    /// Every Custom Rule, or one Zip's (with the rules for every Zip).
     func customRules(bot: String? = nil) async throws -> RulesPage {
         let q = bot.map { "?bot_id=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" } ?? ""
         return try await send(try request("/api/rules" + q), as: RulesPage.self)
@@ -262,7 +248,6 @@ final class HubClient {
         let name: String
         let created_at: Double
         let current: Bool
-        /// The Mac bots may use; only one device holds this, and removing it frees it.
         let mac_link: Bool?
         let last_used_at: Double?
     }
@@ -277,7 +262,6 @@ final class HubClient {
         _ = try await send(try request("/api/devices/\(id)", method: "DELETE"), as: Resp.self)
     }
 
-    /// A picture a bot shared, loaded with this device's key. Kept in memory for the session.
     func picture(_ id: String) async throws -> UIImage {
         if let hit = Self.pictureCache.object(forKey: id as NSString) { return hit }
         let (data, resp) = try await HubSession.shared.data(for: try request("/api/media/\(id)"))
@@ -298,7 +282,6 @@ final class HubClient {
         return try await send(try request("/api/logins"), as: Resp.self).logins
     }
 
-    /// Returns the hub's warning when the login was saved but the card or request it answered had moved on.
     @discardableResult
     func saveLogin(bots: [String], label: String, url: String, identifier: String, identifierType: String,
                    password: String, otp: String?, taskID: String?, requestID: Int? = nil) async throws -> String? {
@@ -318,8 +301,6 @@ final class HubClient {
         _ = try await send(try request("/api/logins/\(bot)/\(id)", method: "DELETE"), as: Resp.self)
     }
 
-    /// Wakes the bot's computer with the site open and Colin in control; returns the viewer path. Waking a computer
-    /// that was asleep can take a while, so this waits as long as the screen's own requests do.
     func startSignIn(bot: String, url: String) async throws -> String {
         struct Body: Encodable { let url: String }
         struct Resp: Decodable { let url: String }
@@ -328,10 +309,6 @@ final class HubClient {
         return try await send(r, as: Resp.self).url
     }
 
-    /// An error a sign-in or computer screen showed, written to the hub's log so it can be traced. Never sends a
-    /// password, an address with a ticket, or anything else from the screen itself. A report that cannot reach the
-    /// hub (the very failure it describes may be the connection) waits on the device and goes with the next one that
-    /// gets through (Oct 9: a failed Save Login left no trace anywhere).
     func reportError(screen: String, bot: String?, message: String, detail: String) {
         guard !demo, !server.isEmpty else { return }
         let report = ErrorReport(screen: screen, bot_id: bot, message: message, detail: detail,
@@ -341,7 +318,6 @@ final class HubClient {
         }
     }
 
-    /// Sends reports kept while the hub could not be reached. Called after a poll gets through.
     func flushErrorReports() {
         guard !demo, !server.isEmpty else { return }
         let kept = Self.takeKept()
@@ -397,12 +373,10 @@ final class HubClient {
                            as: Resp.self)
     }
 
-    /// Whether a Zip's computer is awake and who holds it, for the Computer card in its chat.
     func screenStatus(bot: String) async throws -> ScreenView.ScreenStatus {
         try await send(try request("/api/bots/\(bot)/screen"), as: ScreenView.ScreenStatus.self)
     }
 
-    /// A small still of a Zip's screen. Nil when its computer is asleep or someone else is using it.
     func screenSnapshot(bot: String) async throws -> Data? {
         var r = try request("/api/bots/\(bot)/screen/snapshot")
         r.timeoutInterval = 8
@@ -414,12 +388,10 @@ final class HubClient {
         throw HubError.http(code, "")
     }
 
-    /// Hands a Zip's computer back to it, so it carries on from where it was.
     func releaseScreen(bot: String) async throws {
         _ = try await send(try request("/api/bots/\(bot)/screen/release", method: "POST"), as: ScreenView.ScreenStatus.self)
     }
 
-    /// Colin closed a chat's sign-in card without signing in.
     func saveLook(_ bot: String, _ look: ZipLook) async throws {
         struct Resp: Decodable {}
         _ = try await send(try request("/api/bots/\(bot)/look", method: "PUT", body: look), as: Resp.self)
@@ -452,12 +424,9 @@ final class HubClient {
     struct FeedPage: Decodable {
         let items: [FeedItem]; let busy: [String]; let has_more: Bool?; let max_id: Int?
         let changed: [String]?; let time: Double?
-        /// Chats that show a Computer card now: bot id to "working" (the Zip is using its screen) or "control" (Colin).
         let computers: [String: String]?
         let pinging: [PingInfo]?
-        /// What each working Zip is doing in its chat, in plain words (Model/Fluid.swift). Older hubs leave it out.
         var activity: [String: LiveActivity]? = nil
-        /// How many of the person's messages wait behind each working Zip.
         var queued: [String: Int]? = nil
     }
 
@@ -469,12 +438,10 @@ final class HubClient {
 
     struct PairingCode: Decodable { let code: String; let expires_in: Int }
 
-    /// A one-time code for adding another device, made from this paired one.
     func newPairingCode() async throws -> PairingCode {
         try await send(try request("/api/pair/new-code", method: "POST"), as: PairingCode.self)
     }
 
-    /// Settings, Delete Everything: the person's computer removes what Zero holds about them (hub erase.py).
     func deleteEverything() async throws {
         struct Body: Encodable { let confirm: String }
         struct Resp: Decodable { let ok: Bool }
@@ -482,7 +449,6 @@ final class HubClient {
                            as: Resp.self)
     }
 
-    /// Sign In With Claude: the home's own Claude Code starts its sign-in and returns the page to open (plansignin.py).
     func startClaudeSignIn() async throws -> URL {
         struct Resp: Decodable { let url: String }
         var r = try request("/api/plan/claude/start", method: "POST")
@@ -494,7 +460,6 @@ final class HubClient {
 
     struct PlanSignInResult: Decodable { let ok: Bool; let account: String?; let detail: String? }
 
-    /// The code Claude's sign-in page showed.
     func finishClaudeSignIn(code: String) async throws -> PlanSignInResult {
         struct Body: Encodable { let code: String }
         var r = try request("/api/plan/claude/code", method: "POST", body: Body(code: code))
@@ -522,8 +487,6 @@ final class HubClient {
         try request("/api/tasks/\(task)/attachments/\(attachment)")
     }
 
-    /// Sends a message and yields the turn's events as they arrive.
-    /// `replyTo`: the message the person replied to; the hub hands the Zip its quote with these words.
     func stream(bot: String, text: String, replyTo: ReplyQuote? = nil) -> AsyncThrowingStream<TurnEvent, Error> {
         struct Quote: Encodable { let text: String; let who: String }
         struct Body: Encodable { let text: String; let reply_to: Quote? }
@@ -537,7 +500,6 @@ final class HubClient {
         let type: String
         let role: String?
         let text: String?
-        /// A `news` event's number, for an On-Device Voice call to ask for it (OnDeviceCall.news).
         let id: Int?
     }
 
@@ -550,7 +512,6 @@ final class HubClient {
         return (resp.call_id, resp.sdp)
     }
 
-    /// Captions, status and replies for a call, until it closes.
     func voiceEvents(call: String) -> AsyncThrowingStream<VoiceEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -581,8 +542,6 @@ final class HubClient {
         _ = try? await send(r, as: Ok.self)
     }
 
-    /// What the hub made of an answer. For a question Zero raised on its own, `send` is what goes to Zero as
-    /// Colin's own words (nil when the hub did it itself), and `follow` is the line shown under the card.
     struct AnsweredCard: Decodable {
         let state: String?
         let picked: String?
@@ -598,8 +557,6 @@ final class HubClient {
                               as: Resp.self).card
     }
 
-    /// An answer from the notification itself (Yes, Not Now or a typed reply), with the app in the background. The hub
-    /// sends Colin's words to Zero; a Yes on a send never answers, and the hub sends a second notification instead.
     func lockAnswer(bot: String, feedID: Int, action: String, text: String?, unlocked: Bool = false) async throws {
         struct Body: Encodable { let action: String; let text: String?; let unlocked: Bool }
         struct Resp: Decodable { let ok: Bool }
@@ -607,8 +564,6 @@ final class HubClient {
                                        body: Body(action: action, text: text, unlocked: unlocked)), as: Resp.self)
     }
 
-    /// Words typed on a Zip's notification (Push.swift): they go to that Zip as a reply to what the notification said
-    /// (`line`), or to the whole report it came from (`itemID`). The Zip's answer comes back as a notification.
     func notificationReply(bot: String, text: String, line: String, itemID: Int?) async throws {
         struct Body: Encodable { let text: String; let line: String; let item_id: Int? }
         struct Resp: Decodable { let ok: Bool }
@@ -616,7 +571,6 @@ final class HubClient {
                                        body: Body(text: text, line: line, item_id: itemID)), as: Resp.self)
     }
 
-    /// The menu on one of Zero's questions: "subject" stops this question, "kind" stops this kind of question.
     func stopQuestion(bot: String, feedID: Int, what: String) async throws {
         struct Body: Encodable { let what: String }
         struct Resp: Decodable { let ok: Bool }
@@ -638,14 +592,12 @@ final class HubClient {
         try await send(try request("/api/proactivity/stopped/\(id)/undo", method: "POST"), as: ProactivityStatus.self)
     }
 
-    /// Whether some copy of Taffy on a Mac holds the link for bots to use it. Nil when the hub can't be reached.
     func macLinkOnline() async -> Bool? {
         struct Resp: Decodable { let online: Bool }
         guard let r = try? request("/api/mac/online") else { return nil }
         return (try? await send(r, as: Resp.self))?.online
     }
 
-    /// Colin started or stopped talking, from the microphone's level, so news waits for him to finish.
     @discardableResult
     func voiceTalking(call: String, talking: Bool) async -> Bool {
         struct Body: Encodable { let talking: Bool }
@@ -655,7 +607,6 @@ final class HubClient {
         return (try? await send(r, as: Ok.self)) != nil
     }
 
-    /// The call is on hold (a phone call Colin answered, Siri) or back; the voice keeps news until he's back.
     func voiceAway(call: String, away: Bool) async {
         struct Body: Encodable { let away: Bool }
         struct Ok: Decodable { let ok: Bool }
@@ -664,7 +615,6 @@ final class HubClient {
         _ = try? await send(r, as: Ok.self)
     }
 
-    /// The phone's audio is connected: the bot says hello. Tried twice, since a call without a hello sounds dead.
     func voiceReadyWithRetry(call: String) async {
         struct Ok: Decodable { let ok: Bool }
         for attempt in 0..<2 {
@@ -674,7 +624,6 @@ final class HubClient {
         }
     }
 
-    /// The app's own events for a call (already JSON: {"events": [...]}), saved with the call on the hub.
     @discardableResult
     func voiceDiagnostics(call: String, body: Data) async -> Bool {
         struct Ok: Decodable { let ok: Bool }
@@ -691,7 +640,6 @@ final class HubClient {
         _ = try? await send(r, as: Ok.self)
     }
 
-    /// Re-attaches to a turn that is still running on the hub (after a dropped connection).
     func followTurn(bot: String, id: String? = nil) -> AsyncThrowingStream<TurnEvent, Error> {
         events { try self.request("/api/bots/\(bot)/turn" + (id.map { "?id=\($0)" } ?? "")) }
     }
@@ -737,17 +685,14 @@ private struct AnyEncodable: Encodable {
 // MARK: Connected accounts (hub accounts.py)
 
 extension HubClient {
-    /// What the Zips can use, from a check under ten minutes old.
     func accounts() async throws -> AccountsStatus {
         try await send(try request("/api/accounts"), as: AccountsStatus.self)
     }
 
-    /// A fresh check, for the Connect screen while it is open.
     func checkAccounts() async throws -> AccountsStatus {
         try await send(try request("/api/accounts/check", method: "POST"), as: AccountsStatus.self)
     }
 
-    /// The person closed a Connect card in a chat.
     func closeAccountCard(bot: String, feedID: Int) async throws {
         struct Body: Encodable { let outcome = "declined" }
         struct Resp: Decodable {}

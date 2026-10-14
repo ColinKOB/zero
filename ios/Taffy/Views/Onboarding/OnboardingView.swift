@@ -1,18 +1,5 @@
 import SwiftUI
 
-/// The first-run onboarding: meet the agent, name it, tell it about yourself, set up the Mac, connect with the
-/// code, choose what it may look at and its voice, then see the first Zips it suggests. Connect Google comes last,
-/// and only when a picked Zip uses Gmail, Calendar or Drive (Colin, Oct 8 evening). White screens, one idea
-/// each, the agent always on stage (docs/specs/2026-10-08-zero-release-onboarding-design.md, screens 1 to 8).
-///
-/// A home on a server skips the look-around (there is nothing to look at), and a home without Claude or ChatGPT
-/// connectors adds its email and calendar right after the consent screen (Sign In with Google, or an app password).
-/// Every paired path then asks How Your Zips Should Ask before the voice.
-///
-/// DEBUG: `-onboarding` shows it on any launch; `-onboarding <step>` starts at a screen (meet, name, talk, mac,
-/// guide, noMac, code, consent, why, mail, ask, google, voice, look, found); `-noComputer` takes the path for people without a
-/// computer. Add `-fixture` to run without a hub: any code connects and nothing is sent; `-plan shared` (or own) picks
-/// the fixture home. `-server <address> -code <code>` fill the code screen.
 struct OnboardingView: View {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -85,7 +72,6 @@ extension OnboardingModel {
         withAnimation(.smooth(duration: 0.4)) { draft.step = step }
     }
 
-    /// The screen Back returns to, where going back makes sense. Nothing goes back past the code once connected.
     var previous: Step? {
         switch draft.step {
         case .name: return .meet
@@ -106,8 +92,6 @@ extension OnboardingModel {
         }
     }
 
-    /// Where the consent screen leads. Without a computer, straight to the voice. A home without connectors adds its
-    /// email first. A server home has nothing to look around in, and the look-around waits for a yes.
     func afterConsent(agreed: Bool) -> Step {
         if draft.noComputer { return .voice }
         if HomeModel.shared.nativeAccounts { return .mail }
@@ -116,13 +100,9 @@ extension OnboardingModel {
     }
 }
 
-/// Links the onboarding shares.
 enum OnboardingLinks {
     static let macDownload = URL(string: "https://heyzero.app/download")!
 
-    /// What the setup guide copies for ChatGPT or Claude, which then walks the person through setting up the chosen
-    /// computer one step at a time. The same steps as the prompts on heyzero.app (zero-site index.html,
-    /// #setup-prompt-*), told from the iPhone, so they leave out installing the iPhone app.
     static func setupPrompt(_ computer: OnboardingModel.Computer) -> String {
         switch computer {
         case .alwaysOnMac:
@@ -252,14 +232,11 @@ enum OnboardingLinks {
         return URL(string: "https://chatgpt.com/?q=\(q)")!
     }
 
-    /// Claude in the browser, for an iPhone without the Claude app.
     static func web(_ tool: String) -> URL { URL(string: tool == "claude" ? "https://claude.ai/new" : "https://chatgpt.com/")! }
 }
 
 // MARK: Shared pieces
 
-/// One onboarding screen: an optional Back button, the content, and the buttons pinned at the bottom. Content is
-/// held to a readable column on the Mac.
 struct OnboardingPage<Content: View, Footer: View>: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -355,7 +332,6 @@ struct OnboardingButton: View {
     }
 }
 
-/// The smaller choice under the main button: white with a faint border.
 struct OnboardingSecondaryButton: View {
     let title: String
     var symbol: String?
@@ -383,7 +359,6 @@ struct OnboardingSecondaryButton: View {
     }
 }
 
-/// A white card with a faint gray border, the look of the add-on boxes and choice rows.
 struct OnboardingCard: ViewModifier {
     var selected = false
     var radius: CGFloat = 18

@@ -17,7 +17,6 @@ struct TaffyApp: App {
         #endif
     }
 
-    /// DEBUG: -dark or -light forces the appearance, for screenshots of one app without changing the Mac's setting.
     private static var scheme: ColorScheme? {
         #if DEBUG
         if CommandLine.arguments.contains("-dark") { return .dark }

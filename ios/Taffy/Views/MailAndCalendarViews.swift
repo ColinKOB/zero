@@ -45,10 +45,8 @@ struct MailAndCalendarView: View {
     }
 }
 
-/// Sign In with Google, what is connected, and the other providers. Shared by Settings and the onboarding.
 struct MailAccountsPanel: View {
     @Environment(AppState.self) private var state
-    /// The address the person gave in the onboarding, offered to Google and to the app-password form.
     let loginHint: String?
     var plain = false
     @State private var googleBusy = false
@@ -121,8 +119,6 @@ struct MailAccountsPanel: View {
     }
 }
 
-/// Every Google account, mailbox and calendar the Zips can read, each with Disconnect, and a plain sentence when one
-/// needs the person (Google asked to sign in again, or a password stopped working).
 struct AccountsList: View {
     @Environment(AppState.self) private var state
     var plain = false
@@ -252,7 +248,6 @@ struct AccountsList: View {
 
 // MARK: Another email provider (app passwords)
 
-/// iCloud Mail or any other mailbox, with an app password. The home signs in to check it before it is added.
 struct AddMailboxView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss

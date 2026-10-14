@@ -5,7 +5,6 @@ import QuartzCore
 // resolves to its iOS build (no NSHostingView), so a bridge that links SwiftUI fails to load at all.
 
 enum GuideColors {
-    /// Zero's sunflower yellow and deep charcoal, from the app icon (`ios/scripts/make-icon.py`).
     static let yellow = NSColor(srgbRed: 249 / 255, green: 196 / 255, blue: 16 / 255, alpha: 1)
     static let charcoal = NSColor(srgbRed: 24 / 255, green: 24 / 255, blue: 27 / 255, alpha: 1)
     static let dim = NSColor.black.withAlphaComponent(0.58)
@@ -16,7 +15,6 @@ enum GuideColors {
     static let stop = NSColor(srgbRed: 0.78, green: 0.15, blue: 0.17, alpha: 1)
 }
 
-/// The dimmed layer over the browser window, with a rounded hole, a yellow ring and a slow pulse around it.
 final class DimView: NSView {
     private let dim = CAShapeLayer(), outline = CAShapeLayer(), ring = CAShapeLayer(), pulse = CAShapeLayer()
     private let radius: CGFloat = 10
@@ -40,7 +38,6 @@ final class DimView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// `hole` is in this view's coordinates with a top-left origin, like the accessibility frames. Nil dims everything.
     func show(hole topLeftHole: CGRect?) {
         let hole = topLeftHole.map { CGRect(x: $0.minX, y: bounds.height - $0.maxY, width: $0.width, height: $0.height) }
         CATransaction.begin()
@@ -84,7 +81,6 @@ final class DimView: NSView {
     }
 }
 
-/// A capsule button with a closure, drawn to match the app's buttons.
 final class PillButton: NSButton {
     enum Kind { case primary, secondary, quiet, row, stopRow }
     private let handler: () -> Void
@@ -122,7 +118,6 @@ final class PillButton: NSButton {
     @objc private func fire() { handler() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Width for a pill of this title.
     var pillWidth: CGFloat { attributedTitle.size().width + (kind == .quiet ? 6 : 28) }
 
     override func layout() {
@@ -139,7 +134,6 @@ final class PillButton: NSButton {
     }
 }
 
-/// The callout card: "Zero's Guide", the step's title and note, the I'm Stuck list, Back and Next, and a pointer.
 final class CalloutView: NSView {
     static let shadowMargin: CGFloat = 26
     static let cardWidth: CGFloat = 340
@@ -148,7 +142,6 @@ final class CalloutView: NSView {
     var onBack: () -> Void = {}
     var onNext: () -> Void = {}
     var onStuck: (StuckChoice) -> Void = { _ in }
-    /// Told when the card changes size, so the panel can move and resize around it.
     var onResize: () -> Void = {}
 
     private(set) var stuckOpen = false
@@ -197,7 +190,6 @@ final class CalloutView: NSView {
         onResize()
     }
 
-    /// The whole view's size: card, pointer and room for the shadow.
     private(set) var fitted = NSSize.zero
 
     private func rebuild() {
@@ -307,12 +299,10 @@ final class CalloutView: NSView {
     }
 }
 
-/// A plain view laid out from the top left.
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// The small triangle from the card to the highlighted element.
 final class NotchView: NSView {
     enum Edge { case top, bottom, left }
     var edge: Edge = .top { didSet { needsDisplay = true } }

@@ -1,8 +1,5 @@
 import SwiftUI
 
-/// Errors on the sign-in and computer screens: one plain sentence for Colin, and the same sentence with what failed
-/// underneath in the hub's log, so the next one can be traced (Oct 9: "it errored" on the Lens Shop card left
-/// no trace anywhere).
 enum ScreenTrouble {
     static func sentence(_ error: Error, name: String) -> String {
         if let e = error as? HubClient.HubError {
@@ -24,14 +21,12 @@ enum ScreenTrouble {
         return "Something went wrong with \(name.possessive) computer. Try again in a moment."
     }
 
-    /// What failed underneath, without addresses: an HTTP status or a network error code.
     static func detail(_ error: Error) -> String {
         if let e = error as? HubClient.HubError { return e.code == 401 ? "not paired" : "HTTP \(e.code)" }
         if let u = error as? URLError { return "URLError \(u.code.rawValue)" }
         return String(describing: type(of: error))
     }
 
-    /// Shows nothing itself: returns the sentence to show and logs it on the hub.
     @MainActor static func report(_ error: Error, screen: String, bot: String, state: AppState) -> String {
         let name = state.bot(bot)?.name ?? "The Zip"
         let text = sentence(error, name: name)
@@ -39,15 +34,12 @@ enum ScreenTrouble {
         return text
     }
 
-    /// A problem with no error behind it (the viewer dropped), logged the same way.
     @MainActor static func report(_ text: String, detail: String, screen: String, bot: String, state: AppState) -> String {
         if !state.fixtureMode { state.client.reportError(screen: screen, bot: bot, message: text, detail: detail) }
         return text
     }
 }
 
-/// Save a login into one or more bots' vaults. iPhone password AutoFill fills the fields, the
-/// password goes straight into the vault on alien, and the bots only ever see the username.
 struct SaveLoginSheet: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
@@ -55,7 +47,6 @@ struct SaveLoginSheet: View {
     var siteURL: String = ""
     var botID: String = "default"
     var taskID: String? = nil
-    /// A chat's sign-in card this answers (the bot carries on once it's saved).
     var requestID: Int? = nil
 
     @State private var url = ""
@@ -70,7 +61,6 @@ struct SaveLoginSheet: View {
     @FocusState private var field: Field?
     private enum Field { case website }
 
-    /// What still stops Save, as a short line by the fields (nil when it can save).
     private var missing: String? {
         if clean(url).isEmpty { return "Add the website." }
         if clean(username).isEmpty && clean(userField.text).isEmpty { return "Add your email or username." }
@@ -204,7 +194,6 @@ struct SaveLoginSheet: View {
     }
 }
 
-/// The bot's computer opened straight to a site's sign-in page, with Colin already in control.
 struct SignInScreen: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
@@ -284,7 +273,6 @@ struct SignInScreen: View {
         } catch { self.error = ScreenTrouble.report(error, screen: "sign_in_screen", bot: botID, state: state) }
     }
 
-    /// The viewer dropped (phone locked, network blip): fetch a fresh viewer a few times.
     private func reconnect() async {
         reconnects += 1
         guard reconnects <= 3 else {
@@ -299,7 +287,6 @@ struct SignInScreen: View {
         await open()
     }
 
-    /// Always hands control back, so the bot is never left locked out.
     private func finish(signedIn: Bool) async {
         busy = true
         defer { busy = false }
@@ -319,7 +306,6 @@ struct SignInScreen: View {
     }
 }
 
-/// Every saved login, which bots can use it, and a way to remove it.
 struct LoginsView: View {
     @Environment(AppState.self) private var state
     @State private var removing: HubClient.SavedLogin?
@@ -377,14 +363,12 @@ struct LoginsView: View {
         .task { await load() }
     }
 
-    /// An empty list is shown only after a successful load, never because the hub couldn't be reached.
     private func load() async {
         do { logins = try await state.client.logins(); loadError = nil }
         catch { loadError = "Zero couldn't be reached. Your saved logins are safe." }
     }
 }
 
-/// When each bot may sign in to each site, and every recent sign-in.
 struct SignInPermissionsView: View {
     @Environment(AppState.self) private var state
     @State private var permissions: [SignInPermission] = []
@@ -545,7 +529,6 @@ struct SignInPermissionsView: View {
     }
 }
 
-/// Every phone or test device paired with Taffy. Removing one signs it out right away.
 struct DevicesView: View {
     @Environment(AppState.self) private var state
     @State private var devices: [HubClient.Device] = []
@@ -594,9 +577,6 @@ struct DevicesView: View {
     }
 }
 
-/// A bot in a chat asking Colin to sign in, the moment it found it needed to: the Computer card, with a picture of
-/// the Zip's screen, Take Over, I'm Done and Save Login, and an X to close it. Once he's done, the bot carries on in
-/// this chat.
 struct SignInAskCard: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage

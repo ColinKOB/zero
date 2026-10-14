@@ -1,30 +1,21 @@
 import Foundation
 
-/// Zip-to-Zip threads (Oct 12, Colin): when one Zip asks another, the chat shows two messages, the question and the
-/// answer, and what the answering Zip did in between (its sign-ins and actions, hub feed `step_of`) folds into one quiet
-/// work log row between them, like ChatGPT's "Worked for 1m 25s". Pure logic, so LogicTests can check it without the app.
 enum WorkLog {
     struct Item: Equatable {
         let id: String
         let date: Date?
-        /// A step taken to answer this question (team_msgs id).
         var stepOf: Int? = nil
-        /// A team message's question id and kind (ask, answer, reply, tell).
         var teamMsg: Int? = nil
         var teamKind: String? = nil
     }
 
     enum Entry: Equatable {
         case keep(String)
-        /// One work log: its id, the step ids it lists in order, and how long the answer took when known.
         case log(id: String, steps: [String], seconds: TimeInterval?)
     }
 
     static func logID(_ msg: Int) -> String { "worklog-\(msg)" }
 
-    /// The chat in order with every step folded into its question's work log. A log sits just before the answer; with
-    /// no answer yet it sits where its first step was. A question with an answer and no steps still gets a header line
-    /// saying how long it took. Messages that are not steps keep their order.
     static func fold(_ items: [Item]) -> [Entry] {
         var steps: [Int: [Item]] = [:]
         var order: [Int] = []
@@ -71,7 +62,6 @@ enum WorkLog {
         return out
     }
 
-    /// "Worked for 1m 25s", "Worked for 40s", or "Worked on it" when the time is not known.
     static func header(_ seconds: TimeInterval?) -> String {
         guard let seconds, seconds >= 1 else { return "Worked on it" }
         let s = Int(seconds.rounded())

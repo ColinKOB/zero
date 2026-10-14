@@ -2,8 +2,6 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
-/// Notifications from the hub through Apple's push service (they replaced Telegram on Oct 8). The app asks
-/// once for permission, sends its device token to the hub, and opens the bot's chat when one is tapped.
 @MainActor
 final class Push: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Push()
@@ -22,12 +20,8 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: Answering Zero's questions from the notification
 
-    /// The hub picks one per question (notices.category). Yes is the question's first answer, only where the
-    /// notification's line says what it does. A send, a money or health question, or several questions at once get
-    /// Open instead: the lock screen can't show the recipient and the text, so a send is never approved from here.
     static let questionCategory = "zero.question"
     static let openCategory = "zero.open"
-    /// A Zip asking to use the Mac (hub mac.py). Allow opens Zero, which asks for Face ID before it answers.
     static let macCategory = "zero.mac"
     private static let pendingKey = "pendingLockAnswers"
 
@@ -62,7 +56,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().setNotificationCategories(all)
     }
 
-    /// Answers the hub couldn't take (the phone was off the tailnet) wait here and go at the next launch.
     private struct PendingAnswer: Codable {
         let feedID: Int
         let action: String
@@ -70,7 +63,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         var unlocked: Bool? = nil
     }
 
-    /// `unlocked`: the button asked for Face ID before it ran (a money or health question's answers).
     private func answerFromLockScreen(feedID: Int, action: String, text: String?, unlocked: Bool = false) async {
         guard let state else { return }
         do {
@@ -95,7 +87,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         return (try? JSONDecoder().decode([PendingAnswer].self, from: data)) ?? []
     }
 
-    /// At launch: send any answers from the lock screen that couldn't reach the hub.
     func retryPending() async {
         let pending = Self.pending()
         guard !pending.isEmpty, let state, state.paired, !state.fixtureMode else { return }
@@ -116,7 +107,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         if granted { UIApplication.shared.registerForRemoteNotifications() }
     }
 
-    /// Asks for permission where the onboarding explains why, and registers when this device is connected.
     @discardableResult
     func requestPermission() async -> Bool {
         let center = UNUserNotificationCenter.current()
@@ -202,8 +192,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Words typed on a Zip's notification. If the home can't be reached, a notification says so; the words are not
-    /// kept for later, since an old reply could arrive after the moment passed.
     private func replyFromLockScreen(bot: String, text: String, line: String, itemID: Int?) async {
         guard let state, state.paired else { return }
         do {
@@ -218,8 +206,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Allow or Not Now on a Zip's request to use the Mac, from the notification. Allow opened Zero; Face ID or the
-    /// passcode comes up before the answer goes. The chat card shows how it went.
     private func answerMac(_ id: String, allow: Bool) async {
         guard let state, state.paired else { return }
         if allow {
@@ -240,7 +226,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// A tap that arrived before `state` was set; it moves to the state when TaffyApp sets it.
     private var waitingBot: String?
 
     /// Runs `body` on the main actor: right away when the system called on the main thread (it normally does), and
@@ -256,11 +241,6 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
 
 #if DEBUG
 extension Push {
-    /// For the simulator and the notification UI tests (TaffyUITests/NotificationTapTests.swift):
-    /// `-askNotifications` asks for permission at launch, even in -fixture mode, and `-testNotification <kind>[:seconds]`
-    /// schedules a local notification with the hub's own payload (hub/taffy_hub/apns.py), so a test can tap it on the
-    /// lock screen or as a banner. Kinds: `checkin` (Money's "Daily spending update", watcher.scan_cron) and `notice`
-    /// (a question from Zero with feed_id and the zero.question category, notices.send_push).
     func runLaunchHooks() async {
         let args = CommandLine.arguments
         if args.contains("-askNotifications") { _ = await requestPermission() }
@@ -294,8 +274,6 @@ extension Push {
             UNNotificationRequest(identifier: "test-\(parts.first ?? "checkin")", content: note, trigger: trigger))
     }
 
-    /// A launch with no arguments within two minutes of a `-fixture -testNotification` run is the test's notification
-    /// opening the closed app (the system passes no arguments), so it opens the fixture home too. Read once per launch.
     nonisolated static let coldFixture: Bool = {
         let at = UserDefaults.standard.double(forKey: coldFixtureKey)
         UserDefaults.standard.removeObject(forKey: coldFixtureKey)
@@ -315,7 +293,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    /// Portrait on the iPhone except on a Zip's screen (OrientationLock in ScreenView.swift).
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationLock.supported
     }

@@ -67,8 +67,6 @@ func median(_ a: [Double]) -> Double {
 
 func f2(_ x: Double) -> String { String(format: "%.2f", x) }
 
-/// The silences a listener hears inside a reply (between its first and last sound), in seconds: every run of
-/// 10 ms frames below the threshold that lasts at least 100 ms.
 func silences(_ s: [Float]) -> [Double] {
     let frame = 240
     let rms: [Float] = (0..<(s.count / frame)).map { f in

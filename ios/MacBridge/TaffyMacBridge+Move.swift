@@ -37,13 +37,11 @@ extension TaffyMacBridge {
         }
     }
 
-    /// Places Zero should not run from. Applications folders, Xcode's build folders and test copies are left alone.
     static func needsMove(_ path: String) -> Bool {
         let home = NSHomeDirectory()
         return path.hasPrefix("/Volumes/") || path.hasPrefix(home + "/Downloads/") || path.hasPrefix(home + "/Desktop/")
     }
 
-    /// /Applications, or ~/Applications when this account cannot write there. An older Zero goes to the Trash first.
     private static func copyToApplications(_ app: URL) throws -> URL {
         let fm = FileManager.default
         var folder = URL(fileURLWithPath: "/Applications")
@@ -67,7 +65,6 @@ extension TaffyMacBridge {
         return dest
     }
 
-    /// Opens the moved copy once this one has quit, and ejects the disk image it came from.
     private static func relaunch(_ dest: URL, ejecting volume: String?) {
         let pid = ProcessInfo.processInfo.processIdentifier
         var script = "while /bin/kill -0 \(pid) 2>/dev/null; do /bin/sleep 0.2; done; "
@@ -83,7 +80,6 @@ extension TaffyMacBridge {
     /// NSApp.terminate does nothing in a Catalyst app, and nothing is set up yet, so this copy simply exits.
     private static func quit() { exit(0) }
 
-    /// "/Volumes/Zero" when the app came from a mounted disk image.
     private static func diskImageVolume(_ app: URL) -> String? {
         let parts = app.path.split(separator: "/")
         guard parts.count >= 2, parts[0] == "Volumes" else { return nil }

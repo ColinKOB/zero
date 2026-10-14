@@ -2,9 +2,6 @@ import SwiftUI
 
 // MARK: 6. Your email and calendar
 
-/// Which email the Zips read: Sign In with Google first, then any other provider with an app password. Shown after the
-/// consent screen in a home without Claude or ChatGPT connectors, and again after the Zips are picked when one of them
-/// reads mail or a calendar and nothing is connected yet.
 struct MailScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -13,7 +10,6 @@ struct MailScreen: View {
 
     private var after: Bool { model.draft.mailAfterPicks == true }
     private var connected: Bool { home.settings?.hasMail == true || home.settings?.hasCalendar == true }
-    /// "Inbox and Calendar", the picked Zips that read mail or a calendar.
     private var readers: String {
         ConnectAccountsView.list(model.templates.filter { model.picked.contains($0.id) && OnboardingModel.readsMail($0) }.map(\.name))
     }
@@ -75,7 +71,6 @@ struct AskScreen: View {
     @State private var ready = false
     private var home: HomeModel { HomeModel.shared }
 
-    /// Zero's questions read mail and send it to the AI company to think, so they wait for a yes on the consent screen.
     private var consented: Bool { model.rehearsal ? model.draft.consent == "agreed" : state.aiConsent == .agreed }
 
     var body: some View {
@@ -104,8 +99,6 @@ struct AskScreen: View {
         .onChange(of: questionsOn) { _, v in if ready { model.draft.questionsOn = v } }
     }
 
-    /// What the person already said: their sleep answer, else the home's quiet hours, else 11 PM to 7 AM. Units and
-    /// spelling come from the phone.
     private func fill() {
         if let q = model.draft.quiet ?? SleepAnswer.quietHours(from: model.draft.about["sleep"] ?? "") ?? home.quietHours {
             quiet = q
@@ -139,7 +132,6 @@ struct AskScreen: View {
     }
 }
 
-/// The three rows of How Your Zips Should Ask, and the units line. Shared by the onboarding and Settings.
 struct ZipsAskForm: View {
     @Binding var quiet: HomeSettings.QuietHours
     @Binding var locale: HomeSettings.Locale
@@ -147,7 +139,6 @@ struct ZipsAskForm: View {
     let questionsAllowed: Bool
     let lead: String
     var plain = false
-    /// The onboarding, when AI data sharing is off: says that Continue asks for it.
     var sharingOff = false
 
     var body: some View {
@@ -264,7 +255,6 @@ struct ZipsAskForm: View {
 
 // MARK: Settings
 
-/// Settings, How Your Zips Ask: the same rows as the onboarding, saved as they change.
 struct AskSettingsView: View {
     @Environment(AppState.self) private var state
     @State private var quiet = HomeSettings.QuietHours(start: 23, end: 7)

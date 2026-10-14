@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// Sign In With Claude: open Claude's sign-in page, then paste the code it shows. Used by the onboarding and Settings.
 struct ClaudeSignInPanel: View {
     @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
-    /// Called once Claude is connected.
     var onDone: () -> Void
     @State private var page: URL?
     @State private var code = ""
@@ -125,7 +123,6 @@ struct PlanScreen: View {
     @State private var loading = true
 
     private var accounts: AccountsModel { AccountsModel.shared }
-    /// Signed in already, or a plan someone shares: nothing to do here.
     private var nothingToDo: Bool {
         HomeModel.shared.isShared || accounts.status?.claude.state == "signed_in" || accounts.status?.plan == "shared"
             || accounts.status?.chatgpt?.state == "signed_in"

@@ -23,8 +23,6 @@ enum Keychain {
         #endif
     }
 
-    /// The keychain alone, never the file: for secrets that must not land in a file even on an unsigned build
-    /// (the Gemini key). False when the keychain refused it.
     static func writeKeychainOnly(_ key: String, _ value: String) -> Bool {
         keychainWrite(key, value) == errSecSuccess && keychainRead(key) == value
     }
@@ -60,7 +58,6 @@ enum Keychain {
     }
 
     #if targetEnvironment(macCatalyst)
-    /// The file older Mac builds used, readable by any process running as Colin. Only a fallback now.
     private enum LegacyFile {
         static var url: URL {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -92,7 +89,6 @@ enum Keychain {
 
 import Network
 
-/// Whether the connection is expensive or limited (cellular, Low Data Mode), to poll more gently.
 final class NetworkWatch: @unchecked Sendable {
     static let shared = NetworkWatch()
     private let monitor = NWPathMonitor()

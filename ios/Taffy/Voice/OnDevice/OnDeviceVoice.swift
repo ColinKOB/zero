@@ -21,7 +21,6 @@ final class OnDeviceVoice {
     @ObservationIgnored private var loadTask: Task<Bool, Never>?
     @ObservationIgnored private var greetingTask: Task<Void, Never>?
     @ObservationIgnored private var takes: [String: [Float]] = [:]
-    /// A call is using the voice: it stays loaded, and greeting takes wait.
     @ObservationIgnored var inCall = false
 
     /// Whether this device can run it: iPhone, iPad and the Mac app. The simulator runs Core ML on the CPU only,
@@ -34,7 +33,6 @@ final class OnDeviceVoice {
         #endif
     }
 
-    /// About 472 MB (the voice and the end-of-turn model), for the download button.
     static let downloadMB = Int(PocketVoiceEngine.expectedBytes / 1_000_000)
 
     private init() {
@@ -48,7 +46,6 @@ final class OnDeviceVoice {
         }
     }
 
-    /// Loads the voice, downloading it the first time. True once it is ready.
     @discardableResult
     func prepare() async -> Bool {
         guard Self.supported else { return false }
@@ -85,7 +82,6 @@ final class OnDeviceVoice {
         return ok
     }
 
-    /// Frees the memory the voice uses (about 780 MB) when no call needs it, for example in the background.
     func unloadIfIdle() {
         guard !inCall, loadTask == nil, engine.ready else { return }
         greetingTask?.cancel()
@@ -96,7 +92,6 @@ final class OnDeviceVoice {
         }
     }
 
-    /// Deletes the voice's files. It downloads again the next time a call needs it.
     func remove() async {
         guard !inCall else { return }
         loadTask?.cancel()
@@ -112,19 +107,16 @@ final class OnDeviceVoice {
 
     // MARK: Greeting takes
 
-    /// The greeting the next call opens with ("Hey Colin, what's up?"), from the hub.
     var greetingText: String {
         get { UserDefaults.standard.string(forKey: "onDeviceGreeting") ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: "onDeviceGreeting") }
     }
 
-    /// The honest hello after a long wait ("Sorry for the wait, Colin. What's up?"), from the hub.
     var greetingLateText: String {
         get { UserDefaults.standard.string(forKey: "onDeviceGreetingLate") ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: "onDeviceGreetingLate") }
     }
 
-    /// The voice the next call uses (Settings, On-Device Voice).
     var voice: OnDeviceVoiceName {
         OnDeviceVoiceName(rawValue: UserDefaults.standard.string(forKey: "onDeviceVoice") ?? "") ?? .george
     }
@@ -138,7 +130,6 @@ final class OnDeviceVoice {
         return takesFolder.appendingPathComponent("\(voice.rawValue)-\(safe).f32")
     }
 
-    /// The best take of `text` in `voice`, if one was made.
     func greetingTake(voice: OnDeviceVoiceName, text: String) -> [Float]? {
         if let t = takes[key(voice, text)] { return t }
         guard let data = try? Data(contentsOf: file(voice, text)), data.count >= 4 else { return nil }
@@ -147,8 +138,6 @@ final class OnDeviceVoice {
         return samples
     }
 
-    /// Makes the greeting takes in the background when the voice is loaded and no call is running: the usual
-    /// hello first, then the one for a slow start.
     func prepareGreeting() {
         let voice = self.voice
         let texts = [greetingText, greetingLateText].filter { !$0.isEmpty && greetingTake(voice: voice, text: $0) == nil }

@@ -1,12 +1,10 @@
 import SwiftUI
 
-/// How long a snooze lasts.
 struct SnoozeChoice: Identifiable {
     let title: String
     let until: () -> Date
     var id: String { title }
 
-    /// The choices, with "Until 7 AM" at the end of the home's quiet hours in the home's time zone.
     static func all(quietEnd: Int, timeZone: TimeZone) -> [SnoozeChoice] {
         [
             SnoozeChoice(title: "1 Hour") { Date().addingTimeInterval(3600) },
@@ -17,7 +15,6 @@ struct SnoozeChoice: Identifiable {
         ]
     }
 
-    /// The next time the clock reads `hour` in that time zone: today's if it is still ahead, else tomorrow's.
     static func nextHour(_ hour: Int, in timeZone: TimeZone, after now: Date = Date()) -> Date {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timeZone
@@ -26,8 +23,6 @@ struct SnoozeChoice: Identifiable {
     }
 }
 
-/// Snooze choices and the two-step delete for a bot, shared by the home list and the bot's profile.
-/// Delete asks twice: once to choose it, once more to confirm it cannot be undone.
 struct BotActions: ViewModifier {
     @Environment(AppState.self) private var state
     @Binding var snoozing: Bot?
@@ -83,7 +78,6 @@ struct BotActions: ViewModifier {
             }
     }
 
-    /// When quiet hours end, from the home (its settings, else Zero's question limits), else 7 AM on this phone's clock.
     private var snoozeChoices: [SnoozeChoice] {
         let home = HomeModel.shared
         let end = home.quietHours?.end ?? state.proactivity?.limits.quiet_end ?? 7

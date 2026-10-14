@@ -1,18 +1,13 @@
 import Foundation
 
-/// The hub's side of an On-Device Voice call (hub/taffy_hub/ondevice.py): start, one streamed reply per turn,
-/// confirming a speculative turn, and what was actually said.
 extension HubClient {
     struct LocalCallStart: Decodable {
         let call_id: String
         let greeting: String
-        /// Said instead after a long wait (hub voice.greeting(late=True)); older hubs leave it out.
         let greeting_late: String?
         let voice: String
     }
 
-    /// `chosen`: the person picked `voice` on this device since it last told the hub, so it becomes the home's
-    /// voice; otherwise the hub uses the home's voice and says which (one voice on every device, #33, #34).
     func startLocalVoice(bot: String, voice: String, reason: String, chosen: Bool) async throws -> LocalCallStart {
         struct Body: Encodable { let voice: String; let reason: String; let voice_chosen: Bool }
         var r = try request("/api/bots/\(bot)/voice/local", method: "POST",
@@ -21,7 +16,6 @@ extension HubClient {
         return try await send(r, as: LocalCallStart.self)
     }
 
-    /// Starts a ChatGPT-voice call. Returns the hub's call id, its answer to the offer and the voice it used.
     func startVoiceCall(bot: String, offer: String, voice: String, chosen: Bool) async throws
         -> (callID: String, answer: String, voice: String?) {
         struct Body: Encodable { let sdp: String; let voice: String; let voice_chosen: Bool }
@@ -32,8 +26,6 @@ extension HubClient {
         return (resp.call_id, resp.sdp, resp.voice)
     }
 
-    /// The call's audio is connected: the bot says hello. `waitedMs` is how long the person waited since tapping
-    /// Call, so a slow start gets an honest hello (#18). Tried twice, since a call without a hello sounds dead.
     func voiceReady(call: String, waitedMs: Int) async {
         struct Body: Encodable { let waited_ms: Int }
         struct Ok: Decodable { let ok: Bool }
@@ -44,7 +36,6 @@ extension HubClient {
         }
     }
 
-    /// Whether ChatGPT's voice can take a call now, and the greeting the next call opens with.
     struct VoiceEngines: Decodable {
         struct ChatGPT: Decodable {
             let ok: Bool
@@ -54,7 +45,6 @@ extension HubClient {
         let chatgpt: ChatGPT
         let greeting: String?
         let greeting_late: String?
-        /// The home's voices, the same on every device (newer hubs only).
         let voice: String?
         let on_device_voice: String?
     }
@@ -72,7 +62,6 @@ extension HubClient {
         let error: Bool?
     }
 
-    /// One reply, as it is written: text pieces, then done. Cancelling the stream tells the hub to stop.
     func voiceTurn(call: String, n: Int, text: String?, news: Int?, speculative: Bool) -> AsyncThrowingStream<ReplyEvent, Error> {
         struct Body: Encodable { let n: Int; let text: String?; let news: Int?; let speculative: Bool }
         return AsyncThrowingStream { continuation in

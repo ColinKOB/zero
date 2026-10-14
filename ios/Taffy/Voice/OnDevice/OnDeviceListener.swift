@@ -13,7 +13,6 @@ final class CallListener: @unchecked Sendable {
     struct Segment { var start: Double; var end: Double; var text: String }
 
     private(set) var kind = "none"
-    /// Called on the main queue whenever the words change.
     var onUpdate: (() -> Void)?
 
     private let lock = NSLock()
@@ -86,7 +85,6 @@ final class CallListener: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in self?.onUpdate?() }
     }
 
-    /// Words heard since audio-timeline second `since`.
     func text(since: Double) -> String {
         lock.lock(); defer { lock.unlock() }
         if sfReq != nil { return HeardText.tidy(sfText) }
@@ -95,14 +93,12 @@ final class CallListener: @unchecked Sendable {
         return HeardText.tidy(parts.joined(separator: " "))
     }
 
-    /// The audio second the words reach (SpeechAnalyzer only; infinity for the older recognizer).
     var coveredUntil: Double {
         lock.lock(); defer { lock.unlock() }
         if sfReq != nil || analyzerBox == nil { return .infinity }
         return max(finals.last?.end ?? 0, volatileSeg?.end ?? 0)
     }
 
-    /// Asks the recognizer to finish everything up to this audio second now (once per turn, just before it ends).
     func finalize(through audioSec: Double) async {
         guard #available(iOS 26.0, macCatalyst 26.0, *), let box = lock.withLock({ analyzerBox }) as? AnalyzerBox else { return }
         let t = hostNow()
@@ -116,7 +112,6 @@ final class CallListener: @unchecked Sendable {
         restartSF()
     }
 
-    /// 16 kHz audio from the mic queue.
     func feed(_ buf: AVAudioPCMBuffer, audioSec: Double) {
         lock.lock()
         let sf = sfReq
@@ -252,14 +247,11 @@ private final class AnalyzerBox: @unchecked Sendable {
     }
 }
 
-/// Pipecat's Smart Turn v3.2: the probability that the person finished, from the last 8 s of their audio.
 final class SmartTurn: @unchecked Sendable {
     private var model: MLModel?
     private let queue = DispatchQueue(label: "ondevice.smartturn", qos: .userInitiated)
     var available: Bool { queue.sync { model != nil } }
 
-    /// `url`: the compiled model, downloaded with the voice (SmartTurnFiles). Without it, turns end on the words
-    /// and the silence alone.
     init(url: URL?) {
         queue.async { [weak self] in
             guard let self, let url else { return }
@@ -289,7 +281,6 @@ final class SmartTurn: @unchecked Sendable {
         return arr[0].floatValue
     }
 
-    /// Completion on the main queue with the probability and the milliseconds it took.
     func predict(_ samples: [Float], completion: @escaping (Float?, Double) -> Void) {
         queue.async { [weak self] in
             let t = hostNow()

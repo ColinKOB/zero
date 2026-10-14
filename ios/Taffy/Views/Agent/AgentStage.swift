@@ -1,18 +1,12 @@
 import SwiftUI
 
-/// One of the bodies. Plush bodies are rendered pictures with outfits and expressions (`<prefix>-<outfit><face>`,
-/// made by ios/scripts/make-agent-assets.py). Flat bodies ("flat-<shape>") are vector shapes with eyes drawn in code
-/// (FlatFigure.swift); they have no outfits.
 struct AgentBody: Identifiable, Hashable {
     let id: String
     let name: String
 
-    /// Expression frames and outfits exist for this body: every plush body has them.
     var hasOutfits: Bool { !isFlat }
     var isFlat: Bool { id.hasPrefix("flat-") }
-    /// The start of this body's picture names: "zero" for Zero's O, the body's id for the rest.
     var picturePrefix: String { id == "o" ? "zero" : id }
-    /// The plain picture, for the body carousel (plush bodies only; flat ones are drawn).
     var thumbnail: String { "\(picturePrefix)-plain" }
 
     static let plush: [AgentBody] = [
@@ -25,7 +19,6 @@ struct AgentBody: Identifiable, Hashable {
         .init(id: "cube", name: "Cube"), .init(id: "gumdrop", name: "Gumdrop"),
     ]
 
-    /// The flat set, in the order of the references.
     static let flat: [AgentBody] = ["o", "star", "moon", "bolt", "drop", "pill", "hex", "gem", "squircle", "mushroom",
                                     "bean", "arch", "flower", "dome", "leaf", "bell", "plus", "pebble", "acorn", "kite",
                                     "book", "calendar", "briefcase", "coin", "suitcase", "receipt"]
@@ -36,8 +29,6 @@ struct AgentBody: Identifiable, Hashable {
     static func named(_ id: String) -> AgentBody { all.first { $0.id == id } ?? all[0] }
 }
 
-/// A whole outfit, rendered on the body with every expression (layered add-ons looked like stickers). The box
-/// in the outfit column shows its pieces as small icons (`addon-<name>`).
 struct AgentOutfit: Identifiable, Hashable {
     let id: String
     let name: String
@@ -59,15 +50,12 @@ struct AgentOutfit: Identifiable, Hashable {
     }
 }
 
-/// What the agent looks like: a body and, for plush bodies, an outfit.
 struct AgentLook: Codable, Hashable {
     var body: String
     var outfit: String
 
-    /// Look A from the design: the yellow O in Classic, round glasses and the wrapped scarf.
     static let zero = AgentLook(body: "o", outfit: "classic")
 
-    /// The picture set on screen; faces are added to it ("", -happy, -talk, -look-left, -look-right, -look-up).
     var picture: String {
         let b = AgentBody.named(body)
         if b.isFlat { return b.id }
@@ -84,17 +72,11 @@ struct AgentLook: Codable, Hashable {
     }
 }
 
-/// How the agent is acting. `appear` fades in softly in place in front of the person, then idles.
 enum AgentMood: Equatable {
     case idle, happy, talking, watching, appear
 }
 
-/// The agent, drawn at `size` points square with its feet near the bottom edge. It breathes very slightly, blinks,
-/// glances around and cuts to its happy and talking faces; outfit and body changes crossfade. It never hops, bounces
-/// or sways (Colin, after trying it on his phone).
 struct AgentStage: View {
-    /// The look asked for. Settings, Simple Look draws every Zip as its flat shape instead (Model/Fluid.swift, #91),
-    /// except where the person is choosing a look (`exact`).
     let given: AgentLook
     var mood: AgentMood = .idle
     var size: CGFloat = 280
@@ -109,16 +91,12 @@ struct AgentStage: View {
     @State private var gaze = Gaze.center
     @State private var blinking = false
     @State private var mouthOpen = false
-    /// Counts outfit and body changes, so the newest picture set sits on top while it fades in.
     @State private var swaps = 0
 
     private enum Gaze: String, CaseIterable { case center, left = "-look-left", right = "-look-right", up = "-look-up" }
 
-    /// The feet, as a share of the square; matches FLOOR in make-agent-assets.py.
     private static let floor: CGFloat = 0.97
     private static let appear: TimeInterval = 0.6
-    /// Face changes are hard cuts: real eyes jump, and blending two frames with the eyes in different places shows
-    /// both pairs at once. Only whole-look changes (outfit or body) crossfade.
     private func cut(_ change: () -> Void) {
         var t = Transaction()
         t.disablesAnimations = true
@@ -135,11 +113,8 @@ struct AgentStage: View {
 
     private var hasFrames: Bool { AgentBody.named(look.body).hasOutfits }
     private var flatArt: FlatArt? { FlatArt.named(look.body) }
-    /// Blinks, glances and talking run for bodies whose face can change: plush frames, or flat eyes.
     private var hasFace: Bool { hasFrames || flatArt != nil }
 
-    /// The face runs only while the app is open; breathing (a redraw every frame) only at sizes where it shows,
-    /// so a list of small Zips just swaps a frame now and then. Off-screen rows are not drawn at all.
     private var live: Bool { scenePhase == .active }
     private var breathes: Bool { size >= 80 && !reduceMotion }
 
@@ -174,7 +149,6 @@ struct AgentStage: View {
 
     // MARK: Drawing
 
-    /// Suffix of the frame on screen. Every closed-eye moment uses the happy frame's upward arcs.
     private var face: String {
         guard hasFrames else { return "" }
         switch mood {
@@ -184,8 +158,6 @@ struct AgentStage: View {
         }
     }
 
-    /// Every face frame stacked over the always-opaque base frame, the current one showing; face changes are cuts.
-    /// A new outfit or body fades in over the old one, which then goes, so the background never shows through.
     private var figure: some View {
         ZStack {
             Group {
@@ -204,8 +176,6 @@ struct AgentStage: View {
         .frame(width: size, height: size)
     }
 
-    /// The flat eyes for the same moments: arcs when blinking or happy, a small shift for a glance, a squash in rhythm
-    /// while talking.
     private var flatEyes: FlatEyesState {
         var e = FlatEyesState()
         e.closed = mood == .happy || blinking
@@ -235,8 +205,6 @@ struct AgentStage: View {
 
     // MARK: The face's timing
 
-    /// Runs the face for one mood: blinks always, glances when idle, the mouth while talking. Restarts when the
-    /// mood changes, so a glance never carries into talking.
     private func direct(_ mood: AgentMood) async {
         cut { gaze = .center; mouthOpen = false; blinking = false }
         guard hasFace else { return }
@@ -255,7 +223,6 @@ struct AgentStage: View {
         return !Task.isCancelled
     }
 
-    /// A quick blink every 3 to 6 seconds, about 110 ms closed, sometimes twice.
     private func blinks() async {
         while await pause(3...6) {
             let times = Double.random(in: 0...1) < 0.2 ? 2 : 1
@@ -269,8 +236,6 @@ struct AgentStage: View {
         }
     }
 
-    /// Every 2.5 to 6 seconds a look left, right or up for 0.8 to 1.8 seconds, sometimes a second glance
-    /// right after, then back to the middle.
     private func glances() async {
         while await pause(2.5...6) {
             var last = Gaze.center
@@ -286,8 +251,6 @@ struct AgentStage: View {
         }
     }
 
-    /// The mouth opens and closes at an uneven, speech-like rhythm: short syllables, longer vowels, and a
-    /// pause now and then between words.
     private func talk() async {
         while !Task.isCancelled {
             cut { mouthOpen = true }

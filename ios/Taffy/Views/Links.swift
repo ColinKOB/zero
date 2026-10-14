@@ -1,8 +1,5 @@
 import SwiftUI
 
-/// Chat text as it should show: the bots' light markdown, and every web address, email address and phone
-/// number tappable, whether it came as a markdown link or written out plainly (which is how bots and Colin
-/// usually write them). Links are underlined in the bubble's own text color.
 enum ChatText {
     static func render(_ raw: String, markdown: Bool = true) -> AttributedString {
         var out: AttributedString
@@ -23,7 +20,6 @@ enum ChatText {
     private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue
                                                        | NSTextCheckingResult.CheckingType.phoneNumber.rawValue)
 
-    /// Marks plain addresses as links, leaving any markdown link as it is.
     private static func linkify(_ text: inout AttributedString) {
         guard let detector else { return }
         let plain = String(text.characters)

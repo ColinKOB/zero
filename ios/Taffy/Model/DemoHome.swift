@@ -1,18 +1,11 @@
 import Foundation
 import SwiftUI
 
-/// The sample home for App Review and for anyone who wants a look first. It is entered from a small link on the
-/// first screen, needs no account, and shows chat, cards, Zips and settings with invented people and invented work.
-///
-/// Nothing in it touches a real service. `HubClient.demo` makes every request fail on the spot, replies are written
-/// here, and the screens that would open a browser, a call or a computer are replaced with a note. Every screen says
-/// "Sample Home" at the top (DemoBanner). It ships in release builds on purpose.
 enum DemoHome {
     static let cannotChange = "This is a sample home, so that can't be changed here."
     static let person = "Alex"
     static let initials = "AL"
 
-    /// One canned reply for anything typed in the sample home.
     static func reply(to text: String, bot: Bot?) -> String {
         let who = bot?.name ?? "Zero"
         return "This is a sample home, so \(who) can't do real work here. In your own Zero, I would take that from here and tell you when it's done."
@@ -20,7 +13,6 @@ enum DemoHome {
 }
 
 extension AppState {
-    /// Opens the sample home from the first screen.
     func enterDemo() {
         demoReturnsToOnboarding = onboarding
         demoMode = true
@@ -32,7 +24,6 @@ extension AppState {
         onboarding = false
     }
 
-    /// Back to the screen the person came from. Nothing from the sample home is kept.
     func leaveDemo() {
         demoMode = false
         fixtureMode = false
@@ -44,7 +35,6 @@ extension AppState {
         onboarding = demoReturnsToOnboarding
     }
 
-    /// A typed message gets one canned reply a moment later.
     func demoSend(_ text: String, to bot: String, replyTo: ReplyQuote? = nil) async -> String? {
         chats[bot, default: []].append(ChatMessage(id: "demo-\(UUID().uuidString)", kind: .colin, text: text, date: Date(),
                                                    replyTo: replyTo))
@@ -56,7 +46,6 @@ extension AppState {
         return answer
     }
 
-    /// A tap on a choice or question card.
     func demoAnswer(_ message: ChatMessage, bot: String, picked: String?) async {
         if message.question != nil, let i = chats[bot]?.firstIndex(where: { $0.id == message.id }) {
             chats[bot]?[i].question?.state = picked == nil ? "dismissed" : "picked"
@@ -67,7 +56,6 @@ extension AppState {
         if let picked { _ = await demoSend(picked, to: bot) } else { chats[bot]?.removeAll { $0.id == message.id } }
     }
 
-    /// Approve, ask for changes, answer or finish a task on the Work screen.
     func demoAct(on task: TaskItem, _ action: String) {
         var open = board.needs_you
         guard let i = open.firstIndex(where: { $0.id == task.id }) else { return }
@@ -82,7 +70,6 @@ extension AppState {
         refreshDemoCounts()
     }
 
-    /// Allow or decline on a request card.
     func demoDecide(_ request: SignInRequest, _ decision: String) {
         board.requests = (board.requests ?? []).filter { $0.id != request.id }
         refreshDemoCounts()
@@ -96,7 +83,6 @@ extension AppState {
         }
     }
 
-    /// Invented people and work. Nothing here is real, and none of it names a real company's account.
     private func loadDemoData() {
         let now = Date()
         func at(_ minutesAgo: Double) -> Date { now.addingTimeInterval(-minutesAgo * 60) }
@@ -186,8 +172,6 @@ extension AppState {
         pinned = ["default"]
     }
 
-    /// The person's initials in the round button on Home: from the name kept at onboarding, else the home's own record
-    /// of it, else "Me".
     var initials: String {
         if demoMode { return DemoHome.initials }
         let saved = UserDefaults.standard.string(forKey: "personName") ?? ""
@@ -196,13 +180,11 @@ extension AppState {
         return letters.isEmpty ? "Me" : letters
     }
 
-    /// Kept at the end of the onboarding, for the round button on Home.
     func savePersonName(_ name: String) {
         UserDefaults.standard.set(name.trimmingCharacters(in: .whitespaces), forKey: "personName")
     }
 }
 
-/// A slim bar at the top of every screen in the sample home.
 struct DemoBanner: View {
     @Environment(AppState.self) private var state
 
@@ -225,7 +207,6 @@ struct DemoBanner: View {
     }
 }
 
-/// Stands in for the screen view in the sample home, which has no computer behind it.
 struct DemoScreenNote: View {
     @Environment(\.dismiss) private var dismiss
 

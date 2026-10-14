@@ -1,13 +1,10 @@
 import SwiftUI
 
 extension Bot {
-    /// How this Zip is drawn: its saved body and outfit, else the starting body for Colin's first Zips, else the
-    /// body closest to its color. Outfits exist only for Zero's O so far.
     var agentLook: AgentLook { AgentLook.forZip(id: id, look: look, color: color) }
 }
 
 extension AgentLook {
-    /// Colin's first Zips, matched to the closest rendered bodies (Oct 8).
     static let starters: [String: AgentLook] = [
         "default": .zero, "school": .init(body: "drop", outfit: "plain"), "builder": .init(body: "moon", outfit: "plain"),
         "clients": .init(body: "leaf", outfit: "plain"), "money": .init(body: "hex", outfit: "plain"),
@@ -23,7 +20,6 @@ extension AgentLook {
         return AgentLook(body: closestBody(to: look?.color ?? color ?? "#F2711C"), outfit: "plain")
     }
 
-    /// The body whose main color is nearest, weighing hue the way eyes do (a redmean color distance).
     static func closestBody(to hex: String) -> String {
         func rgb(_ h: String) -> (Double, Double, Double) {
             var v: UInt64 = 0
@@ -41,14 +37,11 @@ extension AgentLook {
         }?.key ?? "o"
     }
 
-    /// What the hub saves for this look.
     var zipLook: ZipLook {
         ZipLook(body: body, outfit: AgentBody.named(body).hasOutfits ? outfit : "none")
     }
 }
 
-/// A Zip drawn small or large wherever the app shows one: the rendered character, breathing, blinking and glancing
-/// while it is on screen and the app is open. A Zip that just finished work shows its happy face for a moment.
 struct BotAvatar: View {
     let bot: Bot?
     var size: CGFloat = 56

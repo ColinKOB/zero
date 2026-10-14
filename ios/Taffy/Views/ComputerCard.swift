@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// What a Zip's computer is doing, as the Computer card says it.
 enum ComputerMode {
     case working
     case control
@@ -17,15 +16,12 @@ enum ComputerMode {
     }
 }
 
-/// A sign-in the Zip asked for, which the Computer card answers.
 struct SignInPrompt {
     let site: URL
     let requestID: Int
     let why: String
-    /// The Zip is waiting on this sign-in now. An older card stays to use but says "Asked Earlier" (Oct 9).
     var waiting: Bool = true
 
-    /// "salesforce.com", the way a person says the site.
     var siteName: String { (site.host() ?? "the site").replacingOccurrences(of: "www.", with: "") }
 }
 
@@ -34,15 +30,10 @@ private struct ScreenOpen: Identifiable {
     var id: Bool { takeOver }
 }
 
-/// Grok Bot's inline "Computer" card: what the Zip is doing on its own computer in one line, a small live picture of
-/// the screen, and Take Over or I'm Done. It shows when a Zip asks Colin to sign in (with Save Login still there)
-/// and while a Zip is using its computer in the chat, or Colin holds it. The picture is a still that refreshes every
-/// couple of seconds while the card is on screen.
 struct ComputerCard: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
     let botID: String
-    /// What the feed says when this card is not answering a sign-in.
     var live: ComputerMode = .working
     var signIn: SignInPrompt? = nil
     var gap: CGFloat = 48
@@ -65,7 +56,6 @@ struct ComputerCard: View {
         return .working
     }
 
-    /// One plain line on why the Zip is on its computer.
     private var reason: String {
         if let signIn {
             var why = signIn.why.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -123,9 +113,6 @@ struct ComputerCard: View {
         }
     }
 
-    /// On the iPhone a sign-in leads with Save Login: the phone's saved passwords fill the Zip's vault, which is far
-    /// easier than driving its screen with a finger (Colin, Oct 9). The Mac, with a mouse and keyboard, leads with
-    /// Take Over. The other way stays available as a quieter text button on each.
     private var phoneSignIn: Bool { signIn != nil && !Theme.onMac }
 
     private var buttons: some View {
@@ -187,7 +174,6 @@ struct ComputerCard: View {
         .accessibilityLabel("Close")
     }
 
-    /// The Zip's screen and who holds it, every couple of seconds while the card is on screen.
     private func look() async {
         #if DEBUG
         if state.fixtureMode {
@@ -207,7 +193,6 @@ struct ComputerCard: View {
         }
     }
 
-    /// I'm Done: a sign-in tells the Zip he finished; otherwise the computer just goes back to the Zip.
     private func done() async {
         busy = true
         error = nil
@@ -229,7 +214,6 @@ struct ComputerCard: View {
     }
 }
 
-/// "Working" with a small turning spinner, "You're in control" or "Waiting for You", in amber; "Asked Earlier" in gray.
 struct StatusPill: View {
     let mode: ComputerMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -253,7 +237,6 @@ struct StatusPill: View {
     }
 }
 
-/// The still of the Zip's screen, or a quiet stand-in while there is none.
 private struct ScreenPicture: View {
     @Environment(AppState.self) private var state
     let picture: UIImage?
@@ -291,7 +274,6 @@ private struct ScreenPicture: View {
 }
 
 #if DEBUG
-/// A made-up screen (wallpaper and a sign-in window) for screenshots in the simulator. Nothing here is real.
 struct DemoScreenArt: View {
     var body: some View {
         Canvas { ctx, size in

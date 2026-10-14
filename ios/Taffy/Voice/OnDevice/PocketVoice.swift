@@ -5,14 +5,12 @@ import Foundation
 
 func voiceClock() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
 
-/// The two voices, George by default (Colin rated him 10 of 10) and Alba second (9 of 10).
 enum OnDeviceVoiceName: String, CaseIterable, Identifiable {
     case george, alba
     var id: String { rawValue }
     var label: String { self == .george ? "George" : "Alba" }
 }
 
-/// What a speed check found. The real-time factor is seconds of speech made per second of work.
 struct VoiceSpeedCheck {
     var firstMs: Int
     var audioSeconds: Double
@@ -20,10 +18,8 @@ struct VoiceSpeedCheck {
     var realTimeFactor: Double { workSeconds > 0 ? audioSeconds / workSeconds : 0 }
 }
 
-/// Owns the Pocket TTS model: downloaded on first use into Application Support, loaded for calls, removable.
 final class PocketVoiceEngine: @unchecked Sendable {
     static let temperature: Float = 0.3
-    /// The int8 English pack plus the two voices (455 MB, as measured in the call test) and Smart Turn (17 MB).
     static let expectedBytes: Double = 472_000_000
     static let sampleRate = 24_000
 
@@ -37,7 +33,6 @@ final class PocketVoiceEngine: @unchecked Sendable {
     private var cpuManager: PocketTtsManager?
     private var cpuLoad: Task<PocketTtsManager, Error>?
     private var cpuWanted = false
-    /// Replies are made on the CPU copy while this is on (the app is in the background during a call).
     var useCPU: Bool {
         get { cpuLock.withLock { cpuWanted } }
         set { cpuLock.withLock { cpuWanted = newValue } }
@@ -62,10 +57,8 @@ final class PocketVoiceEngine: @unchecked Sendable {
         return Double(total)
     }
 
-    /// The files are on this device (a later load only compiles or opens them).
     var isDownloaded: Bool { Self.bytes(root) >= Self.expectedBytes * 0.9 }
 
-    /// Downloads (first time), loads and checks the speed. `progress` gets 0 to 1 and a plain status line.
     func load(progress: @escaping (Double, String) -> Void) async throws {
         let t0 = voiceClock()
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -132,8 +125,6 @@ final class PocketVoiceEngine: @unchecked Sendable {
                                workSeconds: voiceClock() - t)
     }
 
-    /// One session per reply: the voice and the decoder state carry from one sentence to the next. On the CPU
-    /// copy while `useCPU` is on.
     func session(voice: OnDeviceVoiceName, seed: UInt64? = nil) async throws -> PocketTtsSession {
         if useCPU {
             let m = try await cpuVoice()
@@ -145,7 +136,6 @@ final class PocketVoiceEngine: @unchecked Sendable {
         return try await manager.makeSession(voice: voice.rawValue, temperature: Self.temperature, seed: seed)
     }
 
-    /// The CPU copy of the voice, loading it the first time (from the files already on the device).
     @discardableResult
     func cpuVoice() async throws -> PocketTtsManager {
         let task: Task<PocketTtsManager, Error> = cpuLock.withLock {
@@ -175,7 +165,6 @@ final class PocketVoiceEngine: @unchecked Sendable {
         }
     }
 
-    /// Drops the CPU copy (after a call).
     func unloadCPU() async {
         let m: PocketTtsManager? = cpuLock.withLock {
             let m = cpuManager
@@ -194,12 +183,10 @@ final class PocketVoiceEngine: @unchecked Sendable {
         await unloadCPU()
     }
 
-    /// Deletes the downloaded files. The voice downloads again the next time it is needed.
     func removeFiles() throws {
         if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
     }
 
-    /// Speaks `text` in a session that is finished afterwards, and returns all its samples.
     static func render(_ s: PocketTtsSession, text: String) async throws -> [Float] {
         s.enqueue(text)
         s.finish()
@@ -219,7 +206,6 @@ struct LeadGate {
     private var carry: [Float] = []
     private var margin: [[Float]] = []
 
-    /// Returns the samples to pass on: nothing until the first sound, then everything.
     mutating func feed(_ s: [Float]) -> [Float] {
         let block = 240
         carry += s
@@ -260,8 +246,6 @@ struct LeadGate {
     }
 }
 
-/// The call's greeting, made ahead of time: several takes with different seeds, scored, and the best one kept,
-/// so a call opens at once with a checked take (docs/research/2026-10-09-call-test-hearing.md).
 enum GreetingTakes {
     static let count = 8
 
@@ -290,8 +274,6 @@ enum GreetingTakes {
         return score(out)
     }
 
-    /// Best first. A gap between words over 150 ms costs the most, then distance from the typical length, and a
-    /// rising end on the question earns a little.
     static func score(_ takes: [Take]) -> [Take] {
         let clean = takes.filter { $0.maxGapMs <= 150 }.map(\.seconds).sorted()
         let all = takes.map(\.seconds).sorted()
@@ -384,7 +366,6 @@ enum SmartTurnFiles {
 
     static func folder(_ root: URL) -> URL { root.appendingPathComponent("SmartTurn", isDirectory: true) }
 
-    /// The compiled model, once every file is here and checked.
     static func model(in root: URL) -> URL? {
         let url = folder(root).appendingPathComponent("smart_turn.mlmodelc")
         let done = folder(root).appendingPathComponent(".checked")

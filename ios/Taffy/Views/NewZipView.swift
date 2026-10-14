@@ -1,30 +1,22 @@
 import SwiftUI
 
-/// A card in the New Zip gallery (hub /api/templates, from zip-templates.json on the server).
 struct ZipTemplate: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let pitch: String
     let look: ZipLook
     let needs: [String]
-    /// The accounts this template's Zip uses (gmail, calendar, drive, trello). Older hubs leave it out.
     var services: [String]? = nil
     let routine: String?
     let added: Bool
-    /// Whether this home can run it (the hub checks its services against the home's connectors, mailboxes and
-    /// calendars). Older hubs leave it out, and then every template is offered.
     var available: Bool? = nil
 
-    /// Uses Gmail, Google Calendar or Google Drive, so onboarding offers Connect Google after picking it.
     var usesGoogle: Bool { !(services ?? []).filter(AccountGroup.google.serviceIDs.contains).isEmpty }
 }
 
-/// New Zip: pick a ready-made Zip or describe your own. Either way the lead Zip builds it in its chat, so it
-/// can ask for what the new Zip needs while you are there.
 struct NewZipView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
-    /// Called with the message to send the lead Zip, or nil to start a description of your own.
     let onPick: (String?) -> Void
 
     @State private var templates: [ZipTemplate] = []
@@ -136,7 +128,6 @@ private extension String {
 }
 
 extension ZipTemplate {
-    /// For simulator test builds without a hub.
     static let samples: [ZipTemplate] = [
         ZipTemplate(id: "inbox", name: "Inbox", pitch: "Gets your email to zero: clears the noise, batches the quick reads and drafts replies in your voice.",
                     look: ZipLook(color: "#06B6D4"),

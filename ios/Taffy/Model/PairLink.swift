@@ -2,9 +2,6 @@ import Foundation
 
 // MARK: Pairing links and codes
 
-/// `zero://pair?server=https://host:port&code=ABCD2345`, from a QR code or a link in a message. A Mac home's link
-/// adds `fp`, its certificate's SHA-256 fingerprint. Reading a link stores nothing: the fingerprint is trusted for the
-/// pairing request alone and kept as the home's pin only after that pairing works (HubTrust.pairingCheck).
 struct PairLink: Equatable {
     let server: String
     let code: String
@@ -26,7 +23,6 @@ struct PairLink: Equatable {
         return PairLink(server: server, code: code, fingerprint: fp)
     }
 
-    /// The link for a code made on this device, so the new device gets the address with it.
     var url: URL? {
         var c = URLComponents()
         c.scheme = "zero"

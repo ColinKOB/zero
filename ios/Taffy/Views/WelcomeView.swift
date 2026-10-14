@@ -1,8 +1,6 @@
 import AVFoundation
 import SwiftUI
 
-/// The welcome flow. It starts from what Taffy already knows and what is already connected, so it
-/// never asks for anything twice, then lets Colin pick what else to set up.
 struct WelcomeView: View {
     @Environment(AppState.self) private var state
     @State private var step = 0
@@ -160,7 +158,6 @@ struct WelcomeView: View {
         }
     }
 
-    /// "Hi, Sam." with the name the home knows, or "Hi." while it loads or when it has none.
     private var greeting: String {
         let name = (about?.name ?? "").trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? "Hi." : "Hi, \(name)."
@@ -325,7 +322,6 @@ struct WelcomeView: View {
     }
 }
 
-/// A check in front of each thing that is already done.
 private struct DoneLabel: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 10) {
@@ -336,7 +332,6 @@ private struct DoneLabel: LabelStyle {
     }
 }
 
-/// ChatGPT voice for calls.
 private struct VoiceChoice: View {
     @Environment(AppState.self) private var state
 

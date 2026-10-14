@@ -1,15 +1,5 @@
 import XCTest
 
-/// How a run is set up. tools/zero-e2e.sh passes these as TEST_RUNNER_<NAME> environment variables, which xcodebuild
-/// hands to the test runner without the prefix:
-///
-///   ZERO_E2E_MODE      fixture (no hub: the app's -fixture mode, any code connects) or hub (a real hub)
-///   ZERO_E2E_SERVER    the hub's address, e.g. http://127.0.0.1:8652 (the ssh tunnel to the test home, or the
-///                      dry-mode fixture hub on the Mac)
-///   ZERO_E2E_CODE      a pairing code for that hub
-///   ZERO_E2E_PERSONA   the stranger's answers as JSON (hub/tests/harness/persona.json); built-in defaults otherwise
-///   ZERO_E2E_SHOTS     a folder on the Mac for one PNG per screen (also attached to the result bundle)
-///   ZERO_E2E_MAILBOX   1 when the hub can check the persona's mailbox (the test home's GreenMail)
 struct E2EConfig {
     enum Mode: String { case fixture, hub, account }
 
@@ -19,7 +9,6 @@ struct E2EConfig {
     let persona: Persona
     let shotsDir: URL?
     let addMailbox: Bool
-    /// account mode (AccountsE2ETests): the front door to sign up at, and the new account's details.
     let frontDoor: String
     let username: String
     let password: String
@@ -40,7 +29,6 @@ struct E2EConfig {
     }
 }
 
-/// The stranger. Mirrors hub/tests/harness/persona.json, which zero-e2e.sh passes in so the two never drift.
 struct Persona: Codable {
     struct Mailbox: Codable {
         var provider: String
@@ -69,13 +57,11 @@ struct Persona: Codable {
         mailbox: .init(provider: "Other Email", address: "sam@zero.test", password: "zero-test-mail",
                        imap_host: "127.0.0.1", imap_port: 18551, smtp_host: "127.0.0.1", smtp_port: 18550))
 
-    /// The template's display name for a pick ("inbox" -> "Inbox", "todo" -> "To-Do").
     static func templateName(_ id: String) -> String {
         ["todo": "To-Do", "brief": "Daily Brief", "saver": "Money Saver"][id] ?? id.prefix(1).uppercased() + id.dropFirst()
     }
 }
 
-/// Screenshots, one per screen, numbered in the order they were seen.
 final class Shots {
     private var count = 0
     private let dir: URL?
@@ -100,7 +86,6 @@ final class Shots {
 }
 
 extension XCUIApplication {
-    /// A static text, button or other element whose label contains `text` (case-insensitive).
     func anyLabel(containing text: String) -> XCUIElement {
         descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
@@ -115,7 +100,6 @@ extension XCUIApplication {
         descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    /// A button whose label starts with `prefix` ("Inbox." for the template card "Inbox. Gets your email...").
     func button(startingWith prefix: String) -> XCUIElement {
         buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", prefix)).firstMatch
     }
@@ -151,7 +135,6 @@ extension XCUIElement {
         return false
     }
 
-    /// Fills a field that may sit under the keyboard or below the fold: scrolls until it can be tapped first.
     func fill(_ text: String, in app: XCUIApplication) {
         var n = 0
         while exists && !isHittable && n < 4 {
@@ -161,7 +144,6 @@ extension XCUIElement {
         replaceText(text)
     }
 
-    /// Taps after scrolling it into view (SwiftUI scroll views do not always do this on their own).
     func tapScrolling(in app: XCUIApplication, tries: Int = 6) {
         var n = 0
         while !(exists && isHittable) && n < tries {
@@ -171,7 +153,6 @@ extension XCUIElement {
         tap()
     }
 
-    /// Replaces whatever the field holds with `text`.
     /// Replaces whatever the field holds with `text`, and checks it took (a field that moves when the keyboard
     /// comes up can miss the first keystrokes).
     func replaceText(_ text: String) {

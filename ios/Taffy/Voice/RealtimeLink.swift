@@ -2,9 +2,6 @@ import AVFoundation
 import Foundation
 import WebRTC
 
-/// The live audio connection for ChatGPT-voice calls. The hub hands the phone's offer to Codex on
-/// alien, which opens the realtime session; audio then flows between this iPhone and the voice
-/// directly. Captions and the bot's replies come from the hub separately (see CallEngine).
 final class RealtimeLink: NSObject {
     private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
@@ -22,9 +19,7 @@ final class RealtimeLink: NSObject {
     private var channel: RTCDataChannel?
     private var gathered: CheckedContinuation<Void, Never>?
 
-    /// Called on the main thread when the connection drops for good.
     var onDisconnect: (() -> Void)?
-    /// Called once on the main thread when audio is flowing both ways.
     var onConnect: (() -> Void)?
 
     var micEnabled: Bool {
@@ -32,7 +27,6 @@ final class RealtimeLink: NSObject {
         set { mic?.isEnabled = newValue }
     }
 
-    /// Silences the voice on this phone without touching the session (used to cut it off).
     var voiceEnabled = true {
         didSet {
             for t in pc?.transceivers ?? [] where t.mediaType == .audio {
@@ -41,8 +35,6 @@ final class RealtimeLink: NSObject {
         }
     }
 
-    /// How loud the voice plays on this phone, 0 to 1: turned down at once when the person talks over it, and to
-    /// nothing while a phone call rings or the call is on hold (CallEngine.applyPause).
     var voiceVolume: Double = 1 {
         didSet {
             guard voiceVolume != oldValue else { return }
@@ -52,11 +44,8 @@ final class RealtimeLink: NSObject {
         }
     }
 
-    /// The type of each message on the realtime events channel, on the main thread (saved with the call, to learn
-    /// what the voice's service reports there).
     var onChannelMessage: ((String) -> Void)?
 
-    /// Builds the connection and returns the offer to send to the hub, with ICE candidates included.
     func makeOffer() async throws -> String {
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -104,7 +93,6 @@ final class RealtimeLink: NSObject {
         }
     }
 
-    /// Loudspeaker or earpiece, like the Speaker button in the Phone app.
     static func setSpeaker(_ on: Bool) {
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
@@ -115,7 +103,6 @@ final class RealtimeLink: NSObject {
         try? session.overrideOutputAudioPort(on ? .speaker : .none)
     }
 
-    /// Current loudness of the mic and of the voice, each from 0 to 1.
     func levels() async -> (mic: Float, voice: Float) {
         guard let pc else { return (0, 0) }
         return await withCheckedContinuation { c in

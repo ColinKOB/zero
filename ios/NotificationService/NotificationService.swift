@@ -2,15 +2,6 @@ import Intents
 import UIKit
 import UserNotifications
 
-/// Every notification from the hub passes through here before it shows (the payload has "mutable-content": 1, hub
-/// apns.payload_for). Two things happen (Oct 10, docs/qa/2026-10-10-notifications.md):
-///
-/// 1. A card from Zero gets its own answers as buttons: the payload's "actions" become the category
-///    "zero.card.<feed id>", registered before the notification shows. If the system doesn't have it in time, the
-///    hub's fallback category stays (Yes, Not Now and Reply, or Open and Not Now).
-/// 2. It shows as a message from the Zip (Communication Notifications): an INSendMessageIntent whose sender is the
-///    Zip, with the avatar picture the app saved in the App Group container, or a colored circle with the Zip's
-///    initial when there is none yet.
 final class NotificationService: UNNotificationServiceExtension {
     private var handler: ((UNNotificationContent) -> Void)?
     private var fallback: UNNotificationContent?
@@ -82,7 +73,6 @@ final class NotificationService: UNNotificationServiceExtension {
         return try? content.updating(from: intent)
     }
 
-    /// The Zip's picture the app saved, or its initial on its color.
     static func avatar(bot: String, name: String) -> Data {
         if let url = ZipNotify.avatarURL(bot), let data = try? Data(contentsOf: url), !data.isEmpty {
             return data

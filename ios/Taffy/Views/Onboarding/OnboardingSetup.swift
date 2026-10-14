@@ -3,8 +3,6 @@ import SwiftUI
 
 // MARK: 4. Your computer
 
-/// Where Should I Live?: the computer Zero will run on. A Mac that stays on comes first, since the Zips work there
-/// day and night. Each choice leads to its own setup guide.
 struct MacScreen: View {
     @Environment(OnboardingModel.self) private var model
 
@@ -83,8 +81,6 @@ struct MacScreen: View {
 
 // MARK: 4a. The setup guide
 
-/// Hands the setup of the picked computer to the AI assistant the person already pays for: a prompt to copy, and
-/// buttons that copy it and open ChatGPT or Claude.
 struct GuideScreen: View {
     @Environment(OnboardingModel.self) private var model
     @Environment(\.openURL) private var openURL
@@ -132,7 +128,6 @@ struct GuideScreen: View {
         .sensoryFeedback(.success, trigger: copied)
     }
 
-    /// The first lines of the prompt, with Copy. The whole prompt goes to the clipboard.
     private var promptCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(prompt)
@@ -181,7 +176,6 @@ struct GuideScreen: View {
 
 // MARK: 4b. No computer
 
-/// For people without a Mac or other computer: what the agent can still do, and why the rest needs a computer.
 struct NoComputerScreen: View {
     @Environment(OnboardingModel.self) private var model
     @State private var explaining = false
@@ -235,7 +229,6 @@ private struct WhyComputerSheet: View {
     }
 }
 
-/// A project someone without a computer could start a Zip for.
 struct ProjectIdea: Identifiable {
     let id: String
     let name: String
@@ -259,7 +252,6 @@ struct CodeScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
     @State private var code = ""
-    /// The zero://pair link that filled this screen; its fingerprint goes with the pairing for that address only.
     @State private var link: PairLink?
     @State private var busy = false
     @State private var connected = false
@@ -268,7 +260,6 @@ struct CodeScreen: View {
     @FocusState private var typing: Bool
 
     private var cleaned: String { code.uppercased().filter { $0.isLetter || $0.isNumber } }
-    /// A rehearsal runs on a device that is already set up, so it never pairs again.
     private var already: Bool { model.rehearsal }
 
     var body: some View {
@@ -378,7 +369,6 @@ struct CodeScreen: View {
         .sensoryFeedback(.success, trigger: connected)
     }
 
-    /// The address and code from a zero://pair link or QR code.
     private func fill(_ link: PairLink) {
         self.link = link
         if !link.server.isEmpty { server = link.server; showServer = true }
@@ -561,9 +551,6 @@ struct VoiceScreen: View {
         .sheet(isPresented: $settingUpVoice) { VoiceSetupView() }
     }
 
-    /// The free Google voice (VoiceSetupView). Its key lives on the Mac, so the guided setup opens only there; the
-    /// iPhone says where to find it. A rehearsal saves nothing, so it points to Settings instead of opening it. The
-    /// first sentence is the same on Pick My Voice, Set Up Voice and Settings (voice setup QA, L2).
     @ViewBuilder private var googleVoice: some View {
         let here = Theme.onMac && !model.rehearsal
         HStack(alignment: .center, spacing: 12) {
@@ -597,10 +584,7 @@ struct VoiceScreen: View {
     }
 }
 
-/// The ChatGPT plan line, worded once for Pick My Voice, Set Up Voice and Settings (voice setup QA, L2). It says
-/// where the voice comes from, so a person running their own computer knows what calls need (Oct 9).
 enum VoiceWording {
-    /// On a plan someone shares with the person, calls go through that plan, so nothing needs signing in.
     @MainActor static var chatGPTPlan: String {
         HomeModel.shared.isShared ? "Calls use ChatGPT's voice through the plan shared with you."
             : HomeModel.shared.serverHome ? "For now, calls use ChatGPT's voice, so they need a ChatGPT plan."
@@ -608,7 +592,6 @@ enum VoiceWording {
     }
 }
 
-/// Asks the lead Zip to make the picked Zips from their templates, once each.
 @MainActor
 func sendPickedZips(_ model: OnboardingModel, _ state: AppState) async {
     await saveOnboardingAnswers(model, state)
@@ -634,7 +617,6 @@ func sendPickedZips(_ model: OnboardingModel, _ state: AppState) async {
     _ = await state.send(ask, to: "default")
 }
 
-/// The end of the onboarding, from What I Found or Connect Google.
 @MainActor
 func finishOnboarding(_ model: OnboardingModel, _ state: AppState) async {
     await sendPickedZips(model, state)
@@ -656,8 +638,6 @@ func finishOnboarding(_ model: OnboardingModel, _ state: AppState) async {
     state.finishOnboarding()
 }
 
-/// Sends the answers to the hub once the phone is connected (from Looking Around); the hub renames the lead Zip.
-/// Tried again when the onboarding finishes if it failed.
 @MainActor
 func saveOnboardingAnswers(_ model: OnboardingModel, _ state: AppState) async {
     guard !model.draft.saved, !model.rehearsal else { return }
@@ -671,8 +651,6 @@ func saveOnboardingAnswers(_ model: OnboardingModel, _ state: AppState) async {
     }
 }
 
-/// Plays a voice's sample: the recording bundled for it (Resources/VoiceSamples/<id>.m4a, made in the real call
-/// voice), or Apple's speech only if that file is missing. Says which voice is playing.
 @MainActor
 @Observable
 final class VoiceSampler: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
@@ -856,7 +834,6 @@ struct FoundScreen: View {
 
     private var native: Bool { HomeModel.shared.nativeAccounts }
 
-    /// A picked Zip reads mail or a calendar, and the home has neither yet.
     private var needsMail: Bool {
         let s = HomeModel.shared.settings
         let picked = model.templates.filter { model.picked.contains($0.id) }
@@ -933,7 +910,6 @@ struct FoundScreen: View {
         .onboardingCard(selected: on)
     }
 
-    /// The picked Zip's own questions, asked here so its first chat can start working.
     private func needsFields(_ t: ZipTemplate) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Divider()
@@ -992,8 +968,6 @@ struct FoundScreen: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    /// What this home can run, best first. In a home without connectors, a Zip that only waits on a mailbox or a
-    /// calendar is still offered, because the email step comes right after when it is picked.
     static func suggestions(_ all: [ZipTemplate], model: OnboardingModel, home: HomeSettings?) -> [ZipTemplate] {
         let native = home?.nativeAccounts == true
         let fixable: Set<String> = ["gmail", "calendar", "email"]
@@ -1043,7 +1017,6 @@ struct FoundScreen: View {
         Task { await finishOnboarding(model, state) }
     }
 
-    /// The picked Zips are asked for now, so the lead Zip builds them while the person connects Google.
     private func next() {
         finishing = true
         Task {
@@ -1054,7 +1027,6 @@ struct FoundScreen: View {
     }
 
     #if DEBUG
-    /// Fixture suggestions; -templates nogoogle leaves out the ones that use Google, for the path without Connect Google.
     static var sampleTemplates: [ZipTemplate] {
         let home = HomeModel.shared.settings
         if home?.nativeAccounts == true {

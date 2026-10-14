@@ -1,8 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// The Mac window, laid out like Grok Bot for Mac: a light gray sidebar with Search and New at the
-/// top, one row per bot, and Settings and Work at the bottom; the open chat fills the rest.
 struct MacHomeView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
@@ -15,7 +13,6 @@ struct MacHomeView: View {
     @State private var savingLogin = false
     @State private var pairingPhone = false
     @State private var connectingGoogle = false
-    /// Grok Bot's sidebar button hides the list so the chat gets the whole window; remembered between launches.
     @AppStorage("macSidebarShown") private var sidebarSaved = true
     /// What the window shows. An @AppStorage write reaches the view without the animation (Oct 10: the sidebar still
     /// jumped), so the slide runs on this and the choice is saved after.
@@ -27,8 +24,6 @@ struct MacHomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var topEdge: Edge.Set { fullScreen ? [] : .top }
     private static let sidebarWidth: CGFloat = 279
-    /// Where the one sidebar button sits: in the sidebar's header, left of Search and New, or, with the list hidden,
-    /// just right of the window's traffic lights. It slides between the two with the sidebar.
     private var toggleLeading: CGFloat {
         sidebarShown ? Self.sidebarWidth - 17 - 36 - 8 - 36 - 8 - 34 : (fullScreen ? 17 : 84)
     }
@@ -165,7 +160,6 @@ struct MacHomeView: View {
 
     // MARK: Sidebar
 
-    /// A plain icon, not a round button, like Grok Bot's.
     private var sidebarToggle: some View {
         Button {
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { sidebarShown.toggle() }
@@ -258,8 +252,6 @@ struct MacHomeView: View {
         }
     }
 
-    /// Grok Bot's round toolbar buttons: white, a hairline edge and a faint shadow.
-    /// A call sends the person's voice to the voice company, so it starts only after they have agreed.
     private func beginCall(_ id: String) {
         state.startCallIfAllowed { callingBot = id }
     }
@@ -274,7 +266,6 @@ struct MacHomeView: View {
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 
-    /// Only a new Zip: messaging, calling Zero and Work each have their own place already (Colin, Oct 10).
     private var newMenu: some View {
         Button { newZip = true } label: { roundIcon("plus") }
             .buttonStyle(.plain)
@@ -316,7 +307,6 @@ struct MacHomeView: View {
         }
     }
 
-    /// Taffy first, then everyone else by latest activity.
     private var sidebarBots: [Bot] {
         let all = state.botsByActivity
         return all.filter(\.isLead) + all.filter { !$0.isLead }
@@ -341,8 +331,6 @@ struct MacHomeView: View {
     // MARK: Window
 
 
-    /// Content runs under the title bar like Grok Bot's window, and the window can't shrink so far
-    /// that the sidebar and chat collide.
     /// AppKit's window notifications reach a Catalyst app's own notification center by name.
     private static let enteredFullScreen = Notification.Name("NSWindowDidEnterFullScreenNotification")
     private static let exitedFullScreen = Notification.Name("NSWindowDidExitFullScreenNotification")

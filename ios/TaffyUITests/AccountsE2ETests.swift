@@ -1,14 +1,5 @@
 import XCTest
 
-/// Accounts, end to end against a front door (alien/frontdoor): a stranger creates an account during the onboarding,
-/// which makes a brand-new home, walks the rest of the onboarding, logs out, signs back in with the username and
-/// password, and logs out again. Then the sign-in screen's pairing code option opens.
-///
-/// Run against the QA front door (prefix qa-, so its homes are zero-qa-*), through an ssh tunnel:
-///   ssh -f -N -L 18671:127.0.0.1:8671 alien
-///   TEST_RUNNER_ZERO_E2E_MODE=account TEST_RUNNER_ZERO_E2E_FRONTDOOR=http://127.0.0.1:18671 \
-///   TEST_RUNNER_ZERO_E2E_SHOTS=/tmp/zero-accounts-shots xcodebuild test ... -only-testing:TaffyUITests/AccountsE2ETests
-/// Delete the home afterwards: zero-account remove <username> --delete-home (on alien).
 final class AccountsE2ETests: XCTestCase {
     var app: XCUIApplication!
     var run: OnboardingRun!

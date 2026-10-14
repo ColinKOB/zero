@@ -4,18 +4,6 @@ import Observation
 import Speech
 import UIKit
 
-/// A voice call with one bot. Two voices can carry it:
-/// - ChatGPT's voice: audio goes straight to ChatGPT's realtime voice through RealtimeLink; the hub runs the voice,
-///   hands work to the bot and sends captions back here for the transcript.
-/// - On-Device Voice: this device listens and speaks (OnDeviceCall), and the hub writes the words, so a call costs
-///   nothing per minute. Used when chosen in Settings, and on its own when ChatGPT's voice is signed out, this
-///   month's voice minutes are used up, or ChatGPT's voice cannot start. Apple's built-in voice is never used.
-/// Both share this call screen, CallKit, the saved call and its summary.
-///
-/// How a call should feel (docs/qa/2026-10-09-fluid-voice.md, from what people said about Grok Bot and ChatGPT dots):
-/// a ringback tone while it connects (Colin likes it); an honest hello after a slow start;
-/// soft work sounds that never cover speech; the voice yields the moment the person talks; a phone call coming in
-/// pauses Zero, and holding for it pauses the call; a goodbye ends the call; one voice on every device.
 @MainActor
 @Observable
 final class CallEngine: NSObject {
@@ -32,72 +20,47 @@ final class CallEngine: NSObject {
             #endif
         }
     }
-    /// Calls start at the ear, like a phone call; the Speaker button switches to the loudspeaker at any time,
-    /// even while the call is still connecting.
     var speaker = false {
         didSet { if !fromSystem { RealtimeLink.setSpeaker(speaker) } }
     }
-    /// On hold for a phone call Colin answered (CallKit), or interrupted by Siri or an alarm.
     var held = false
-    /// A phone call is ringing: Zero goes quiet and keeps its news until the ringing stops (#27).
     @ObservationIgnored private var ringing: Set<UUID> = []
     @ObservationIgnored private var awaySent = false
-    /// Where the voice is playing: nil for the phone itself (earpiece or speaker), else the device's name,
-    /// such as AirPods or the car.
     var externalRoute: String?
     @ObservationIgnored private var fromSystem = false
-    /// Everything said in this call, for the transcript.
     var transcript: [(who: String, text: String)] = []
 
     let botID: String
     private let state: AppState
     @ObservationIgnored private var link: RealtimeLink?
-    /// The conversation when the On-Device Voice carries the call.
     @ObservationIgnored private var local: OnDeviceCall?
-    /// Which voice carries the call, once it is known: "chatgpt" or "on-device".
     var voiceEngine: String?
-    /// While the On-Device Voice loads for this call (downloading the first time): how far along, and what it is doing.
     var preparing: (progress: Double, detail: String)?
-    /// The call that is on (or starting) now. One tap can build the call screen twice (Oct 10: two engines started
-    /// within 20 ms, and the second took the first one's system call for a phone call), so a new screen for the same
-    /// Zip joins this call instead of starting another.
     static weak var current: CallEngine?
-    /// How many call screens show this call. When the last one goes and no new one joins, the call ends.
     @ObservationIgnored var screens = 0
-    /// When the call connected, so a screen that joins later shows the right running time.
     var connectedAt: Date?
     var isOver: Bool {
         if case .failed = phase { return true }
         return phase == .ended
     }
-    /// CallKit (or the app itself) has activated the audio session.
     @ObservationIgnored private var audioActive = false
     @ObservationIgnored private var callID: String?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var micTask: Task<Void, Never>?
-    /// Soft work sounds (CallCues.swift) for the ChatGPT voice while work runs. Connecting uses the ringback below.
     @ObservationIgnored private let cuePlayer = CuePlayer()
     @ObservationIgnored private var cueGate = CueGate()
     @ObservationIgnored private var connectingTask: Task<Void, Never>?
-    /// Ends the call once the voice has said goodbye back (a `hangup` event from the hub).
     @ObservationIgnored private var hangupTask: Task<Void, Never>?
-    /// The ChatGPT voice is turned down because the person started talking over it.
     @ObservationIgnored private var yielded = false
-    /// Message types seen on the realtime data channel, saved once at the end of the call.
     @ObservationIgnored private var channelTypes: [String: Int] = [:]
     @ObservationIgnored private var backgroundObservers: [NSObjectProtocol] = []
-    /// The app's own events for this call (CallKit or not, audio routes, interruptions, timings), sent to the
-    /// hub and saved with the call when Save Call Transcripts is on (hub/taffy_hub/calllog.py).
     @ObservationIgnored private var diagnostics: [[String: Any]] = []
     @ObservationIgnored private let startedAt = Date()
-    /// The hub's id for this call once it has one; kept after the call ends so late events still go with it.
     @ObservationIgnored private var hubCallID: String?
-    /// Used when the call never reached the hub, so its failure is still saved.
     @ObservationIgnored private let localID = "app-" + UUID().uuidString.lowercased()
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private var sawCaption = false
     @ObservationIgnored private var finished = false
-    /// The hub is still being asked for the call: finishing waits for its id, so the app's events join its call.
     @ObservationIgnored private var awaitingHub = false
 
     init(state: AppState, botID: String) {
@@ -285,7 +248,6 @@ final class CallEngine: NSObject {
         endFromSystem(by: by)
     }
 
-    /// Stops everything that plays or records in the call, so the audio session can be released after it.
     private func stopAudio() {
         stopConnectingSounds()
         cuePlayer.stop()
@@ -304,7 +266,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// The system ended the call (the red button on the lock screen, CarPlay, AirPods, Bluetooth).
     func endFromSystem(by: String = "system") {
         if !finished {
             if !channelTypes.isEmpty {
@@ -328,8 +289,6 @@ final class CallEngine: NSObject {
         finishDiagnostics()
     }
 
-    /// Any failure: the screen says why, the system call ends (no live call left in the Dynamic Island or
-    /// CarPlay), the audio stops, and the hub is told.
     private func fail(_ text: String, problem: Bool = true) {
         note(problem ? "failed" : "ended", ["text": text, "ms": msSinceStart])
         stopAudio()
@@ -341,7 +300,6 @@ final class CallEngine: NSObject {
         finishDiagnostics()
     }
 
-    /// Ends the system call and hands the audio session back. Call it after the audio has stopped (stopAudio).
     private func endSystemCall(failed: Bool) {
         #if !targetEnvironment(macCatalyst)
         CallKitBridge.shared.end(failed: failed)
@@ -352,14 +310,11 @@ final class CallEngine: NSObject {
 
     // MARK: Told by CallKit
 
-    /// CallKit activated the audio session: the connecting sounds may play now, through the route the call will use.
     func audioReady() {
         audioActive = true
         if phase == .calling { startConnectingSounds() }
     }
 
-    /// Rings while the call connects, until the voice says hello. Colin likes the ring (Oct 9), so it stays even
-    /// though some dots users disliked waiting through rings (#16, #17); a slow start still gets an honest hello.
     @ObservationIgnored private let ringback = Ringback()
 
     private func startConnectingSounds() {
@@ -378,8 +333,6 @@ final class CallEngine: NSObject {
         fromSystem = false
     }
 
-    /// Hold for a phone call (or an interruption): the mic is off and the hub keeps news until he is back. A call
-    /// left on hold ends by itself after a while, with its summary in the chat as usual.
     func setHeld(_ h: Bool) {
         if h != held { note("hold", ["on": h]) }
         held = h
@@ -396,8 +349,6 @@ final class CallEngine: NSObject {
         #endif
     }
 
-    /// A phone call (not one of Zero's) started or stopped ringing. While it rings Zero goes quiet and keeps its news,
-    /// so the person can hear it and choose (#27: "the dot continues speaking during the call").
     func phoneCallRinging(_ id: UUID, ringing on: Bool) {
         let before = !ringing.isEmpty
         if on { ringing.insert(id) } else { ringing.remove(id) }
@@ -406,7 +357,6 @@ final class CallEngine: NSObject {
         applyPause()
     }
 
-    /// Hold or ringing: the voice goes quiet, the hub keeps news, and a held call's mic is off.
     private func applyPause() {
         let paused = held || !ringing.isEmpty
         link?.micEnabled = !muted && !held
@@ -490,9 +440,7 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// How long a call may stay on hold for an interruption (Siri, an alarm, a phone call) before it ends.
     private static let holdLimit: Duration = .seconds(180)
-    /// A CallKit call on hold for a phone call (the system resumes it when that call ends) ends after this long.
     private static let callKitHoldLimit: Duration = .seconds(15 * 60)
     @ObservationIgnored private var heldTimeout: Task<Void, Never>?
 
@@ -528,7 +476,6 @@ final class CallEngine: NSObject {
         #endif
     }
 
-    /// The route as saved with the call: where the voice plays and where the mic listens.
     private func noteRoute(reason: String) {
         let route = AVAudioSession.sharedInstance().currentRoute
         var info: [String: Any] = ["reason": reason]
@@ -551,7 +498,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// The Speaker button follows where the audio really goes; AirPods or the car show by name instead.
     private func readRoute() {
         let out = AVAudioSession.sharedInstance().currentRoute.outputs.first
         let external: Set<AVAudioSession.Port> = [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE, .carAudio, .headphones,
@@ -563,7 +509,6 @@ final class CallEngine: NSObject {
         updateProximity()
     }
 
-    /// At the ear (earpiece, connected) the screen turns off so a cheek can't press Mute or End.
     private func updateProximity() {
         #if !targetEnvironment(macCatalyst)
         let atEar = phase == .listening && !speaker && externalRoute == nil
@@ -581,8 +526,6 @@ final class CallEngine: NSObject {
         callID = nil
     }
 
-    /// Captions from the hub. A dropped stream reconnects (the hub keeps what it has not sent yet); only a
-    /// stream that keeps failing while the audio is fine is shown as a problem.
     private func followEvents() {
         guard let callID else { return }
         let client = state.client
@@ -610,17 +553,11 @@ final class CallEngine: NSObject {
     /// The ChatGPT voice's volume while the person talks over it: it yields at once, before ChatGPT's own turn
     /// detection stops it a moment later (#32, #37).
     static let yieldVolume = 0.2
-    /// Mic levels that count as the person, by route: the loudspeaker leaks more of the voice back.
     private var talkLevel: Float { speaker ? 0.07 : 0.04 }
 
-    /// Every 100 ms, from the call's levels: tells the hub when Colin starts and stops talking, so news waits for a
-    /// real pause (repeated every 2 s while he talks; the hub forgets it after 3 s; muting counts as not talking);
-    /// turns the voice down the moment he talks over it; and plays waiting work sounds only into silence, with the
-    /// mic closed for the sound so it is never heard as him.
     private func watchMic() {
         guard micTask == nil, let link, let callID else { return }
         let client = state.client
-        /// What the hub was last told; sends run beside the loop so a slow network never delays a yield.
         @MainActor final class Told { var talking = false; var at = Date.distantPast; var sending = false }
         let told = Told()
         micTask = Task { [weak self] in
@@ -668,8 +605,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// Plays a work sound for the ChatGPT voice. The mic is closed while it plays, so ChatGPT never hears it as the
-    /// person; it opens again right after.
     private func playCue(_ e: Earcon, on link: RealtimeLink) {
         link.micEnabled = false
         cuePlayer.play(e)
@@ -681,8 +616,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// The voice said goodbye back (a `hangup` event): the call ends once the voice has finished and nobody is
-    /// talking. If the person says something first, the call goes on.
     private func endAfterGoodbye() {
         guard hangupTask == nil, phase == .listening else { return }
         note("goodbye_heard")
@@ -716,7 +649,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// Returns true when the call is over.
     private func handle(_ ev: HubClient.VoiceEvent, botName: String) -> Bool {
         let text = (ev.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if ev.role == "assistant" || ev.type == "error" || ev.type == "closed" { stopConnectingSounds() }
@@ -753,8 +685,6 @@ final class CallEngine: NSObject {
 
     // MARK: On-Device Voice
 
-    /// Why this call should use the On-Device Voice, or nil for ChatGPT's voice: chosen in Settings, or ChatGPT's
-    /// voice is signed out or this month's minutes are used up (the hub says which).
     private func onDeviceReason(_ asked: Task<HubClient.VoiceEngines?, Never>?) async -> String? {
         guard OnDeviceVoice.supported else { return nil }
         if state.callEngine == AppState.onDeviceEngine { return "chosen" }
@@ -765,8 +695,6 @@ final class CallEngine: NSObject {
         return chat.reason ?? "unavailable"
     }
 
-    /// The call in the On-Device Voice: the voice loads if it is not loaded yet (the call screen shows the
-    /// download the first time), the hub opens the call, and the greeting plays at once.
     private func startOnDevice(reason: String) async {
         voiceEngine = "on-device"
         let store = OnDeviceVoice.shared
@@ -871,7 +799,6 @@ final class CallEngine: NSObject {
 
     private var msSinceStart: Int { Int(Date().timeIntervalSince(startedAt) * 1000) }
 
-    /// Adds one of the app's events to this call's saved record. Values must be strings, numbers or booleans.
     func note(_ event: String, _ fields: [String: Any] = [:]) {
         guard state.saveCallTranscripts, !finished else { return }
         var e = fields
@@ -887,7 +814,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// Sends what is waiting: to the hub's call, or under the app's own id when the call never reached the hub.
     private func flushDiagnostics(final: Bool) {
         guard let target = hubCallID ?? (final ? localID : nil) else { return }
         let client = state.client
@@ -899,7 +825,6 @@ final class CallEngine: NSObject {
         }
     }
 
-    /// The call is over: everything left goes now, and nothing more is collected.
     private func finishDiagnostics() {
         guard !finished, !awaitingHub else { return }
         flushTask?.cancel()
@@ -908,6 +833,5 @@ final class CallEngine: NSObject {
         finished = true
     }
 
-    /// ChatGPT's voices for calls on a ChatGPT plan.
     nonisolated static let chatGPTVoices = ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "arbor", "sol"]
 }

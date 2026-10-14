@@ -9,14 +9,9 @@ import Observation
 final class MacEngine {
     static let shared = MacEngine()
 
-    /// The Mac setup screens are on screen instead of the sign-in or onboarding. They show on a Mac that has no
-    /// home yet, until the person sets Zero up here or chooses to connect to another home.
     var setupShowing: Bool = Theme.onMac && !UserDefaults.standard.bool(forKey: MacEngine.otherHomeKey)
 
-    /// This app is connected to the engine on this Mac (not to another home): Settings shows Pair a Phone or Mac and
-    /// Remove Zero From This Mac.
     var isLocalHome: Bool { UserDefaults.standard.bool(forKey: Self.localKey) }
-    /// The person still has to pair their phone (shown once after the onboarding).
     var phonePending: Bool {
         get { UserDefaults.standard.bool(forKey: Self.phoneKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.phoneKey) }
@@ -34,8 +29,6 @@ final class MacEngine {
     var step = 0
     var total = 8
 
-    /// Runs the installer and follows its progress lines. Safe to run again after a failure: every step checks
-    /// what is already there.
     func install() async -> Bool {
         phase = .working
         stepText = "Getting ready."
@@ -77,13 +70,10 @@ final class MacEngine {
     }
 
     var ai: AIStatus?
-    /// DEBUG screenshots (MacSetupView.debugScreen): the sample answers stay and nothing is asked of the engine.
     var debugSample = false
 
     struct Status: Decodable { let installed: Bool; let running: Bool }
 
-    /// Whether the engine is set up and answering, so a setup that was interrupted after the install goes straight
-    /// on to the sign-in.
     func status() async -> Status? {
         let r = await run("status")
         return Self.lastJSON(r.output).flatMap { try? JSONDecoder().decode(Status.self, from: $0) }
@@ -96,7 +86,6 @@ final class MacEngine {
         return status
     }
 
-    /// Points the Zips at whichever plan is signed in now and restarts them.
     func configureAI() async -> Bool { await run("configure-ai").code == 0 }
 
     struct Pairing: Decodable {
@@ -109,14 +98,11 @@ final class MacEngine {
         var firewall: Bool?
     }
 
-    /// A one-time pairing code from the engine, with the local address (for this app) and the Wi-Fi address (for
-    /// the phone).
     func pairing(minutes: Int = 15) async -> Pairing? {
         let r = await run("pair", args: [String(minutes)])
         return Self.lastJSON(r.output).flatMap { try? JSONDecoder().decode(Pairing.self, from: $0) }
     }
 
-    /// Connects this app to the engine on this Mac, the same way a phone pairs.
     func connectApp(_ state: AppState) async -> String? {
         guard let p = await pairing(minutes: 10) else { return "Zero is set up but did not answer. Try again." }
         await state.pair(code: p.code, server: p.local)
@@ -127,22 +113,15 @@ final class MacEngine {
         return nil
     }
 
-    /// After the onboarding: the lead's instructions name the person it met (no restart).
     func refreshSoul() async { _ = await run("soul") }
 
     // MARK: Signing in without Terminal
 
-    /// Where a sign-in is: getting Claude Code or Codex onto this Mac, then waiting for the person to sign in on the
-    /// page the engine opened in their browser.
     enum SignIn: Equatable { case idle, preparing(String), waiting, failed(String) }
     var signIn: SignIn = .idle
-    /// "claude" or "codex", while a sign-in runs.
     var signingIn: String?
-    /// The sign-in page, so the person can open it again if they closed the tab.
     var signInPage: URL?
 
-    /// Gets the tool with its official installer if it is missing, then runs its own sign-in in the browser
-    /// (zero-engine sign-in). True once signed in. Ends any other sign-in first.
     func signIn(with tool: String) async -> Bool {
         if signingIn != nil { await stopSignIn() }
         signingIn = tool
@@ -170,7 +149,6 @@ final class MacEngine {
         return false
     }
 
-    /// Ends a sign-in that is still waiting.
     func stopSignIn() async {
         signingIn = nil
         signInPage = nil
@@ -180,7 +158,6 @@ final class MacEngine {
 
     // MARK: Remove
 
-    /// Stops the engine, removes it, and removes the person's data too when `keepData` is false.
     func remove(keepData: Bool, state: AppState) async -> Bool {
         let r = await run("uninstall", args: [keepData ? "--keep-data" : "--delete-data"])
         guard r.code == 0 else { return false }
@@ -215,7 +192,6 @@ final class MacEngine {
         }
     }
 
-    /// The last line of the output that is a JSON object (the engine prints one for status, ai-status and pair).
     static func lastJSON(_ output: String) -> Data? {
         output.split(separator: "\n").reversed().first { $0.hasPrefix("{") }.map { Data($0.utf8) }
     }

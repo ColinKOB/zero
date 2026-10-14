@@ -8,18 +8,13 @@ enum AIConsentChoice: String {
     case unasked, agreed, declined
 }
 
-/// One company that receives what the person says or what their Zips read, and why.
 struct AIProvider: Identifiable, Equatable {
     let id: String
     let company: String
     let sent: String
 }
 
-/// What is sent, and to whom, worded from the person's own setup. Pure, so it is easy to check.
 enum AIDataSharing {
-    /// `plan` is what the hub reports for the Zips: "claude", "chatgpt", "both" or "none". nil or "none" means it is not
-    /// known yet (not connected, or a computer without a plan), so both companies are named with "if". `googleVoice` is
-    /// true once the person has saved a Google key for the free voice.
     static func providers(plan: String?, googleVoice: Bool, owner: String? = nil) -> [AIProvider] {
         if plan == "shared" {
             let who = owner.map { "a Claude plan that \($0) shares with you" } ?? "a Claude plan shared with you"
@@ -59,8 +54,6 @@ enum AIDataSharing {
     static let closing = "Zero does not receive any of this. Each company handles it under its own terms and the settings of your own account with it."
     static let sharedClosing = "Zero does not receive any of this. Each company handles it under its own terms and the settings of the account the plan belongs to."
 
-    /// The first sentence of the consent screen, the sheet and Settings. `speaker` is "I" for the agent on the
-    /// onboarding and "Zero" elsewhere.
     static func intro(owner: String?, shared: Bool, speaker: String, settings: Bool = false, server: Bool = false) -> String {
         let uses = speaker == "I" ? "I use" : "\(speaker) uses"
         let plan = shared ? (owner.map { "a Claude and ChatGPT plan that \($0) shares with you" } ?? "a Claude and ChatGPT plan shared with you")
@@ -71,7 +64,6 @@ enum AIDataSharing {
 }
 
 extension AppState {
-    /// Saves the answer. Not Now also turns off Zero's questions, because those read your mail and send it for thinking.
     func setAIConsent(_ choice: AIConsentChoice) {
         aiConsent = choice
         if choice == .declined, proactivity?.enabled == true {
@@ -79,15 +71,12 @@ extension AppState {
         }
     }
 
-    /// True when the person has agreed. Otherwise shows the consent sheet and waits for Agree or Not Now. The sample
-    /// home sends nothing anywhere, so it never asks.
     func ensureAIConsent() async -> Bool {
         if demoMode || aiConsent == .agreed { return true }
         aiConsentSheet = true
         return await withCheckedContinuation { consentWaiters.append($0) }
     }
 
-    /// The sheet's two buttons.
     func resolveAIConsent(_ agreed: Bool) {
         setAIConsent(agreed ? .agreed : .declined)
         aiConsentSheet = false
@@ -96,7 +85,6 @@ extension AppState {
         for w in waiting { w.resume(returning: agreed) }
     }
 
-    /// A message that was not sent because the person said Not Now goes back in the box with a plain note.
     func putBack(_ text: String, to bot: String) {
         let current = (drafts[bot] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !current.contains(text) { drafts[bot] = current.isEmpty ? text : current + "\n\n" + text }
@@ -106,7 +94,6 @@ extension AppState {
             date: Date()))
     }
 
-    /// Starts a call once the person has agreed. A call sends the person's voice to the voice company.
     func startCallIfAllowed(_ start: @escaping () -> Void) {
         Task {
             if await ensureAIConsent() { start() }
@@ -114,10 +101,8 @@ extension AppState {
     }
 }
 
-/// The company rows and the closing line, shared by the onboarding screen, the sheet and Settings.
 struct AIConsentBody: View {
     let providers: [AIProvider]
-    /// The onboarding and the sheet are always light on white; Settings follows the app's own colors.
     var plain = true
 
     var body: some View {
@@ -141,7 +126,6 @@ struct AIConsentBody: View {
     }
 }
 
-/// The company rows for this person: the plan the hub reports, and whether a Google key is saved.
 struct AIConsentProviders {
     @MainActor static func current() -> [AIProvider] {
         let home = HomeModel.shared
@@ -150,7 +134,6 @@ struct AIConsentProviders {
     }
 }
 
-/// Shown when something needs to send data and the person has not agreed: a message, a call, or Zero's questions.
 struct AIConsentSheet: View {
     @Environment(AppState.self) private var state
 
@@ -192,7 +175,6 @@ struct AIConsentSheet: View {
     }
 }
 
-/// Settings, AI Data Sharing: what is sent and to whom, the current answer, and a way to change it.
 struct AIDataSharingView: View {
     @Environment(AppState.self) private var state
 

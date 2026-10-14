@@ -1,10 +1,6 @@
 import SwiftUI
 import UserNotifications
 
-/// Keeps what the Notification Service Extension needs to show a notification as a message from a Zip (Oct 10): each
-/// Zip's name and color, and its avatar drawn once as a picture, in the App Group container (PushShared/ZipNotify.swift).
-/// Runs whenever the Zips load; a picture is drawn again only when that Zip's look, color or the Simple Look setting
-/// changed. Also registers each Zip's Reply category, whose hidden preview says who it is from.
 @MainActor
 enum NotificationZips {
     private static var drawn: [String: String] = [:]
@@ -53,9 +49,6 @@ struct AvatarTile: View {
     }
 }
 
-/// Settings, under Alerts: a one-time hint while notification previews show on a locked iPhone. Notifications now
-/// name things like a bill and its amount (Colin, Oct 10: "Bill names and amounts should be on the lock screen once
-/// you sign in with Face ID"), so this says how to keep them hidden until Face ID, with a button to the setting.
 struct LockScreenPrivacySection: View {
     /// The app's Show Previews setting, read by the screen that holds this section (`previewsSetting`); an empty
     /// section has no view to run a task on.

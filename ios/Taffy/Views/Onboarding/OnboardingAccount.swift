@@ -16,7 +16,6 @@ struct AccountScreen: View {
 
     enum Field { case username, password }
 
-    /// A home is being made for this sign-up.
     private var building: Bool { model.draft.signUpJob != nil || done }
     private var formReady: Bool {
         username.trimmingCharacters(in: .whitespaces).count >= 3 && password.count >= 8
@@ -103,7 +102,6 @@ struct AccountScreen: View {
     // MARK: While the home is made
 
     private var needsPassword: Bool { building && model.draft.signUpReady == true && passwordMissing && !done }
-    /// The app was closed while the home was made, so the password is gone from memory and is asked for again.
     @State private var passwordMissing = false
 
     private var progress: some View {
@@ -149,7 +147,6 @@ struct AccountScreen: View {
         return s < 60 ? "Working on it" : "\(s / 60) min \(s % 60) s so far"
     }
 
-    /// What is happening, in the agent's name. The service's own sentence is used only for a step this build does not know.
     private var stepText: String {
         let name = model.agentName
         switch step {
@@ -189,7 +186,6 @@ struct AccountScreen: View {
         }
     }
 
-    /// Checks the sign-up every few seconds until the home is ready, then signs in.
     private func watch() async {
         guard let job = model.draft.signUpJob else { return }
         if password.isEmpty { passwordMissing = true }

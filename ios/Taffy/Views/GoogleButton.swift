@@ -55,7 +55,6 @@ struct GoogleSignInButton: View {
         .accessibilityLabel(busy ? "Waiting for Google" : title)
     }
 
-    /// Google Sans at its Medium weight (the variable font's wght axis at 500).
     static func googleSans(_ size: CGFloat) -> Font {
         guard UIFont(name: "GoogleSans-Regular", size: size) != nil else {
             return .system(size: size, weight: .medium)

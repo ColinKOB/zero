@@ -7,13 +7,10 @@ private let timebase: mach_timebase_info_data_t = {
     return info
 }()
 
-/// Seconds on the host clock, the clock audio timestamps use.
 func hostSeconds(_ t: UInt64) -> Double { Double(t) * Double(timebase.numer) / Double(timebase.denom) / 1e9 }
 func hostNow() -> Double { hostSeconds(mach_absolute_time()) }
 
-/// Where a reply's audio goes: the call's player, or the bench's stand-in.
 protocol VoiceOutput: AnyObject {
-    /// Queues samples (24 kHz mono) after whatever is queued. Returns when they start and end on the host clock.
     func schedule(_ samples: [Float]) -> (start: Double, end: Double)
     var playEndHost: Double { get }
     var outputDelay: Double { get }
@@ -39,7 +36,6 @@ final class ReplySpeaker {
         var trail: Double { Double(gate.trailMs) / 1000 }
     }
 
-    /// Playback of a sentence starts once this much of it is made, so one slow frame does not stop the sound.
     static let prebuffer = 0.3
 
     private let engine: PocketVoiceEngine?
@@ -73,7 +69,6 @@ final class ReplySpeaker {
         task = Task { [weak self] in await self?.run() }
     }
 
-    /// Audio made earlier (the greeting take): it plays on `release()`.
     init(output: VoiceOutput, voice: OnDeviceVoiceName, prerendered samples: [Float], text: String) {
         engine = nil
         self.output = output
@@ -194,7 +189,6 @@ final class ReplySpeaker {
         }
     }
 
-    /// Schedules a sentence's first audio after the matched pause.
     private func start(_ idx: Int, _ samples: [Float]) {
         var pad = 0.0
         if idx > 0, segments[idx - 1].started {
@@ -214,7 +208,6 @@ final class ReplySpeaker {
         }
     }
 
-    /// The turn is confirmed: everything made so far plays, and the rest plays as it is made.
     func release() {
         guard !released, !cancelled else { return }
         released = true
@@ -234,20 +227,16 @@ final class ReplySpeaker {
 
     // MARK: State
 
-    /// Everything has been made and has finished playing.
     var finished: Bool {
         synthDone && !output.isPlaying && segments.allSatisfy { $0.held.isEmpty && $0.buffer.isEmpty }
     }
 
-    /// The words the person actually heard before `t`, for the history after an interruption.
     func spokenText(before t: Double) -> String {
         played.filter { $0.start < t }.map(\.text).joined(separator: " ")
     }
 
-    /// Every word the reply has so far, for telling the voice's own echo from the person.
     var scheduledText: String { segments.map(\.sentence.text).joined(separator: " ") }
 
-    /// Seconds of speech made per second of work. Under 1 is slower than real time.
     var realTimeFactor: Double? {
         let work = segments.reduce(0.0) { acc, s in
             guard let a = s.genStart, let b = s.genEnd, b > a else { return acc }

@@ -15,12 +15,9 @@ final class MacLink {
     private var running = false
     private var connectedAt: Date?
 
-    /// Told when the hub refuses this Mac because another paired device is set as the Mac bots use.
     var onRefused: (() -> Void)?
-    /// The paired person's first name, for the bridge's words to the bot ("Sam has to allow it once").
     private var person = ""
 
-    /// Sets the name the bridge uses in its messages: from the home's settings, or the name kept at onboarding.
     func setPerson(_ name: String) {
         person = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard bridge != nil, !person.isEmpty else { return }
@@ -35,7 +32,6 @@ final class MacLink {
         connect()
     }
 
-    /// Log Out: the link closes and stays closed until a home is opened again.
     func stop() {
         guard running else { return }
         running = false
@@ -164,8 +160,6 @@ final class MacLink {
         }
     }
 
-    /// Starts or stops Wispr Flow's hands-free dictation for the composer's mic button. Nil when it worked,
-    /// otherwise what to tell Colin.
     func wisprFlow(start: Bool) async -> String? {
         guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge() else { return "Dictation isn't available right now." }
         return await withCheckedContinuation { c in
@@ -175,9 +169,6 @@ final class MacLink {
         }
     }
 
-    /// Starts, resumes or stops the guided voice setup in the Mac bridge (VoiceGuide.swift). This uses its own
-    /// selector, not `handle:reply:`, so nothing from the hub can reach it, and the key it returns stays in this
-    /// process. False when the bridge can't load (on the iPhone, or a damaged install).
     @discardableResult
     func voiceGuide(_ command: [String: Any], events: @escaping ([String: Any]) -> Void) -> Bool {
         guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge(), let bridge else { return false }
@@ -189,9 +180,6 @@ final class MacLink {
         return true
     }
 
-    /// Opens, resumes or reads the permission guide in the Mac bridge (PermissionGuide.swift): Accessibility, Screen
-    /// Recording and Full Disk Access, one step at a time. `events` gets `{type: "status", status: {step: Bool}}`
-    /// now and whenever a step changes. Its own selector, like the voice guide, so the hub cannot reach it.
     @discardableResult
     func permissionGuide(_ command: [String: Any], events: @escaping ([String: Any]) -> Void = { _ in }) -> Bool {
         guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge(), let bridge else { return false }
@@ -203,16 +191,11 @@ final class MacLink {
         return true
     }
 
-    /// Once at launch on the Mac: offers to move Zero into Applications when it was opened from the disk image,
-    /// Downloads or the Desktop, before anything is set up from the wrong copy (TaffyMacBridge+Move.swift).
     func offerMoveToApplications() {
         guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge(), let bridge else { return }
         _ = bridge.perform(NSSelectorFromString("offerMoveToApplications"))
     }
 
-    /// Runs a command of Zero's engine installer in the Mac bridge (TaffyMacBridge+Engine.swift): install, status,
-    /// ai-status, configure-ai, pair, uninstall, or "terminal" to open Terminal. Its own selector, so the hub cannot
-    /// reach it. `events` gets each printed line and then the exit. False when the bridge can't load.
     @discardableResult
     func engine(_ command: [String: Any], events: @escaping ([String: Any]) -> Void) -> Bool {
         guard ProcessInfo.processInfo.isMacCatalystApp, loadBridge(), let bridge else { return false }

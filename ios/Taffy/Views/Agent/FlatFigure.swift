@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// One flat body: its filled parts (most have one; the mushroom has a stem and a cap) and where its eyes sit.
 struct FlatArt {
     let name: String
     let eyes: CGPoint
@@ -11,19 +10,15 @@ struct FlatArt {
     }
 }
 
-/// A filled region: outline and holes as flat x, y lists in shares of the square.
 struct FlatPart {
     let color: String
     let outline: [CGFloat]
     let holes: [[CGFloat]]
 }
 
-/// A closed outline drawn as a smooth curve through the traced points (holes cut out with the even-odd rule).
 struct FlatOutline: Shape {
     let part: FlatPart
 
-    /// How far each curve reaches toward its neighbors: a little under a Catmull-Rom spline's 0.5, so tight corners
-    /// (the plus, the gem) stay crisp instead of overshooting.
     private static let tension: CGFloat = 0.36
 
     func path(in rect: CGRect) -> Path {
@@ -51,24 +46,18 @@ struct FlatOutline: Shape {
     }
 }
 
-/// How a flat Zip's eyes look right now.
 struct FlatEyesState: Equatable {
     var closed = false
     var gaze = CGSize.zero
     var squash: CGFloat = 1
 }
 
-/// A flat Zip at `size` points square: its shape and its eyes.
 struct FlatFigure: View {
     let art: FlatArt
     let size: CGFloat
     var eyes = FlatEyesState()
 
-    /// Small flat Zips get eyes a little larger than their drawn share, so a list row or header still has a
-    /// readable face. The floor grows with the Zip (about 6 points tall at 56, 4.6 at 34, 3.6 at 18), so a smaller
-    /// Zip still has smaller eyes (Colin, Oct 9: the list and the header looked the same).
     private var wantedScale: CGFloat { max(1, (2.4 + 0.065 * size) / (FlatArt.eyeSize.height * size)) }
-    /// Where the eyes sit and how much they are enlarged, worked out once per body and size (FlatEyeFit).
     private var fit: FlatEyeFit.Result { FlatEyeFit.result(for: art, size: size, wanted: wantedScale) }
     private var eyeScale: CGFloat { fit.scale }
 
@@ -102,7 +91,6 @@ struct FlatFigure: View {
     }
 }
 
-/// A gentle upward curve (like ^, rounded), for closed happy eyes.
 private struct UpwardArc: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
@@ -112,7 +100,6 @@ private struct UpwardArc: Shape {
     }
 }
 
-/// A body's small picture for the carousel: the plush picture, or the flat shape drawn.
 struct BodyThumb: View {
     let body_: AgentBody
     let size: CGFloat
@@ -131,9 +118,6 @@ struct BodyThumb: View {
     }
 }
 
-/// Enlarged eyes at small sizes poked past the edge of bodies whose eyes sit near it (the bean's top in the chat
-/// header, Oct 9). This finds the spot nearest the drawn eyes where both enlarged eyes fit inside the body with a
-/// little room, and if none does, enlarges them a little less until they fit. Results are kept per body and size.
 @MainActor
 enum FlatEyeFit {
     struct Result { let center: CGPoint; let scale: CGFloat }

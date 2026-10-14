@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// A small centered line in a Zip's chat, like Grok Bot's "Created routine" and "Updated memory for": a quiet gray
-/// caption (the same look as NoteLine) with the routine's clock or the Zip's own color beside the name.
 struct EventLine: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -30,7 +28,6 @@ struct EventLine: View {
     }
 }
 
-/// A Zip's name beside a dot in its own color, on a pale wash of that color.
 struct ZipChip: View {
     let bot: Bot?
     @Environment(\.colorScheme) private var scheme
@@ -48,8 +45,6 @@ struct ZipChip: View {
     }
 }
 
-/// Zips waiting on a teammate's answer: their avatars overlap, then "Pinging Money..." with dots that pulse, until
-/// the answer arrives in the chat.
 struct PingChip: View {
     @Environment(AppState.self) private var state
     let ping: PingInfo

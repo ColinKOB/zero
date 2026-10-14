@@ -1,19 +1,10 @@
 import SwiftUI
 
-/// Connect Google (or Trello, or another connector such as Notion): what the Zips can do with each account, a button
-/// that opens the Connectors page of the person's Claude account (or the Apps page of their ChatGPT account, when
-/// that is the only plan they have), plain steps, and rows that turn green as soon as the hub sees the connection.
-/// The person connects in Claude or ChatGPT, never in Zero, so Zero never sees a Google password
-/// (docs/specs/2026-10-08-google-connect-design.md, docs/qa/2026-10-08-google-connect-v2.md).
-///
-/// DEBUG: `-open connect` (or `-open connect trello`, `-open connect notion`) shows it from Home; `-accounts <variant>`
-/// sets the fixture status (none, partial, all, expired, signedout, chatgpt).
 struct ConnectAccountsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     let group: AccountGroup
-    /// Shown as a sheet (from a Zip's card or onboarding): adds Done.
     var modal = false
     private var model: AccountsModel { AccountsModel.shared }
 
@@ -21,10 +12,8 @@ struct ConnectAccountsView: View {
     private var done: Bool { status?.allConnected(group) ?? false }
     private var account: String { status?.claude.account ?? "" }
     private var names: String { ConnectAccountsView.list(group.uses.map(\.name)) }
-    /// Where the person connects this group: "Claude", or "ChatGPT" when that is their only plan.
     private var plan: String { status?.planName(for: group) ?? "Claude" }
     private var onChatGPT: Bool { plan == "ChatGPT" }
-    /// Only a ChatGPT plan, and this account works through Claude only for now (Trello, or a Claude connector).
     private var needsClaude: Bool { (status?.chatGPTOnly ?? false) && !group.chatGPTWorks }
 
     var body: some View {
@@ -340,7 +329,6 @@ struct ConnectAccountsView: View {
     }
 }
 
-/// One account and its live status: green when the Zips can use it.
 struct AccountRow: View {
     let use: AccountGroup.Use
     let service: AccountsStatus.Service?
@@ -369,7 +357,6 @@ struct AccountRow: View {
 }
 
 struct AccountPill: View {
-    /// nil while the first check runs.
     let state: String?
 
     var body: some View {
@@ -405,8 +392,6 @@ struct AccountPill: View {
 
 // MARK: Settings
 
-/// Settings' Connected Accounts section: Google and Trello for everyone, then every other connector on the person's
-/// Claude account (Notion, Slack and so on), each opening its Connect flow.
 struct ConnectedAccountsSection: View {
     @Environment(AppState.self) private var state
 
@@ -456,9 +441,6 @@ struct ConnectedAccountsSection: View {
 
 // MARK: The card a Zip raises in its chat
 
-/// A Zip needs an account that isn't connected: instead of failing quietly it asks with this card, which opens
-/// Connect Google (or Connect Trello). The card closes by itself once the account is connected, and the Zip
-/// picks its work back up.
 struct AccountAskCard: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -472,7 +454,6 @@ struct AccountAskCard: View {
     private var plan: String { AccountsModel.shared.status?.planName(for: group) ?? "Claude" }
     private var serviceName: String { message.label ?? group.provider }
     private var symbol: String { group.uses.first { $0.id == serviceID }?.symbol ?? "link" }
-    /// The Zip's request as the end of a sentence: "Needed to find this month's receipts."
     private var neededFor: String {
         let s = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = s.prefix(1).lowercased() + s.dropFirst()
@@ -548,17 +529,6 @@ struct AccountAskCard: View {
 
 // MARK: Connect Apps
 
-/// Connect Apps, laid out like ChatGPT's Plugins page (Colin, Oct 12): the title and one plain line, a rounded search
-/// field, the connected apps as a row of logo tiles, then Popular and each category as a list of rows (two columns on
-/// iPad and Mac, one on iPhone). Each row has the app's real logo on a white tile, its name, a few gray words, and a
-/// plus to connect it, or a "..." for details and Disconnect once it is connected. Logos are bundled in the app
-/// (Assets.xcassets/AppLogos: Simple Icons in each brand's color, and Slack's and Outlook's official app icons).
-/// Trello, Google Drive, Outlook, Dropbox, Notion, Linear and GitHub connect in Zero itself; Gmail and Google Calendar
-/// use Sign In with Google; the rest work through the person's Claude or ChatGPT account until Zero connects them
-/// directly, and look the same.
-///
-/// DEBUG: `-fixture -open apps` with `-apps none | some | expired`; `-trello paste | done` opens the Trello walkthrough;
-/// `-appDetail <id>` opens an app's details.
 struct ConnectAppsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
@@ -571,7 +541,6 @@ struct ConnectAppsView: View {
     @State private var confirmDisconnect: AppsCatalog.App?
     @State private var detail: AppsCatalog.App?
     private var model: AppsModel { AppsModel.shared }
-    /// Two columns where there is room (iPad and Mac), one on iPhone.
     private var wide: Bool { Theme.onMac || sizeClass == .regular }
 
     var body: some View {
@@ -693,7 +662,6 @@ struct ConnectAppsView: View {
         .overlay(Capsule().stroke(Theme.rule, lineWidth: 1))
     }
 
-    /// The connected apps' logos only, each opening that app's details.
     private func connectedRow(_ c: AppsCatalog) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Connected")
@@ -716,7 +684,6 @@ struct ConnectAppsView: View {
         Text(name).font(Theme.text(20, .semibold)).foregroundStyle(Theme.ink).accessibilityAddTraits(.isHeader)
     }
 
-    /// Popular first, then every other app under its category. A search shows the matches by name in one list.
     private func sections(_ c: AppsCatalog) -> [(String, [AppsCatalog.App])] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
@@ -765,7 +732,6 @@ struct ConnectAppsView: View {
         .padding(.vertical, 10)
     }
 
-    /// The gray words under the name: the account for an app connected here, a problem to fix, or what it is for.
     private func subtitle(_ app: AppsCatalog.App) -> String {
         if app.needsYou { return "Connect it again" }
         if app.state == "connected", let account = app.account, !account.isEmpty { return account }
@@ -836,12 +802,9 @@ struct ConnectAppsView: View {
     }
 }
 
-/// An app's real logo on a rounded white tile. Simple Icons glyphs sit inside the tile in the brand's color; full app
-/// icons (Slack, Outlook) fill it. An app with no bundled logo shows its SF Symbol.
 struct AppLogoTile: View {
     let app: AppsCatalog.App
     var size: CGFloat = 44
-    /// Logos that are whole app icons, drawn edge to edge.
     static let fullIcons: Set<String> = ["slack", "outlook"]
 
     var body: some View {
@@ -867,7 +830,6 @@ struct AppLogoTile: View {
     }
 }
 
-/// One app's details: its logo and name, what the Zips do with it, how it is connected, and the one thing to do.
 struct AppDetailSheet: View {
     enum Action { case connect, claude, disconnect, manageMail }
     let app: AppsCatalog.App
@@ -913,7 +875,6 @@ struct AppDetailSheet: View {
         }
     }
 
-    /// How it is connected now, in one sentence.
     private var status: String {
         if app.state == "connected" {
             return (app.account ?? "").isEmpty ? "Connected." : "Connected as \(app.account ?? "")."
@@ -933,8 +894,6 @@ struct AppDetailSheet: View {
     }
 }
 
-/// The guided walkthrough for Trello, in the style of the voice setup (VoiceSetupView): what happens, Trello's own
-/// page in a sheet, and, when Trello shows a code instead of coming back by itself, the steps to paste it.
 struct TrelloConnectView: View, ConnectWalkthrough {
     enum Phase: Identifiable, Equatable {
         case intro, paste, checking
@@ -1096,7 +1055,6 @@ struct TrelloConnectView: View, ConnectWalkthrough {
     }
 }
 
-/// The walkthroughs' pieces, in the voice setup's look (TrelloConnectView, DeviceConnectView).
 @MainActor
 protocol ConnectWalkthrough {}
 
@@ -1248,7 +1206,6 @@ struct DeviceConnectView: View, ConnectWalkthrough {
         if let url = sheet.start.url.flatMap(URL.init(string:)) { openURL(url) }
     }
 
-    /// Asks the hub until GitHub answers, for as long as the sheet is open.
     private func poll() async {
         var wait = max(2, sheet.start.interval ?? 5)
         while !Task.isCancelled {
@@ -1263,7 +1220,6 @@ struct DeviceConnectView: View, ConnectWalkthrough {
     }
 }
 
-/// Settings: Connect Apps with how many are connected.
 struct ConnectAppsSection: View {
     @Environment(AppState.self) private var state
 

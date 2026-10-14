@@ -8,7 +8,6 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 
-/// Where an event goes in the saved call (CallEngine.note). Set by the call; silent otherwise.
 nonisolated(unsafe) var onDeviceNote: (String, [String: Any]) -> Void = { _, _ in }
 
 /// The microphone reported no usable format (a sample rate of 0 or no channels), which happens on an input route
@@ -18,7 +17,6 @@ struct NoMicrophoneFormat: LocalizedError {
     var errorDescription: String? { "The microphone is not ready. Try the call again in a moment." }
 }
 
-/// A sample rate the audio engine can use: finite and above zero.
 func usableRate(_ rate: Double) -> Bool { rate.isFinite && rate > 0 }
 
 final class CallAudio: VoiceOutput {
@@ -26,7 +24,6 @@ final class CallAudio: VoiceOutput {
     let player = AVAudioPlayerNode()
     let outFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
 
-    /// Mono microphone samples, the host time of the first one, and the rate. Called on an audio thread.
     var onMic: (([Float], Double, Double) -> Void)?
 
     private let lock = NSLock()
@@ -37,7 +34,6 @@ final class CallAudio: VoiceOutput {
     private(set) var micMode = "none"
     private(set) var inRate: Double = 48000
 
-    /// `sessionReady`: CallKit (or the call's fallback) already set up and activated the audio session.
     func start(sessionReady: Bool) throws {
         let s = AVAudioSession.sharedInstance()
         if !sessionReady {
@@ -165,7 +161,6 @@ final class CallAudio: VoiceOutput {
     var isPlaying: Bool { lock.lock(); defer { lock.unlock() }; return hostNow() < playEnd }
     var playEndHost: Double { lock.lock(); defer { lock.unlock() }; return playEnd }
 
-    /// Stops at once and drops everything queued.
     func stopPlayback() {
         lock.lock(); playEnd = 0; lock.unlock()
         player.stop()
@@ -173,11 +168,8 @@ final class CallAudio: VoiceOutput {
         player.play()
     }
 
-    /// Lowers the voice while the app checks whether a sound on the speaker was the person.
     func duck(_ on: Bool) { player.volume = on ? 0.3 : 1.0 }
 
-    /// Earbuds and headphones get the fast interruption; the speaker, the earpiece, a car or another Bluetooth
-    /// speaker get the echo-safe one.
     static func routeKind() -> String {
         guard let out = AVAudioSession.sharedInstance().currentRoute.outputs.first else { return "none" }
         switch out.portType {
@@ -204,7 +196,6 @@ final class CallAudio: VoiceOutput {
     }
 }
 
-/// What the mic heard when an interruption fired, for the saved call.
 struct BargeInfo {
     let rms: Float
     let threshold: Float
@@ -215,8 +206,6 @@ struct BargeInfo {
     }
 }
 
-/// Resamples the mic to 16 kHz, keeps recent audio for the end-of-turn model, feeds speech recognition, and runs
-/// an energy voice detector with a stricter interruption detector while the voice talks.
 final class MicPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "ondevice.mic", qos: .userInteractive)
     let fmt16 = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
@@ -257,13 +246,11 @@ final class MicPipeline: @unchecked Sendable {
         set { lock.lock(); echoGuardOn = newValue; lock.unlock() }
     }
 
-    /// Muted or on hold: the mic is ignored (silence goes to recognition so its clock keeps running).
     var muted: Bool {
         get { lock.lock(); defer { lock.unlock() }; return silenced }
         set { lock.lock(); silenced = newValue; lock.unlock() }
     }
 
-    /// A rejected candidate was the voice's own echo, so its level raises the learned echo peak.
     func clearCandidate(echoLevel: Float? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -273,7 +260,6 @@ final class MicPipeline: @unchecked Sendable {
         }
     }
 
-    /// After a confirmed echo-safe interruption: the person is talking now.
     func markSpeaking() {
         queue.async { [weak self] in
             guard let self else { return }
@@ -416,7 +402,6 @@ final class MicPipeline: @unchecked Sendable {
         }
     }
 
-    /// Recent audio from audio-timeline second `from`, at most `maxSeconds`, at 16 kHz.
     func audio(from: Double, maxSeconds: Double = 8) -> [Float] {
         lock.lock(); defer { lock.unlock() }
         let end = total

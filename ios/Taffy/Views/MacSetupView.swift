@@ -2,10 +2,6 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import UIKit
 
-/// The Mac's first run, before the onboarding: welcome, set up Zero on this Mac (with progress), sign in to your AI,
-/// then the existing onboarding ("Create Your First Zip") and, at the end, Pair a Phone or Mac. Someone who already has
-/// a home elsewhere (Colin's, on his server) chooses Connect to Another Home and signs in or pairs as before.
-/// Nothing here sends anyone to a home that is not on their own Mac.
 struct MacSetupView: View {
     @Environment(AppState.self) private var state
     @State private var engine = MacEngine.shared
@@ -15,8 +11,6 @@ struct MacSetupView: View {
 
     enum Screen { case welcome, installing, ai }
 
-    /// DEBUG: `-macsetup welcome|ai|preparing|waiting|failed` shows that screen with sample engine answers and runs
-    /// nothing, on the Mac or in the simulator, for screenshots. Nil in a release build.
     static var debugScreen: String? {
         #if DEBUG
         let args = CommandLine.arguments
@@ -85,7 +79,6 @@ struct MacSetupView: View {
         }
     }
 
-    /// The engine runs on Apple silicon only (zero-engine checks too); an Intel Mac hears it before anything downloads.
     private var intel: Bool {
         #if arch(x86_64)
         return true
@@ -178,8 +171,6 @@ struct MacSetupView: View {
         }
     }
 
-    /// Signed in to Claude or ChatGPT: point the Zips at it, connect this app to the engine, and start the
-    /// onboarding from its first screen.
     private func connect() async {
         guard !connecting else { return }
         connecting = true
@@ -199,10 +190,6 @@ struct MacSetupView: View {
     }
 }
 
-/// Sign In to Your AI: Zero thinks with the person's own Claude or ChatGPT plan, through the official Claude Code or
-/// Codex on this Mac. One button does it all: the engine gets the tool with its official installer if it is missing
-/// and runs its own sign-in, which opens the page in the person's browser. This screen notices when they are signed
-/// in and goes on by itself, so nobody opens Terminal. Zero never sees the password or keeps the sign-in.
 struct MacAIStep: View {
     @Environment(\.openURL) private var openURL
     @State private var engine = MacEngine.shared
@@ -302,7 +289,6 @@ struct MacAIStep: View {
         .buttonStyle(PressStyle())
     }
 
-    /// Switch plans while one is still getting ready or waiting.
     private var otherChoice: some View {
         let other = engine.signingIn == "codex" ? "claude" : "codex"
         return Button(other == "codex" ? "Use ChatGPT Instead" : "Use Claude Instead") {
@@ -314,8 +300,6 @@ struct MacAIStep: View {
     }
 }
 
-/// Pair a Phone or Mac: a QR code the iPhone's Camera reads, holding this Mac's address on the Wi-Fi and a one-time code.
-/// Shown once after the onboarding on a Mac home, and from Settings.
 struct PairPhoneView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var engine = MacEngine.shared
@@ -402,7 +386,6 @@ struct PairPhoneView: View {
     }
 }
 
-/// Settings on a Mac home: Pair a Phone or Mac, and Remove Zero From This Mac.
 struct MacHomeSection: View {
     @Environment(AppState.self) private var state
     @State private var engine = MacEngine.shared

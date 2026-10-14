@@ -1,32 +1,20 @@
 import SwiftUI
 
-/// Where the Gemini key lives: this device's keychain, readable only after first unlock, never synced, and never
-/// a file (unlike the pairing token, there is no file fallback). Voice setup runs on the Mac, so the long-lived key
-/// stays there (see docs/research/2026-10-08-voice-mode-design.md).
 enum GeminiKeyStore {
     private static let account = "geminiKey"
-    /// False until calls run on Gemini with this key. While false, the setup says calls still use the ChatGPT plan.
     static let callsUseKey = false
     static var saved: String? { Keychain.readKeychainOnly(account) }
     static var isSet: Bool { saved != nil }
-    /// False when the keychain refused the key; nothing is written anywhere else.
     static func save(_ key: String) -> Bool { Keychain.writeKeychainOnly(account, key) }
     static func remove() { Keychain.delete(account) }
 }
 
-/// Guided setup for Zero's free Google voice (docs/specs/2026-10-08-guided-voice-setup-design.md).
-///
-/// On the Mac: explains what happens, then opens Google AI Studio in the person's own browser while the Mac
-/// bridge highlights each click there (ios/MacBridge/VoiceGuide.swift). When the key is copied, Zero checks
-/// it with a Gemini Live handshake and saves it. On the iPhone: points the person to their Mac.
 struct VoiceSetupView: View {
     enum Phase: Equatable {
         case intro, guiding, paste, checking
         case done(String)
         case failed(GeminiKeyCheck.Result)
-        /// The key works but the keychain wouldn't take it.
         case notSaved
-        /// Opened when a key is already saved: which one, and ways to change it.
         case saved(String)
         case onMac
     }
@@ -36,17 +24,12 @@ struct VoiceSetupView: View {
     @State private var stepTitle: String?
     @State private var cardMode: Bool
     @State private var pasteProblem: String?
-    /// The key being checked, kept only so Try Again works after a network or limit failure. Never shown or logged.
     @State private var pendingKey: String?
     @State private var pasted = ""
-    /// A short note on the first screen, such as why the guide stopped.
     @State private var notice: String?
     @State private var confirmRemove = false
-    /// Shown while guiding when the browser window was closed.
     @State private var windowClosed = false
-    /// Debug only: point the guide at the local practice page instead of Google.
     private let practice: (studio: String, start: String)?
-    /// Debug only: open the page in this browser app instead of the default browser.
     var testBrowser: String?
 
     init(phase: Phase? = nil, stepTitle: String? = nil, cardMode: Bool = false, notice: String? = nil,
@@ -362,8 +345,6 @@ struct VoiceSetupView: View {
     }
 
     #if DEBUG
-    /// `-voiceSetupKeychainTest`: saves the practice key through GeminiKeyStore, reads it back and removes it, and
-    /// logs only whether each step worked. Skipped if a key is already saved, so a real one is never touched.
     static let keychainSelfTest: Void = {
         guard CommandLine.arguments.contains("-voiceSetupKeychainTest") else { return }
         guard !GeminiKeyStore.isSet else { return NSLog("Voice setup keychain test: skipped, a key is already saved") }
@@ -377,7 +358,6 @@ struct VoiceSetupView: View {
 
     // MARK: Pieces
 
-    /// Zero's sunflower yellow and deep charcoal, from the app icon (`ios/scripts/make-icon.py`).
     private static let yellow = Color(red: 249 / 255, green: 196 / 255, blue: 16 / 255)
     private static let charcoal = Color(red: 24 / 255, green: 24 / 255, blue: 27 / 255)
 
@@ -415,7 +395,6 @@ struct VoiceSetupView: View {
         .padding(.top, 24)
     }
 
-    /// One row of buttons when they fit (the Mac), a stack when they don't (the iPhone).
     private func actions<C: View>(@ViewBuilder _ buttons: () -> C) -> some View {
         let b = buttons()
         return ViewThatFits(in: .horizontal) {

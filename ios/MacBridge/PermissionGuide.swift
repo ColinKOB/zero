@@ -1,11 +1,6 @@
 import AppKit
 import ApplicationServices
 
-/// The guided setup for what macOS makes a person allow before Zips can work on this Mac: Accessibility, Screen
-/// Recording and Full Disk Access. It works like the Google key guide: one step at a time, each with one sentence of
-/// why, the exact System Settings pane opened for the person, and Zero's icon floating over that pane so it can be
-/// dragged straight into the list. Each step checks itself off the moment macOS reports it allowed.
-///
 /// Screen Recording only takes effect after Zero restarts. macOS offers "Quit & Reopen" for that; the guide also has
 /// its own Restart Zero button. Either way it saves where it was and opens again at that step after the restart.
 ///
@@ -77,12 +72,10 @@ final class PermissionGuide: NSObject {
     private var doneButton: NSButton?
     private var openedAt = Date.distantPast
     private var lastOffer = Date.distantPast
-    /// Told when a step changes, for Zero's window (Settings shows the same check marks).
     var onChange: (([String: Bool]) -> Void)?
 
     // MARK: Starting
 
-    /// Opens the guide, at `focus` if given, otherwise at the first step that still needs allowing.
     func start(focus: Step? = nil, quiet: Bool = false) {
         if window == nil { build() }
         refresh()
@@ -100,16 +93,12 @@ final class PermissionGuide: NSObject {
         }
     }
 
-    /// When a Zip needs a permission that is off: shows the guide without taking focus (a Zip may be mid-task, and
-    /// Colin may be typing), and opens nothing until he presses Set Up. At most once every ten minutes; the bridge
-    /// also shows it at most once per grant.
     func offer(_ step: Step) {
         guard window?.isVisible != true, Date().timeIntervalSince(lastOffer) > 600 else { return }
         lastOffer = Date()
         start(focus: step, quiet: true)
     }
 
-    /// After a restart (macOS's Quit & Reopen, or Restart Zero): opens the guide again where it was.
     func resumeIfNeeded() {
         let d = UserDefaults.standard
         guard let raw = d.string(forKey: Self.resumeKey), let step = Step(rawValue: raw),
@@ -205,7 +194,6 @@ final class PermissionGuide: NSObject {
 
     @objc private func donePressed() { stop() }
 
-    /// Quits and reopens Zero, for Screen Recording. The guide opens again at the same step.
     @objc func restartZero() {
         UserDefaults.standard.set(Step.screen.rawValue, forKey: Self.resumeKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.resumeAtKey)
@@ -274,7 +262,6 @@ extension PermissionGuide: NSWindowDelegate {
     }
 }
 
-/// One step in the guide: its symbol, name and reason, and a Set Up button that becomes a check mark.
 @MainActor
 private final class StepRow: NSStackView {
     let step: PermissionGuide.Step
@@ -347,7 +334,6 @@ private final class StepRow: NSStackView {
     }
 }
 
-/// The small panel that sits inside System Settings' content column, under the list, with Zero's icon to drag in.
 /// It follows the Settings window by reading only window positions, which needs no permission, and closes when
 /// Settings closes.
 @MainActor
@@ -412,7 +398,6 @@ private final class SettingsHelper: NSObject {
         panel = nil
     }
 
-    /// System Settings' main window, in screen coordinates with the origin at the top left, if it is on screen.
     static func settingsWindow() -> (frame: CGRect, front: Bool)? {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systempreferences").first
         else { return nil }

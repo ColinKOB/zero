@@ -30,13 +30,10 @@ struct RootView: View {
         #endif
     }
 
-    /// A Mac that chose Connect to Another Home (or opened a pairing link) and is not connected yet. It stays on the
-    /// sign-in screen after a relaunch instead of the onboarding, which is for the device that runs Zero.
     private var macJoiningAnotherHome: Bool {
         Theme.onMac && !state.paired && UserDefaults.standard.bool(forKey: MacEngine.otherHomeKey)
     }
 
-    /// The same as Connect to Another Home on the Mac welcome: the sign-in screen, which fills in the link's code.
     private func connectToLinkedHome() {
         let engine = MacEngine.shared
         guard Theme.onMac, !state.paired, engine.setupShowing else { return }
@@ -100,10 +97,6 @@ struct RootView: View {
 }
 
 #if DEBUG
-/// `-voiceSetup [intro|lost|guiding|card|paste|checking|done|saved|notSaved|rejected|limited|offline|refused|location|onMac]` opens the guided
-/// voice setup on its own, for screenshots. `-voiceSetupPractice 127.0.0.1:8790` points the guide at the local
-/// practice page (tools/voice-setup-probe/practice) instead of Google, `-voiceSetupStart <url>` picks the page it
-/// opens, and `-voiceSetupBrowser <path to .app>` opens it in a test browser instead of the default one.
 private var voiceSetupScreen: VoiceSetupView? {
     let args = CommandLine.arguments
     guard let i = args.firstIndex(of: "-voiceSetup") else { return nil }
@@ -147,8 +140,6 @@ private var fixtureRequested: Bool {
 
 enum Route: Hashable { case bot(String), work, settings, proactivity, notices, connect(String), mail, ask, apps }
 
-/// The home screen, laid out like Grok Bot's: the bots Colin pinned up top, then every conversation
-/// as a row with its latest line and time.
 struct HomeView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
@@ -366,16 +357,13 @@ struct HomeView: View {
         }
     }
 
-    /// The pinned bots, up top.
     private var featuredBots: [Bot] { state.topRow }
 
-    /// A tapped notification's chat (Push.swift), once the bots are loaded.
     private func openRequestedChat(refreshed: Bool = false) {
         guard let bot = state.takeOpenBotRequest(refreshed: refreshed) else { return }
         path = [.bot(bot)]
     }
 
-    /// A call asked for from Recents or Siri: the handle is the bot's id (or, for older entries, its name).
     private func callPending() {
         guard let want = pendingCall, !state.bots.isEmpty else { return }
         if let bot = state.bots.first(where: { $0.id == want || $0.name.caseInsensitiveCompare(want) == .orderedSame }) {
@@ -384,7 +372,6 @@ struct HomeView: View {
         pendingCall = nil
     }
 
-    /// A call sends the person's voice to the voice company, so it starts only after they have agreed.
     private func beginCall(_ id: String) {
         state.startCallIfAllowed { callingBot = id }
     }
@@ -393,8 +380,6 @@ struct HomeView: View {
         if !state.togglePin(bot.id) { pinsFull = true }
     }
 
-    /// The list keeps the order it had when Colin opened Home (or pulled to refresh), so rows never move
-    /// under his finger; bots that are new since then go at the top.
     private var listBots: [Bot] {
         let featuredIDs = Set(featuredBots.map(\.id))
         let live = state.botsByActivity.filter { !featuredIDs.contains($0.id) }
@@ -492,8 +477,6 @@ struct BotRow: View {
     }
 }
 
-/// The red count on an avatar. A capsule so two digits fit, pinned to the candy's shoulder
-/// rather than the corner of its square frame.
 struct Badge: View {
     let count: Int
     var size: CGFloat = 56
@@ -538,10 +521,8 @@ private struct NeedsYouRow: View {
 
 struct PairingView: View {
     @Environment(AppState.self) private var state
-    /// The sign-in screen already offers the sample home, so the pairing screen it opens leaves it out.
     var showSample = true
     @State private var code = ""
-    /// The zero://pair link that filled this screen; its fingerprint goes with the pairing for that address only.
     @State private var link: PairLink?
     @State private var server = HubClient.savedServer
     @State private var busy = false
@@ -645,8 +626,6 @@ struct PairingView: View {
 
 // MARK: Account
 
-/// Over every screen while the home's own plan has no sign-in: the Zips cannot answer until it does, so the person
-/// learns why before a message goes unanswered, with the way to fix it one tap away.
 struct NeedsPlanBanner: View {
     @Environment(AppState.self) private var state
     @State private var signingIn = false
@@ -697,7 +676,6 @@ struct NeedsPlanBanner: View {
     }
 }
 
-/// Settings: who this device is signed in as, and Sign In to Claude when the home's own plan has no sign-in yet.
 struct AccountSection: View {
     @Environment(AppState.self) private var state
     @Binding var signingIn: Bool
@@ -818,7 +796,6 @@ struct SearchView: View {
 // MARK: Settings
 
 struct SettingsView: View {
-    /// "0.1.0 (412)": which build is on this device.
     static let version: String = {
         let i = Bundle.main.infoDictionary ?? [:]
         return "\(i["CFBundleShortVersionString"] as? String ?? "?") (\(i["CFBundleVersion"] as? String ?? "?"))"
@@ -829,15 +806,12 @@ struct SettingsView: View {
     @AppStorage(SimpleLook.key) private var simpleLook = false
     @State private var confirmDisconnect = false
     @State private var signingInToClaude = false
-    /// Which of the Mac permissions Zips need are on (PermissionGuide.status), on the Mac only.
     @State private var macPermissions: [String: Bool]?
-    /// This iPhone's approval key fingerprint (MacApprover), on the iPhone only.
     @State private var macApprovalCode: String? = MacApprover.shared.fingerprint()
     @State private var settingUpVoice = false
     @State private var confirmDelete = false
     @State private var deleting = false
     @State private var deleteProblem: DeleteEverythingResult?
-    /// Show Previews for Zero's notifications, for the one-time Lock Screen Privacy hint (NotificationZips.swift).
     @State private var previews: UNShowPreviewsSetting?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -1157,7 +1131,6 @@ struct SettingsView: View {
         }
     }
 
-    /// The home's quiet hours, else Zero's question limits, else 11 PM to 7 AM.
     private var quietHours: HomeSettings.QuietHours {
         HomeModel.shared.quietHours
             ?? state.proactivity.map { .init(start: $0.limits.quiet_start, end: $0.limits.quiet_end) }
@@ -1191,8 +1164,6 @@ struct SettingsView: View {
 }
 
 
-/// Settings, Questions From Zero: turn proactivity on or off, see each kind of question Zero asks and how often it
-/// asked, move a kind to the morning brief only or off, and undo questions stopped from a card's menu.
 struct ProactivityView: View {
     @Environment(AppState.self) private var state
 
@@ -1267,8 +1238,6 @@ struct ProactivityView: View {
 }
 
 
-/// Settings, Notices: each kind of question with its state, how often Colin answered it and the last one asked, what
-/// Zero reads (the hourly calendar and Trello copy), and today's prepared drafts and quiet looks.
 struct NoticesView: View {
     @Environment(AppState.self) private var state
 
@@ -1396,7 +1365,6 @@ struct NoticesView: View {
 }
 
 
-/// Choose the home screen icon: Taffy (light and dark), Clay Face or The Twist.
 struct AppIconPicker: View {
     private struct Choice: Identifiable {
         let id: String?
@@ -1443,7 +1411,6 @@ struct AppIconPicker: View {
 }
 
 
-/// A pairing code made from a device that's already paired, so a new phone never needs the server.
 private struct AddDeviceRow: View {
     @Environment(AppState.self) private var state
     @State private var code: String?
@@ -1490,7 +1457,6 @@ private struct AddDeviceRow: View {
 
 #endif
 
-/// Settings: the On-Device Voice's files. Download them (with progress), see that they are ready, or remove them.
 private struct OnDeviceVoiceRow: View {
     @State private var voice = OnDeviceVoice.shared
     @State private var confirmRemove = false

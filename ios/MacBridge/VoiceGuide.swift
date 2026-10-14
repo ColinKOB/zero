@@ -19,9 +19,7 @@ final class VoiceGuide {
 
     typealias Emit = ([String: Any]) -> Void
 
-    /// For the test harness: called after each callout change with the step, its status and the target.
     var debugHook: ((GuideStep, CalloutContent.Status, AXUIElement?) -> Void)?
-    /// For the test harness: the pasteboard is only read after a Copy click in a real run; tests can allow it.
     var running: Bool { script != nil }
 
     private var script: GuideScript?
@@ -30,18 +28,14 @@ final class VoiceGuide {
     private var browserURL: URL?
     private var index = 0
     private var cardMode = false
-    /// For the test harness: behave as if Accessibility were off, to see the card the person gets then.
     var forceCardMode = false
-    /// Set by Back: that step neither skips itself nor finishes until its condition changes or Next is pressed.
     private var held: (index: Int, done: Bool)?
     private var stepShownAt = Date()
     private var scrolledFor = -1
     private var keyDelivered = false
     private var paused = false
     private var pasteboardCount = NSPasteboard.general.changeCount
-    /// When I Copied It last found no key on the clipboard, to say so for a few seconds.
     private var noKeyAt: Date?
-    /// When the browser was first seen with no window, to tell Zero's window once it has stayed that way.
     private var windowMissingSince: Date?
     private var toldNoWindow = false
 
@@ -59,13 +53,11 @@ final class VoiceGuide {
     private let dimView = DimView(frame: .zero)
     private let calloutView = CalloutView(frame: .zero)
 
-    /// For the test harness: the browser window and the callout, in accessibility coordinates (top left).
     var debugWindowFrame: CGRect? { snapshot?.window }
     var debugCalloutFrame: CGRect? {
         guard let p = calloutPanel, p.isVisible else { return nil }
         return CGRect(x: p.frame.minX, y: primaryHeight - p.frame.maxY, width: p.frame.width, height: p.frame.height)
     }
-    /// For calibrating the script against the live site: every element's role and words, keys blanked out.
     var debugPageText: String {
         guard let snap = snapshot else { return "" }
         let lines = snap.nodes.filter { !$0.name.isEmpty || $0.role == "AXCheckBox" }.map { n -> String in
@@ -76,15 +68,12 @@ final class VoiceGuide {
         return snap.url + "\n" + lines.joined(separator: "\n")
     }
 
-    /// For the test harness: presses the callout's Next (I Copied It on the last step).
     func debugPressNext() { next() }
 
-    /// For the test harness: opens or closes the I'm Stuck list.
     func debugSetStuck(_ open: Bool) { calloutView.setStuck(open) }
 
     // MARK: Start and stop
 
-    /// Opens `script.startURL` in the default browser (or uses `browserPid` if given) and starts guiding.
     func start(script: GuideScript, browserPid: pid_t? = nil, openPage: Bool = true, browserApp: URL? = nil,
                emit: @escaping Emit) {
         stop(silently: true)
@@ -131,8 +120,6 @@ final class VoiceGuide {
         emit = nil
     }
 
-    /// Brings the browser forward and shows the guide again, after the person went back to Zero. If the browser
-    /// window was closed, or quit, opens Google's key page again.
     func resume() {
         guard let script else { return }
         paused = false
@@ -178,7 +165,6 @@ final class VoiceGuide {
         let checked: Bool?
         let domID: String?
         let parent: Int
-        /// Inside an open dialog, which sits on top of the page: matches there win.
         var inDialog = false
     }
 
@@ -323,8 +309,6 @@ final class VoiceGuide {
         return nil
     }
 
-    /// Tells Zero's window once when the browser has had no window for two seconds (the person closed it), and
-    /// again when it is back, so the window can offer to open the page again.
     private func noteWindow(_ present: Bool) {
         if present {
             windowMissingSince = nil

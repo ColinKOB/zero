@@ -1,17 +1,5 @@
 import XCTest
 
-/// A stranger's onboarding, end to end (docs/plans/2026-10-09-zero-for-anyone-plan.md, section 7 and WP5).
-///
-/// testStrangerOnboarding walks every onboarding screen with Sam's answers (hub/tests/harness/persona.json): names the
-/// agent, answers the talk questions, connects with the code, agrees to the AI data screen, adds the mailbox when the
-/// hub can check one, keeps the default ask rules, picks a voice, picks Inbox and Errands, and lands on the home
-/// screen. In hub mode it talks to a real hub (the test home through an ssh tunnel, or the dry-mode fixture hub);
-/// tools/zero-e2e.sh then checks the hub's state with hub/tests/harness/assert_state.py. In fixture mode it runs the
-/// app's -fixture onboarding, where any code connects and nothing is sent.
-///
-/// testSampleHome opens the sample home from the first screen with no computer and no hub, and leaves it again.
-///
-/// Run through tools/zero-e2e.sh, which sets the TEST_RUNNER_ZERO_E2E_* variables (E2EConfig in Harness.swift).
 final class OnboardingE2ETests: XCTestCase {
     var app: XCUIApplication!
     var run: OnboardingRun!
@@ -89,7 +77,6 @@ final class OnboardingE2ETests: XCTestCase {
     }
 }
 
-/// One walk through the onboarding: the screens seen, screenshots, notes, and the result file zero-e2e.sh reads.
 final class OnboardingRun {
     let app: XCUIApplication
     let config: E2EConfig
@@ -132,7 +119,6 @@ final class OnboardingRun {
         if !condition { fail(text, file: file, line: line) }
     }
 
-    /// Screen after screen until the home opens: recognize, screenshot, act, wait for it to go.
     func walk(timeout: TimeInterval = 600) {
         let deadline = Date().addingTimeInterval(timeout)
         var unknown = 0
@@ -172,7 +158,6 @@ final class OnboardingRun {
         fail("the onboarding did not finish in \(Int(timeout)) seconds; screens seen: \(seen.joined(separator: ", "))")
     }
 
-    /// The home screen: the list of Zips (or its loading line), with no onboarding screen up.
     func isHome() -> Bool {
         app.collectionViews.firstMatch.exists || app.staticTexts["Loading your team"].exists
             || app.anyLabel(containing: "Sample Home").exists

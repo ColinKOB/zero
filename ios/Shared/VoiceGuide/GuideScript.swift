@@ -1,30 +1,20 @@
 import Foundation
 
-/// One thing on the page to point at.
 struct GuideTarget: Sendable {
-    /// Words on the element or its accessible label, normalized and compared case-insensitively.
     var text: [String] = []
-    /// How `text` must match the element's name.
     var match: Match = .exact
-    /// Accessibility roles the element may have, such as AXButton or AXLink. Empty means any.
     var roles: [String] = []
-    /// A DOM id, used when a page has a stable one.
     var domID: String?
-    /// Extra room around the element inside the highlight, in points.
     var pad: CGFloat = 6
 
     enum Match: Sendable { case exact, prefix, contains }
 }
 
-/// A fact about the page, checked several times a second.
 indirect enum GuideCondition: Sendable {
     case urlContains([String])
-    /// Any element on the page shows one of these words (same matching as targets, `contains`).
     case textPresent([String])
     case targetPresent
-    /// Some other element is on the page, for steps that depend on what is already there.
     case present(GuideTarget)
-    /// The step's target is a checkbox and it is checked.
     case targetChecked
     case keyFound
     case not(GuideCondition)
@@ -34,21 +24,13 @@ indirect enum GuideCondition: Sendable {
 
 struct GuideStep: Sendable, Identifiable {
     var id: String
-    /// Callout heading, title case.
     var title: String
-    /// Callout text: where to click and why, in plain sentences.
     var body: String
-    /// Named in the "can't find it" message, as the person would see it on the page.
     var lookFor: String
     var targets: [GuideTarget]
-    /// The step only applies on these pages (URL substrings). Empty means any page of the script.
     var pages: [String] = []
-    /// Moves on by itself when this becomes true. Next always works too.
     var doneWhen: GuideCondition
-    /// Passed over when this is true, for steps only some people see (sign-in, the terms, a first key).
     var skipWhen: GuideCondition?
-    /// Where the callout goes relative to the highlight. `.auto` puts it beside targets in a left sidebar and
-    /// under everything else.
     var placement: Placement = .auto
 
     enum Placement: Sendable { case auto, below, above, beside }
@@ -57,10 +39,8 @@ struct GuideStep: Sendable, Identifiable {
 struct GuideScript: Sendable {
     var id: String
     var startURL: URL
-    /// Pages where Zero may look for a key on the page or the clipboard. Never the sign-in pages.
     var keyHosts: [String]
     var steps: [GuideStep]
-    /// The whole task in one card, for when Zero can't see the page (no Accessibility permission).
     var cardTitle: String
     var cardBody: String
 }
@@ -173,18 +153,15 @@ enum GeminiKeyPattern {
     private static let regex = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z0-9_\-.])(AQ\.[A-Za-z0-9_\-]{40,80}|AIza[A-Za-z0-9_\-]{35})(?![A-Za-z0-9_\-])"#)
 
-    /// The first key-shaped run in `text`, or nil.
     static func find(in text: String) -> String? {
         let ns = text as NSString
         guard let m = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else { return nil }
         return ns.substring(with: m.range(at: 1))
     }
 
-    /// "ending in 3fQx", for showing which key was saved without showing the key.
     static func ending(_ key: String) -> String { "ending in " + String(key.suffix(4)) }
 }
 
-/// Text comparison shared by the bridge and tests: lowercased, straight quotes, single spaces.
 enum GuideText {
     static func normalize(_ s: String) -> String {
         var t = s.lowercased()
@@ -205,18 +182,12 @@ enum GuideText {
     }
 }
 
-/// What the callout is saying right now.
 struct CalloutContent: Equatable {
     enum Status: Equatable {
-        /// The target is highlighted.
         case pointing
-        /// Still looking; shown for the first few seconds on a new page.
         case searching
-        /// Looked for a while and it isn't there.
         case notFound
-        /// The browser is on some other page or tab.
         case offPage
-        /// I Copied It was pressed, but the clipboard holds no key.
         case noKey
     }
 
@@ -250,7 +221,6 @@ struct CalloutContent: Equatable {
     }
 }
 
-/// The ways out offered under I'm Stuck.
 enum StuckChoice: CaseIterable, Identifiable {
     case findAgain, skipStep, reopen, paste, stop
     var id: Self { self }
@@ -265,5 +235,4 @@ enum StuckChoice: CaseIterable, Identifiable {
     }
 }
 
-/// Where the card's pointer sits: on its top or bottom edge at an x offset, or on its left edge at a y offset.
 enum CalloutArrow: Equatable { case none, up(CGFloat), down(CGFloat), left(CGFloat) }

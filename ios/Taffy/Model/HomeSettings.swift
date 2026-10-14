@@ -2,11 +2,6 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// The home's own settings as the hub reports them (GET /api/home-settings, built from the home's home.json): who the
-/// person is, their quiet hours and units, whose plan the Zips think with, what kind of computer the home runs on, and
-/// the mailboxes, calendars and Google accounts the Zips can read without a Claude or ChatGPT connector
-/// (docs/plans/2026-10-09-zero-for-anyone-plan.md, sections 4 and 6). Every field is optional: an older hub has no
-/// such endpoint, and then the app behaves exactly as it did before.
 struct HomeSettings: Codable, Equatable {
     struct QuietHours: Codable, Equatable {
         var start: Int
@@ -21,11 +16,8 @@ struct HomeSettings: Codable, Equatable {
     }
 
     struct Locale: Codable, Equatable {
-        /// us, metric or uk
         var units: String? = nil
-        /// american or british
         var spelling: String? = nil
-        /// 12h or 24h
         var clock: String? = nil
     }
 
@@ -34,19 +26,15 @@ struct HomeSettings: Codable, Equatable {
     }
 
     struct Host: Codable, Equatable {
-        /// "server" (a home computer such as a Linux box the person never sits at) or "mac" (Zero for Mac).
         var kind: String? = nil
         var name: String? = nil
     }
 
-    /// A mailbox the Zips read with an app password (iCloud, another IMAP account) or through Google sign-in.
     struct Mailbox: Codable, Equatable, Identifiable {
         let id: String
         let address: String
         var label: String? = nil
-        /// icloud, gmail, google or other
         var provider: String? = nil
-        /// connected, needs_sign_in or trouble. Older hubs leave it out (connected).
         var state: String? = nil
         var detail: String? = nil
         var `default`: Bool? = nil
@@ -54,7 +42,6 @@ struct HomeSettings: Codable, Equatable {
 
     struct Calendar: Codable, Equatable, Identifiable {
         let id: String
-        /// caldav or ical
         var kind: String? = nil
         var label: String? = nil
         var username: String? = nil
@@ -67,7 +54,6 @@ struct HomeSettings: Codable, Equatable {
         var accounts: [Mailbox]? = nil
     }
 
-    /// One Google account connected with Sign In with Google: Gmail and Google Calendar for the Zips.
     struct GoogleAccount: Codable, Equatable, Identifiable {
         let id: String
         let address: String
@@ -80,7 +66,6 @@ struct HomeSettings: Codable, Equatable {
     }
 
     struct Google: Codable, Equatable {
-        /// The iOS OAuth client id the app signs in with. Nil when the home has no Google sign-in set up.
         var client_id: String? = nil
         var accounts: [GoogleAccount]? = nil
     }
@@ -88,11 +73,8 @@ struct HomeSettings: Codable, Equatable {
     var person: Person? = nil
     var locale: Locale? = nil
     var proactivity: Proactivity? = nil
-    /// own or shared: whether the Claude and ChatGPT plans are the person's own or someone else's shared with them.
     var plan: String? = nil
-    /// The first name of the person who shares the plan, for the consent screen. Nil when the plan is the person's own.
     var plan_owner: String? = nil
-    /// claude, chatgpt or none: where connectors such as Gmail come from.
     var connectors: String? = nil
     var host: Host? = nil
     var mail: Mail? = nil
@@ -101,47 +83,39 @@ struct HomeSettings: Codable, Equatable {
 
     var shared: Bool { plan == "shared" }
     var serverHome: Bool { host?.kind == "server" }
-    /// No Claude or ChatGPT connectors: mail and calendars are added in Zero itself.
     var nativeAccounts: Bool { connectors == "none" }
     var googleAccounts: [GoogleAccount] { google?.accounts ?? [] }
-    /// App-password mailboxes; Google's are listed with the Google account.
     var mailboxes: [Mailbox] { (mail?.accounts ?? []).filter { $0.provider != "google" } }
     var otherCalendars: [Calendar] { (calendars ?? []).filter { $0.provider != "google" } }
     var hasMail: Bool { !googleAccounts.isEmpty || !mailboxes.isEmpty }
     var hasCalendar: Bool { !googleAccounts.isEmpty || !otherCalendars.isEmpty }
 }
 
-/// What the app changes with PUT /api/home-settings. Only the parts that are set are sent.
 struct HomeSettingsUpdate: Encodable {
     var person: HomeSettings.Person? = nil
     var locale: HomeSettings.Locale? = nil
     var proactivity: HomeSettings.Proactivity? = nil
 }
 
-/// The answer to adding or checking a mailbox, a calendar or a Google account.
 struct AccountCheck: Decodable {
     let ok: Bool
     var checked: Bool? = nil
-    /// One plain sentence: what worked, or what to fix.
     var detail: String? = nil
     var id: String? = nil
     var address: String? = nil
 }
 
-/// The last home settings and the calls that change them, shared by the onboarding and Settings.
 @MainActor
 @Observable
 final class HomeModel {
     static let shared = HomeModel()
 
     var settings: HomeSettings?
-    /// The hub has no home settings endpoint (an older hub): every screen keeps its earlier behavior.
     var unsupported = false
 
     var isShared: Bool { settings?.shared ?? false }
     var serverHome: Bool { settings?.serverHome ?? false }
     var nativeAccounts: Bool { settings?.nativeAccounts ?? false }
-    /// "Jordan", or nil when nobody shares a plan or the hub didn't say who.
     var planOwner: String? {
         guard isShared, let o = settings?.plan_owner?.trimmingCharacters(in: .whitespaces), !o.isEmpty else { return nil }
         return o
@@ -149,8 +123,6 @@ final class HomeModel {
 
     var quietHours: HomeSettings.QuietHours? { settings?.person?.quiet_hours }
 
-    /// The Google client id to sign in with: the home's, else the app's own (GIDClientID in Info.plist, the Zero iOS
-    /// client in CONFIGURE.md). Nil only when neither exists.
     var googleClientID: String? {
         if let id = settings?.google?.client_id?.trimmingCharacters(in: .whitespaces), !id.isEmpty { return id }
         #if DEBUG
@@ -178,7 +150,6 @@ final class HomeModel {
         }
     }
 
-    /// Saves the change. Returns nil on success, or a plain sentence.
     func save(_ update: HomeSettingsUpdate, _ state: AppState) async -> String? {
         #if DEBUG
         if state.fixtureMode {
@@ -212,7 +183,6 @@ final class HomeModel {
     }
 
     #if DEBUG
-    /// -plan shared | own | shared-google | shared-expired | shared-nogoogle picks the fixture home.
     static var fixtureVariant: String {
         let a = CommandLine.arguments
         if let i = a.firstIndex(of: "-plan"), i + 1 < a.count { return a[i + 1] }
@@ -223,9 +193,6 @@ final class HomeModel {
 
 #if DEBUG
 extension HomeSettings {
-    /// A fixture home. "shared": a server home on someone else's plan with no connectors and nothing added yet.
-    /// "shared-google": the same with a Gmail account connected; "shared-expired": Google asked to sign in again.
-    /// "own": a Mac home on the person's own plan. Add `-noGoogleClient` for a build with no Google client id.
     static func fixture(_ variant: String) -> HomeSettings {
         let shared = variant.hasPrefix("shared")
         var s = HomeSettings(
@@ -265,7 +232,6 @@ extension HubClient {
         try await send(try request("/api/home-settings", method: "PUT", body: update), as: HomeSettings.self)
     }
 
-    /// A mailbox with an app password. `imap` and `smtp` are only for "other"; iCloud and Gmail use their known servers.
     struct MailboxBody: Encodable {
         struct Server: Encodable { let host: String; let port: Int }
         let provider: String
@@ -286,7 +252,6 @@ extension HubClient {
         _ = try await send(try request("/api/accounts/mailboxes/\(Self.path(id))", method: "DELETE"), as: AccountCheck.self)
     }
 
-    /// A calendar: CalDAV with a username and an app password (iCloud or another server), or a read-only iCal address.
     struct CalendarBody: Encodable {
         let kind: String
         let provider: String
@@ -306,14 +271,11 @@ extension HubClient {
         _ = try await send(try request("/api/accounts/calendars/\(Self.path(id))", method: "DELETE"), as: AccountCheck.self)
     }
 
-    /// Sign In with Google: the hub trades the code for tokens with the same client id, redirect address and verifier,
-    /// keeps them in the home, and answers with the account's address.
     struct GoogleBody: Encodable {
         let code: String
         let code_verifier: String
         let redirect_uri: String
         let client_id: String
-        /// nil: Gmail and Google Calendar. ["drive"]: Connect Apps' Google Drive, with no mailbox or calendar added.
         var use: [String]? = nil
     }
 
@@ -335,7 +297,6 @@ extension HubClient {
 // MARK: Quiet hours, units and the clock
 
 enum HomeWording {
-    /// "11 PM", "7 AM", "12 AM" in the person's clock.
     static func hour(_ h: Int) -> String {
         var c = DateComponents()
         c.hour = ((h % 24) + 24) % 24
@@ -359,7 +320,6 @@ enum HomeWording {
 
     static func spelling(_ id: String?) -> String { id == "british" ? "British spelling" : "American spelling" }
 
-    /// What this phone's settings suggest, for a home that has none yet.
     static var phoneLocale: HomeSettings.Locale {
         let l = Foundation.Locale.current
         let units: String = switch l.measurementSystem {
@@ -374,8 +334,6 @@ enum HomeWording {
     }
 }
 
-/// Reads "11pm", "around 10:30", "midnight to 6", "11 to 7" or "I go to bed at 10 and get up at 6" as quiet hours.
-/// The first time is when sleep starts, the second when it ends; with only one, sleep lasts eight hours.
 enum SleepAnswer {
     static func quietHours(from text: String) -> HomeSettings.QuietHours? {
         let s = text.lowercased()
@@ -412,7 +370,6 @@ enum SleepAnswer {
 // MARK: Pairing links and codes
 
 extension AppState {
-    /// A zero:// link opened the app (a QR code read by the Camera app, or a link in a message).
     func open(_ url: URL) {
         guard let link = PairLink.parse(url.absoluteString) else { return }
         if paired && !onboarding && !rehearsingOnboarding {

@@ -1,45 +1,33 @@
 import Foundation
 import SwiftUI
 
-/// One honest line for a Zip's row, from the hub (`status` in GET /api/bots). Nil when nothing needs saying.
 struct BotStatus: Codable, Hashable {
-    /// paused (a card waits for an okay or a sign-in), blocked, failed (its last reply), expired (a card closed)
     let state: String
     let line: String
-    /// failed: the person's words, for Retry.
     var words: String? = nil
-    /// expired: what the card asked, for Ask Again.
     var what: String? = nil
     var detail: String? = nil
     var task_id: String? = nil
     var feed_id: Int? = nil
-    /// paused: when the card it waits on came up, so a message the person sent since then ends the pause at once.
     var at: Double? = nil
 }
 
-/// Which kinds of news from a Zip reach the phone (PUT /api/bots/{id}/notify-kinds). The Zip's notify switch stays
-/// the master.
 struct NotifyKinds: Codable, Hashable {
     var needs: Bool = true
     var done: Bool = true
     var progress: Bool = true
 }
 
-/// What a Zip is doing in its chat right now (the feed's `activity`): plain-word steps, and whether it has gone quiet
-/// for too long.
 struct LiveActivity: Codable, Hashable {
     var since: Double
     var last_at: Double
     var steps: [String]
     var stalled: Bool
     var source: String? = nil
-    /// The person's own words, when the turn is theirs (for Retry).
     var words: String? = nil
-    /// The turn is held on a card the person has to answer: paused, not working. Older hubs leave it out.
     var waiting: Bool? = nil
 }
 
-/// While You Were Away: one line per Zip, from GET /api/away.
 struct AwayItem: Codable, Hashable, Identifiable {
     let bot_id: String
     let name: String
@@ -48,13 +36,11 @@ struct AwayItem: Codable, Hashable, Identifiable {
     var id: String { bot_id }
 }
 
-/// Something wrong with a Zip's current or last turn, shown in its chat and on its row with a way forward.
 struct TurnProblem: Hashable {
     enum Kind { case failed, stalled }
     let kind: Kind
     let line: String
     var detail: String? = nil
-    /// The person's words to send again. Without them, a stalled turn can only be stopped.
     var words: String? = nil
 }
 
@@ -87,8 +73,6 @@ extension HubClient {
 extension AppState {
     // MARK: Stop and Retry
 
-    /// Stop (#55, #56): the Zip stops what it is doing in this chat. Messages the person queued behind it come back to
-    /// the message box instead of being sent, and the hub holds its own work in this chat until the person talks again.
     func stop(_ bot: String) async {
         let name = self.bot(bot)?.name ?? "The Zip"
         working[bot] = nil
@@ -107,7 +91,6 @@ extension AppState {
                                                     text: "\(name) stopped.", date: Date(), label: "stopped", botID: bot))
     }
 
-    /// Sends the person's words again after a failed or stuck reply. A stuck turn is stopped first.
     func retry(_ bot: String, words: String) async {
         let stuck = problems[bot]?.kind == .stalled || activity[bot]?.stalled == true
         problems[bot] = nil
@@ -116,15 +99,12 @@ extension AppState {
         _ = await send(words, to: bot)
     }
 
-    /// Ask Again on a card that closed with no answer (#38, #39): the person asks the Zip, in their own words, to
-    /// raise it again, and the Zip puts a fresh card in front of them.
     func askAgain(_ bot: String, what: String) async {
         let thing = what.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "."))
         _ = await send(thing.isEmpty ? "Please ask me again about the card that closed."
                                      : "Please ask me again about this: \(thing).", to: bot)
     }
 
-    /// Text handed back by Stop goes after anything already in the box, once.
     func putBackQuietly(_ text: String, to bot: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
@@ -134,16 +114,10 @@ extension AppState {
 
     // MARK: What the chat and the row show
 
-    /// The Zip is waiting on the person: its running turn is held on a card, or a card it raised in the person's
-    /// latest turn (or after it) is still open (#43). An older card stays in the chat to use but pauses nothing, and
-    /// a message from the person ends the pause at once (Oct 9, 11:18 p.m.: an 11:54 a.m. sign-in card kept Zero
-    /// "paused for your okay" over the reply to a new message). See ChatSync.live.
     func isPaused(_ bot: String) -> Bool {
         ChatSync.paused(turnHeld: activity[bot]?.waiting) { cardsWait(bot) }
     }
 
-    /// With no turn running: a card the Zip raised in the person's latest turn or after it, a card holding other
-    /// work, or the hub's paused status newer than the person's latest message.
     private func cardsWait(_ bot: String) -> Bool {
         let said = lastSaid(bot)
         let cards = (board.requests ?? []).filter { $0.bot_id == bot }
@@ -160,17 +134,14 @@ extension AppState {
         return false
     }
 
-    /// Whether the Zip waits on this open sign-in or account card now (an older one stays, marked Asked Earlier).
     func cardIsLive(_ m: ChatMessage, bot: String) -> Bool {
         ChatSync.live(card: m.date, hubWaiting: m.waiting, lastSaid: lastSaid(bot))
     }
 
-    /// When the person last wrote in this chat, from what the phone shows (their own messages, sent or saved).
     func lastSaid(_ bot: String) -> Date? {
         (chats[bot] ?? []).last(where: { $0.kind == .colin })?.date
     }
 
-    /// A failed reply, or a turn that has gone quiet for too long (#50 to #52).
     func problem(for bot: String) -> TurnProblem? {
         if let a = activity[bot], a.stalled, !isPaused(bot) {
             return TurnProblem(kind: .stalled, line: "This is taking longer than usual.", words: a.words)
@@ -182,10 +153,8 @@ extension AppState {
         return nil
     }
 
-    /// The plain steps so far, newest last.
     func steps(for bot: String) -> [String] { activity[bot]?.steps ?? [] }
 
-    /// A status line from the turn's own stream also counts as a step, so the line moves at once.
     func noteStep(_ text: String, bot: String) {
         let now = Date().timeIntervalSince1970
         var a = activity[bot] ?? LiveActivity(since: now, last_at: now, steps: [], stalled: false)
@@ -232,12 +201,10 @@ extension AppState {
     static let awayAfter: TimeInterval = 60 * 60
     private static let lastSeenKey = "lastSeenAt"
 
-    /// The app went to the background: remember when the person last looked.
     func noteLeaving() {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastSeenKey)
     }
 
-    /// Back after an hour or more: a short summary, only when there is something to say (#75, #76).
     func checkAway() async {
         let last = UserDefaults.standard.double(forKey: Self.lastSeenKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastSeenKey)
@@ -248,14 +215,11 @@ extension AppState {
 
 // MARK: First run
 
-/// What Zero proposes after the onboarding (#6: "it recommends tasks then pulls it up so your only input is to
-/// authorize"). Made from what the onboarding learned, kept on the device until the person starts or dismisses them.
 struct FirstTasks: Codable, Equatable {
     struct Task: Codable, Equatable, Identifiable {
         let id: String
         let title: String
         let detail: String
-        /// Sent to Zero as the person's own message when they tap Start.
         let message: String
     }
     var intro: String
@@ -263,7 +227,6 @@ struct FirstTasks: Codable, Equatable {
 
     private static let key = "firstTasks"
 
-    /// Set when the onboarding ends: Home opens Zero's chat once, where Zero introduces itself.
     static var openChatOnce: Bool {
         get { UserDefaults.standard.bool(forKey: "firstTasksOpenChat") }
         set { UserDefaults.standard.set(newValue, forKey: "firstTasksOpenChat") }
@@ -282,8 +245,6 @@ struct FirstTasks: Codable, Equatable {
         }
     }
 
-    /// Two or three first tasks from the onboarding's answers, in this order: the Zips the person picked, their email
-    /// and calendar when those are connected, then what they said about their work. Only things the team can do now.
     @MainActor
     static func make(agent: String, person: String, picked: [ZipTemplate], projects: [ProjectIdea],
                      about: [String: String], home: HomeSettings?) -> FirstTasks {
@@ -323,14 +284,11 @@ struct FirstTasks: Codable, Equatable {
 
 // MARK: Simple Look
 
-/// Settings, Simple Look (#91: "many people will get tired of an animated clippy character... good call on having a
-/// simple minimal option"): every Zip is drawn as its flat shape.
 enum SimpleLook {
     static let key = "simpleLook"
 }
 
 extension AgentLook {
-    /// The flat body closest to this one: the same shape where a flat one exists.
     var simple: AgentLook {
         if AgentBody.named(body).isFlat { return self }
         let near = ["gumdrop": "drop", "cube": "squircle"][body] ?? body
@@ -341,8 +299,6 @@ extension AgentLook {
 
 #if DEBUG
 extension AppState {
-    /// Screens for the fluid app (`-fixture fluid`, `fluid-stalled`, `fluid-failed`, `fluid-paused`, `first-tasks`).
-    /// Open a chat with `-open school` (or clients, money, default); `-expandActivity` opens the steps.
     func loadFluidFixture(_ variant: String, at: (Double) -> Date) {
         let now = Date().timeIntervalSince1970
         func status(_ id: String, _ s: BotStatus?) {

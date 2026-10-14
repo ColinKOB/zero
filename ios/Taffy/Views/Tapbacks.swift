@@ -1,10 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// Tapbacks drawn like Apple Messages: the six glyphs, the round badge on the
-/// message's corner (Colin's in blue, the bot's in gray), and the floating bar that picks one. Long-press
-/// opens the bar on the iPhone; double-click or right-click, Tapback, opens it on the Mac.
-/// One tapback symbol.
 struct TapbackGlyph: View {
     let kind: String
     var size: CGFloat = 15
@@ -24,11 +20,9 @@ struct TapbackGlyph: View {
     }
 }
 
-/// The badge on a message's corner: one round glyph, Colin's in blue and the bot's in gray.
 struct TapbackBadge: View {
     let kind: String
     let mine: Bool
-    /// Kept for the call sites; the badge no longer has a tail.
     let tailLeading: Bool
 
     private var fill: Color { mine ? Color(.systemBlue) : Color(.systemGray5) }
@@ -43,7 +37,6 @@ struct TapbackBadge: View {
     }
 }
 
-/// The floating bar of six tapbacks. The one Colin already picked sits in a blue circle.
 struct TapbackBar: View {
     let selected: String?
     let onPick: (String) -> Void
@@ -69,32 +62,26 @@ struct TapbackBar: View {
     }
 }
 
-/// The message whose tapback bar is open, and where its bubble sits on screen. The menu under the bar has Reply and Copy.
 struct TapbackTarget {
     let message: ChatMessage
     let botID: String
     let isMine: Bool
     let frame: CGRect
     let canReact: Bool
-    /// One more line for the menu, like Show Question on a card's answer.
     var extra: BubbleAction? = nil
 }
 
-/// One more action on a bubble's menus, beside Reply and Copy: Show Question on the answer a card turned into.
 struct BubbleAction {
     let title: String
     let symbol: String
     let run: () -> Void
 }
 
-/// Makes a chat bubble take tapbacks: shows its badges and opens the bar (drawn by TapbackLayer, above the
-/// chat, so opening it never moves the message under Colin's finger).
 struct Tapbackable: ViewModifier {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let message: ChatMessage
     let botID: String
-    /// Colin's own bubble (right side): badges on the top-leading corner. Bot bubbles: top-trailing.
     let isMine: Bool
     var extra: BubbleAction? = nil
     @State private var frame: CGRect = .zero
@@ -160,7 +147,6 @@ struct Tapbackable: ViewModifier {
 struct TapbackLayer: View {
     @Environment(AppState.self) private var state
     let target: TapbackTarget
-    /// This layer already sits between the chat's top bar and the message box; a small margin inside it.
     var topInset: CGFloat = 8
     var bottomInset: CGFloat = 8
 
@@ -220,7 +206,6 @@ struct TapbackLayer: View {
         }
     }
 
-    /// One line of the menu under the bar, like Messages': the word on the left, the symbol on the right.
     private func menuRow(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button {
             action()
@@ -239,7 +224,6 @@ struct TapbackLayer: View {
     }
 }
 
-/// Long-press on the iPhone; double-click or right-click on the Mac, like Messages on each.
 private struct OpenGesture: ViewModifier {
     let enabled: Bool
     var canReact = true
@@ -278,7 +262,6 @@ extension View {
     }
 }
 
-/// A bubble's extra action, for VoiceOver.
 private struct ExtraAction: ViewModifier {
     let extra: BubbleAction?
     func body(content: Content) -> some View {
@@ -287,7 +270,6 @@ private struct ExtraAction: ViewModifier {
 }
 
 
-/// What a message reads as, without markdown symbols, for Copy.
 func plainText(_ markdown: String) -> String {
     let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
     guard let a = try? AttributedString(markdown: markdown, options: opts) else { return markdown }

@@ -1,17 +1,7 @@
 import XCTest
 
-/// One page object per onboarding screen. The driver (OnboardingRun.walk) asks each which one is up, takes its
-/// screenshot, and lets it do what the stranger would do there, until the home screen opens. The order of screens is
-/// not hard-coded, so the flow can change (WP4 adds the mailbox, calendar and "how your Zips should ask" screens and
-/// skips the look-around on a server home) without changing the driver.
-///
-/// A screen is recognized by an accessibility identifier "onboarding.<step>" when the app sets one (preferred, and
-/// stable under copy edits), otherwise by its headline or by a control only it has. Labels come from
-/// ios/Taffy/Views/Onboarding/*.swift and, for the screens WP4 adds, from the plan's wording (section 6); those are
-/// marked "plan wording" and are the first place to look if a run stops on an unknown screen.
 protocol OnboardingScreen {
     var name: String { get }
-    /// OnboardingModel.Step's raw value, for the identifier "onboarding.<step>".
     var step: String { get }
     var headlines: [String] { get }
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool
@@ -27,7 +17,6 @@ extension OnboardingScreen {
 
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool { false }
 
-    /// Taps the first of these buttons that is there and can be tapped.
     @discardableResult
     func tapFirst(_ app: XCUIApplication, _ labels: [String], timeout: TimeInterval = 10) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -70,7 +59,6 @@ struct TalkScreen: OnboardingScreen {
         app.anyLabel(containing: " says: ").exists && !app.staticTexts["Create Your First Zip"].exists
     }
 
-    /// The persona's answer for the question on screen, from the field's placeholder or the agent's line.
     func answer(placeholder: String, line: String, persona: Persona) -> String? {
         let p = placeholder.lowercased(), l = line.lowercased()
         if p.contains("your name") || l.contains("what should i call you") { return persona.person_name }
@@ -187,8 +175,6 @@ struct GuideScreen: OnboardingScreen {
     }
 }
 
-/// WP4: I Have My Code may open the camera for a zero:// QR code. The simulator has no camera, so the run types the
-/// code instead (plan wording: a button to type it).
 struct ScanScreen: OnboardingScreen {
     let name = "scan", step = "scan", headlines: [String] = []
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool {
@@ -248,11 +234,6 @@ struct WhyScreen: OnboardingScreen {
     }
 }
 
-/// The email step (WP4, Views/Onboarding/OnboardingHome.swift and Views/MailAndCalendarViews.swift): "Which Email
-/// Should Your Zips Read?" before the picks, or "Your Zips Need Your Email" after them. Sign In with Google is not
-/// something a simulator run can do, so the stranger takes Use Another Email Provider, picks Other Email, and types
-/// the test home's GreenMail mailbox (its IMAP and SMTP as the hub sees them, on alien's loopback). Check and Add has
-/// the hub sign in before it adds the mailbox.
 struct MailboxScreen: OnboardingScreen {
     let name = "mail", step = "mail", headlines = ["Which Email Should Your Zips Read?", "Your Zips Need Your Email"]
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool {
@@ -299,8 +280,6 @@ struct MailboxScreen: OnboardingScreen {
     }
 }
 
-/// WP4: the calendar half of "Your email and calendar". The stranger skips it (plan: iCloud, Google's private
-/// address, or Skip).
 struct CalendarScreen: OnboardingScreen {
     let name = "calendar", step = "calendar", headlines = ["Add a Calendar", "Your Calendar", "Which Calendar Should Your Zips Read?"]
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool {
@@ -311,7 +290,6 @@ struct CalendarScreen: OnboardingScreen {
     }
 }
 
-/// WP4: "How your Zips should ask", three rows with defaults. The stranger keeps the defaults.
 struct AskScreen: OnboardingScreen {
     let name = "ask", step = "ask", headlines = ["How Your Zips Should Ask", "How Should Your Zips Ask?"]
     func recognizes(_ app: XCUIApplication, _ run: OnboardingRun) -> Bool { app.anyLabel(containing: "Should Ask").exists }

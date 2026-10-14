@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// The first screen when this device has no home: create an account (the onboarding), sign in with a username and a
-/// password, or sign in with a pairing code. Log Out comes back here.
 struct SignInView: View {
     @Environment(AppState.self) private var state
     @State private var mode: Mode = .choose

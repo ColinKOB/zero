@@ -1,21 +1,10 @@
 import Foundation
 import UserNotifications
 
-/// What the app and its Notification Service Extension (ios/NotificationService) share about notifications (Oct 10,
-/// docs/qa/2026-10-10-notifications.md):
-///
-/// - Each Zip's name, color and avatar picture, kept in the App Group container by the app whenever the Zips load, so
-///   the extension can show a notification as a message from that Zip (iOS Communication Notifications) without the
-///   app running.
-/// - The notification categories. A Zip's message gets Reply ("zero.msg.<zip>"); a card from Zero gets the card's own
-///   answers ("zero.card.<feed id>"), which the extension registers from the payload before the notification shows.
-///   Every category's hidden-preview placeholder says who it is from ("From Money"), so with Show Previews set to When
-///   Unlocked the lock screen still says which Zip wrote before Face ID.
 enum ZipNotify {
     static let appGroup = "group.com.example.Taffy"
     static let messagePrefix = "zero.msg."
     static let cardPrefix = "zero.card."
-    /// Reply on a Zip's message: the words go to that Zip (hub: /api/bots/<zip>/notification-reply).
     static let messageReply = "msg_reply"
 
     static var container: URL? {
@@ -66,8 +55,6 @@ enum ZipNotify {
                                       hiddenPreviewsBodyPlaceholder: placeholder(name), options: [])
     }
 
-    /// A card's answer as the hub sends it (notices.card_actions): "open" opens Zero to the card (a send or an
-    /// approval), "auth" asks for Face ID first (money and health), "background" answers right there.
     struct ActionSpec: Codable, Equatable {
         let id: String
         let title: String
@@ -117,8 +104,6 @@ enum ZipNotify {
         savedCardList().map { cardCategory(id: $0.id, from: $0.name, actions: $0.actions) }
     }
 
-    /// Adds `categories` to the registered set and waits until the system has them, at most about a second.
-    /// Returns whether they are registered.
     static func add(_ categories: [UNNotificationCategory]) async -> Bool {
         let center = UNUserNotificationCenter.current()
         var current = await center.notificationCategories()

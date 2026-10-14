@@ -3,14 +3,9 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// What the Zips can use: Gmail, Google Calendar, Google Drive, Trello and every other connector on the person's own
-/// Claude account, or the Google apps on a ChatGPT plan (hub accounts.py, docs/specs/2026-10-08-google-connect-design.md,
-/// docs/qa/2026-10-08-google-connect-v2.md).
 struct AccountsStatus: Decodable, Equatable {
     struct Claude: Decodable, Equatable {
-        /// signed_in, signed_out, api_key, missing or unknown
         let state: String
-        /// The Claude account's email, so the person connects Google on the same account. Empty when unknown.
         let account: String
     }
 
@@ -18,18 +13,13 @@ struct AccountsStatus: Decodable, Equatable {
         let id: String
         let name: String
         let group: String
-        /// connected, not_connected, needs_sign_in, turned_off, trouble, claude_signed_out, claude_api_key,
-        /// claude_sign_in_again, claude_missing or unknown
         let state: String
         let connected: Bool
-        /// One plain sentence from the hub.
         let detail: String
-        /// Which plan reaches it: "claude" or "chatgpt". Older hubs leave it out.
         var via: String? = nil
     }
 
     struct ChatGPT: Decodable, Equatable {
-        /// signed_in, signed_out, api_key, missing or unknown
         let state: String
     }
 
@@ -40,29 +30,22 @@ struct AccountsStatus: Decodable, Equatable {
 
     let checked_at: Double
     let claude: Claude
-    /// Null from a home without connectors (a shared plan, or a new account's own plan), so it is optional: a required
-    /// field made the whole status fail to decode there, and the app thought it had no status at all.
     let connect_url: String?
     let google_connections_url: String
     let services: [Service]
     let google: Count
-    /// Where the Zips' Claude runs, as the person would say it ("your Mac", "the computer your Zips use").
     var computer: String? = nil
-    /// The plan the Zips use: claude, chatgpt, both or none. Older hubs leave it out (Claude only).
     var plan: String? = nil
     var chatgpt: ChatGPT? = nil
     var claude_connect_url: String? = nil
     var chatgpt_connect_url: String? = nil
 
-    /// Only a ChatGPT plan: the Google accounts connect in ChatGPT, and Trello waits for Claude.
     var chatGPTOnly: Bool { plan == "chatgpt" }
-    /// The plan the person connects this group in.
     func planName(for group: AccountGroup) -> String { chatGPTOnly && group.chatGPTWorks ? "ChatGPT" : "Claude" }
     func connectURL(for group: AccountGroup) -> String {
         chatGPTOnly && group.chatGPTWorks ? (chatgpt_connect_url ?? connect_url ?? "https://chatgpt.com/apps")
             : (claude_connect_url ?? connect_url ?? "https://claude.ai/customize/connectors")
     }
-    /// Every other connector on the Claude account, such as Notion or Slack.
     var more: [Service] { services.filter { $0.group == "more" } }
 
     var claudeComputer: String { computer ?? "your Mac" }
@@ -73,12 +56,9 @@ struct AccountsStatus: Decodable, Equatable {
         let s = services(in: group)
         return !s.isEmpty && s.allSatisfy(\.connected)
     }
-    /// Something on the Claude side has to be fixed before any account can work. A ChatGPT plan reaches Google on its
-    /// own, so then only the Claude-only accounts wait.
     var claudeProblem: Bool { !chatGPTOnly && claude.state != "signed_in" && claude.state != "unknown" }
 }
 
-/// The accounts one Connect flow covers, and what the screen says about them.
 struct AccountGroup: Identifiable, Hashable {
     struct Use: Hashable {
         let id: String
@@ -92,9 +72,7 @@ struct AccountGroup: Identifiable, Hashable {
     let uses: [Use]
     var serviceIDs: [String] { uses.map(\.id) }
     var title: String { "Connect \(provider)" }
-    /// Codex on a ChatGPT plan can use these accounts (the Google ones).
     var chatGPTWorks: Bool { id == "google" }
-    /// Another connector on the Claude account, with one generic description.
     var isMore: Bool { id.hasPrefix("more:") }
 
     static let google = AccountGroup(id: "google", provider: "Google", uses: [
@@ -111,7 +89,6 @@ struct AccountGroup: Identifiable, Hashable {
             can: "See your boards and move, add and update cards when you ask. Zips don't delete boards or change workspace settings."),
     ])
 
-    /// Any other connector on the person's Claude account (Notion, Slack, Linear and so on).
     static func more(id: String, name: String) -> AccountGroup {
         AccountGroup(id: "more:\(id)", provider: name, uses: [
             Use(id: id, name: name, symbol: "square.stack.3d.up",
@@ -126,7 +103,6 @@ struct AccountGroup: Identifiable, Hashable {
     }
 }
 
-/// The last account status and a light poll while a Connect screen is open.
 @MainActor
 @Observable
 final class AccountsModel {
@@ -138,7 +114,6 @@ final class AccountsModel {
     @ObservationIgnored private var pollers = 0
     @ObservationIgnored private var pollTask: Task<Void, Never>?
 
-    /// `fresh` asks the hub to look again now instead of using its ten-minute answer.
     func refresh(_ state: AppState, fresh: Bool = false) async {
         #if DEBUG
         if state.fixtureMode {
@@ -157,8 +132,6 @@ final class AccountsModel {
         }
     }
 
-    /// While a Connect screen is on screen: check every few seconds, so a row turns green soon after the person
-    /// connects in Claude. Screens call start on appear and stop on disappear; the last one out stops the poll.
     func startPolling(_ state: AppState) {
         pollers += 1
         guard pollTask == nil else { return }
@@ -178,15 +151,12 @@ final class AccountsModel {
     }
 
     #if DEBUG
-    /// -accounts none | partial | all | expired | signedout picks the fixture's starting status. Add "-server" (for
-    /// example signedout-server) for Zips that run on a home computer rather than the person's Mac.
     static var fixtureVariant: String {
         let a = CommandLine.arguments
         if let i = a.firstIndex(of: "-accounts"), i + 1 < a.count { return a[i + 1] }
         return "none"
     }
 
-    /// Fixture only: the person "connects" in Claude, and the rows turn green one at a time, as they would live.
     func simulateConnecting(_ group: AccountGroup) {
         Task {
             for id in group.serviceIDs {
@@ -216,7 +186,6 @@ extension AccountsStatus {
                               chatgpt_connect_url: chatgpt_connect_url)
     }
 
-    /// Variants: none, partial, all, expired, signedout, and chatgpt (only a ChatGPT plan, Gmail connected there).
     static func fixture(_ fullVariant: String) -> AccountsStatus {
         let server = fullVariant.hasSuffix("-server")
         let variant = server ? String(fullVariant.dropLast("-server".count)) : fullVariant
@@ -274,30 +243,19 @@ extension AccountsStatus {
 
 // MARK: Connect Apps
 
-/// Every app the Connect Apps screen lists, with its state, from the hub (apps.py,
-/// docs/specs/2026-10-11-native-connectors-design.md). "native" apps connect in Zero itself (Trello, Google, and
-/// Outlook, Dropbox, Notion, Linear and GitHub through the hub's oauth.py); the others work through the person's
-/// Claude or ChatGPT account until Zero connects them directly.
 struct AppsCatalog: Decodable, Equatable {
     struct App: Decodable, Equatable, Identifiable {
         let id: String
         let name: String
         let category: String
-        /// An SF Symbol, shown only when the app has no bundled logo (AppLogoTile).
         let symbol: String
         let native: Bool
-        /// What the Zips can do with it, in one sentence.
         let can: String
-        /// connected, needs_sign_in, not_connected, not_set_up, elsewhere (through Claude or ChatGPT) or unavailable
         let state: String
-        /// One plain sentence, or empty.
         let detail: String
-        /// connect (Zero's own flow), google (Sign In with Google), claude (the person's Claude account),
-        /// disconnect (connected here) or none
         let action: String
         var account: String? = nil
         var via: String? = nil
-        /// A few gray words for the list, and whether it is listed under Popular. Older hubs leave both out.
         var blurb: String? = nil
         var popular: Bool? = nil
 
@@ -319,7 +277,6 @@ struct AppsCatalog: Decodable, Equatable {
 
     func app(_ id: String) -> App? { apps.first { $0.id == id } }
 
-    /// The same short lines and Popular apps as the hub's apps.py, for a hub from before they were sent.
     static let blurbs: [String: String] = [
         "gmail": "Read and sort your mail", "google_calendar": "See and add your events",
         "outlook": "Read your mail and calendar", "google_drive": "Search Docs, Sheets and Slides",
@@ -333,11 +290,7 @@ struct AppsCatalog: Decodable, Equatable {
     var connectedApps: [App] { apps.filter(\.isConnected) }
 }
 
-/// Where the app sends the person to connect an app (POST /api/apps/{id}/start).
 struct AppStart: Decodable, Equatable {
-    /// redirect: Trello's page comes back to Zero by itself. paste: Trello shows a code to copy. google: Sign In
-    /// with Google with these scopes. oauth: the provider's page comes back to zero://oauth/<provider> with a code
-    /// and state for the hub. device: GitHub's code for the person to enter at `url`, then poll with `state`.
     let mode: String
     var url: String? = nil
     var callback_scheme: String? = nil
@@ -351,7 +304,6 @@ struct AppStart: Decodable, Equatable {
 struct AppAnswer: Decodable {
     let ok: Bool
     var detail: String? = nil
-    /// GitHub's device sign-in: the person hasn't entered the code yet; ask again after `interval` seconds.
     var pending: Bool? = nil
     var interval: Int? = nil
 }
@@ -365,7 +317,6 @@ extension HubClient {
         try await send(try request("/api/apps/\(id)/start?relay=1", method: "POST"), as: AppStart.self)
     }
 
-    /// Trello's pasted code, or the code and state a provider's page sent back to zero://oauth/<provider>.
     func sendAppCode(_ id: String, code: String, state: String? = nil) async throws -> AppAnswer {
         struct Body: Encodable { let code: String; let state: String? }
         var r = try request("/api/apps/\(id)/code", method: "POST", body: Body(code: code, state: state))
@@ -385,8 +336,6 @@ extension HubClient {
     }
 }
 
-/// A provider's own page in a system web sheet (the person's Safari sign-ins work there). Returns the address the page
-/// sent back to `scheme`, or nil when the person closed the sheet.
 @MainActor
 final class WebSheet: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
@@ -418,15 +367,12 @@ final class AppsModel {
 
     var catalog: AppsCatalog?
     var error: String?
-    /// The app being connected or disconnected right now.
     var working: String?
 
     enum Outcome: Equatable {
         case connected
         case closed
-        /// Trello showed its code on its own page: the walkthrough asks the person to paste it.
         case paste(URL)
-        /// GitHub's device sign-in: the walkthrough shows the code and waits (DeviceConnectView).
         case device(AppStart)
         case failed(String)
     }
@@ -453,9 +399,6 @@ final class AppsModel {
         }
     }
 
-    /// Connect an app the way its provider allows: Sign In with Google, Trello's page coming back by itself,
-    /// Trello's page showing a code (then `.paste`), a provider's own page that comes back to Zero with a code for
-    /// the hub (Outlook, Dropbox, Linear, Notion), or GitHub's device code (then `.device`).
     func connect(_ app: AppsCatalog.App, _ state: AppState) async -> Outcome {
         working = app.id
         defer { working = nil }
@@ -532,7 +475,6 @@ final class AppsModel {
         }
     }
 
-    /// The code the person copied from Trello's page. Nil when it worked, else a plain sentence.
     func sendCode(_ appID: String, _ code: String, _ state: AppState) async -> String? {
         working = appID
         defer { working = nil }
@@ -553,7 +495,6 @@ final class AppsModel {
         }
     }
 
-    /// One check of GitHub's device sign-in (the hub asks GitHub at most once per interval).
     func poll(_ appID: String, _ start: AppStart, _ state: AppState) async -> Poll {
         #if DEBUG
         if state.fixtureMode {
@@ -595,7 +536,6 @@ final class AppsModel {
     #if DEBUG
     @ObservationIgnored private var fixturePolls = 0
 
-    /// -apps none | some | expired picks the fixture catalog.
     static var fixtureVariant: String {
         let a = CommandLine.arguments
         if let i = a.firstIndex(of: "-apps"), i + 1 < a.count { return a[i + 1] }

@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// A short confirmation shown at the top of the screen, then gone: "Allowed from now on: ..." after Always Allow on a
-/// card, "Saved to Custom Rules" after editing a rule.
 struct Confirmation: Identifiable, Equatable {
     let id = UUID()
     let title: String
@@ -47,7 +45,6 @@ struct ConfirmationBanner: View {
 }
 
 extension View {
-    /// Shows `confirmation` over the top of this view until it times out or is tapped.
     func confirmationBanner(_ confirmation: Binding<Confirmation?>) -> some View {
         overlay(alignment: .top) {
             if let c = confirmation.wrappedValue {
@@ -59,12 +56,8 @@ extension View {
     }
 }
 
-/// Custom Rules (from Grok Bot 0.68.1): every standing rule in a plain sentence, which Zip it covers, when it was made
-/// and how often it was used. Allow rules come from Always Allow on a card. Ask First rules are Colin's own: a Zip asks
-/// before something it would otherwise just do. Opened from Settings (every Zip) and from a Zip's profile (that Zip).
 struct CustomRulesView: View {
     @Environment(AppState.self) private var state
-    /// One Zip's rules (and the rules for every Zip), or nil for all of them.
     var botID: String? = nil
 
     @State private var rules: [PermissionRule] = []
@@ -161,7 +154,6 @@ struct CustomRulesView: View {
         }
     }
 
-    /// The hub's sentence, or one made here for an older hub that sends none.
     static func sentence(_ r: PermissionRule, bot: String) -> String {
         if let s = r.sentence, !s.isEmpty { return s }
         switch r.kind {
@@ -241,14 +233,11 @@ struct CustomRulesView: View {
     #endif
 }
 
-/// The sheet's subject: a rule to edit, or nil for a new Ask First rule.
 struct RuleEdit: Identifiable {
     let id = UUID()
     let rule: PermissionRule?
 }
 
-/// Edit Rule, or a new Ask First rule. Any rule can move to another Zip. An Ask First rule can also change what it
-/// covers and where. An Allow rule already covers one person or one job, so its scope stays as it is.
 struct RuleEditorSheet: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
@@ -264,11 +253,9 @@ struct RuleEditorSheet: View {
     @State private var busy = false
     @State private var error: String?
 
-    /// The picker's tag for a place Colin types himself.
     private static let typedPlace = "typed"
     private var isAllow: Bool { rule.map { !$0.isAskFirst } ?? false }
 
-    /// For a push the choice is any repo or one branch; otherwise anywhere, a named place, or one he types.
     private var places: [RuleChoices.Option] {
         if what == "push" { return [.init(id: "*", title: "Any Repo"), .init(id: Self.typedPlace, title: "One Branch")] }
         return choices.places + [.init(id: Self.typedPlace, title: what == "send" ? "Someone or Somewhere Else" : "Another Website")]

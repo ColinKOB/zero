@@ -41,7 +41,6 @@ struct ConsentScreen: View {
     }
 }
 
-/// The small link on the first screen that opens the sample home (Model/DemoHome.swift).
 struct SampleHomeLink: View {
     @Environment(AppState.self) private var state
 

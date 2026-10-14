@@ -3,11 +3,6 @@ import AudioToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Each Zip's message tone (Colin, Oct 11: "can we make personalized message tones for each of the agents?" and "can
-/// we give the user the ability to change the sounds if they'd prefer a different one?"). The hub keeps the choice so
-/// the iPhone and the Mac agree, and sends it with every notification (hub tones.py). Zero's tones are bundled
-/// (ios/scripts/make-tones.py); a sound of the person's own is saved on this device in Library/Sounds, where iOS
-/// looks for notification sounds.
 enum MessageTones {
     static let bundled: [(id: String, title: String)] = [
         ("chime", "Chime"), ("marimba", "Marimba"), ("pluck", "Pluck"), ("bell", "Bell"), ("glass", "Glass"),
@@ -35,8 +30,6 @@ enum MessageTones {
         customURL(bot).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
     }
 
-    /// Copies the person's sound into Library/Sounds as 16-bit PCM, cut to `maxSeconds` with a short fade so it never
-    /// stops on a click.
     static func saveCustom(from source: URL, for bot: String) throws {
         let reading = source.startAccessingSecurityScopedResource()
         defer { if reading { source.stopAccessingSecurityScopedResource() } }
@@ -66,7 +59,6 @@ enum MessageTones {
     }
 }
 
-/// Plays a tone once, for choosing.
 @MainActor
 final class TonePreview {
     static let shared = TonePreview()
@@ -93,7 +85,6 @@ final class TonePreview {
     func stop() { player?.stop() }
 }
 
-/// A Zip's Message Tone row, under its notification settings.
 struct MessageToneRow: View {
     @Environment(AppState.self) private var state
     let botID: String

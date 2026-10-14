@@ -13,39 +13,26 @@ final class TaffyMacBridge: NSObject {
     private var bar: NSPanel?
     private var approval: NSPanel?
     private var approvalReply: ((Bool, Bool) -> Void)?
-    /// The request on the card now, as the hub sent it: what a phone's signature has to cover.
     var pendingApproval: (id: String, bot: String, task: String, said: String, expires: Int)?
-    /// Where the last request was answered: "mac" (the card's buttons) or "phone".
     var answeredVia = "mac"
-    /// The one-time question about trusting a phone's approvals (TaffyMacBridge+Phone.swift).
     var trustPanel: NSPanel?
     var trustCandidate: (id: String, key: String)?
-    /// Whether the permission guide was already shown during this grant (offerGuide).
     var guideOfferedThisGrant = false
     private var stopHandler: (() -> Void)?
-    /// Elements from the last UI list, so a bot can press one by number without touching the mouse.
     var elements: [AXUIElement] = []
-    /// The same controls with their names, for pressing by name (TaffyMacBridge+UI.swift).
     var items: [Item] = []
-    /// The app the bot is working in; background input goes to it instead of the front app.
     var targetPid: pid_t = 0
     private var cursor: NSPanel?
     private var botName = "Taffy"
-    /// The paired person's first name for the words the bot reads ("Sam has to allow it once"), set by the app from
-    /// the home's settings and by the hub's "person" event. Never used to decide anything.
     private var person = ""
     var who: String { person.isEmpty ? "The person" : person }
-    /// Colin's Allow, held here: set only by the Allow button, cleared by Stop, idle or time.
     private var grantUntil: Date?
-    /// Whether Colin said yes to the bot using his real mouse during this grant.
     private var realMouseAllowed = false
     private var mousePanel: NSPanel?
     private var mouseReply: ((Bool) -> Void)?
     private var approvalTimer: Timer?
     private static let grantSeconds: TimeInterval = 30 * 60
     private static let approvalSeconds: TimeInterval = 115
-    /// Apps where typed keys become commands, including other AI agents that can run them; bots run commands
-    /// through mac_run, which has the guard and the sandbox.
     static let shells: Set<String> = [
         "com.apple.Terminal", "com.googlecode.iterm2", "com.apple.ScriptEditor2", "com.apple.Automator",
         "com.apple.shortcuts", "dev.warp.Warp-Stable", "com.mitchellh.ghostty", "net.kovidgoyal.kitty",
@@ -53,18 +40,15 @@ final class TaffyMacBridge: NSObject {
         "com.anysphere.sand", "com.anthropic.claudefordesktop", "com.openai.codex", "com.openai.chat",
         "com.todesktop.230313mzl4w4u92", "com.t3tools.t3code",
     ]
-    /// Apps that never open for a bot: they run whatever file they are given.
     private static let launchers: Set<String> = [
         "com.apple.Terminal", "com.googlecode.iterm2", "com.apple.ScriptEditor2", "com.apple.Automator",
         "com.apple.shortcuts", "com.apple.installer", "dev.warp.Warp-Stable", "com.mitchellh.ghostty",
         "net.kovidgoyal.kitty", "io.alacritty", "co.zeit.hyper",
     ]
-    /// Files that run something when opened.
     private static let runnable: Set<String> = [
         "command", "tool", "sh", "zsh", "bash", "scpt", "scptd", "applescript", "workflow", "shortcut", "terminal",
         "pkg", "mpkg", "app", "webloc", "inetloc", "fileloc", "py", "rb", "pl", "jar", "dmg", "action", "prefpane",
     ]
-    /// Commands running now, so Stop and the end of a grant end them too.
     private var running: [Process] = []
     private let runningLock = NSLock()
 
@@ -131,14 +115,12 @@ final class TaffyMacBridge: NSObject {
         }
     }
 
-    /// Called when Colin presses Stop on the in-use bar.
     @objc func setStopHandler(_ handler: @escaping @convention(block) () -> Void) {
         stopHandler = handler
     }
 
     // MARK: Open and run
 
-    /// Opens without taking over Colin's screen, and remembers the app so later input goes to it.
     private func open(_ args: [String: Any], _ ok: @escaping (Any) -> Void, _ fail: @escaping (String) -> Void) {
         let target = (args["target"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return fail("Nothing to open.") }
@@ -184,8 +166,6 @@ final class TaffyMacBridge: NSObject {
         ws.openApplication(at: appURL, configuration: cfg, completionHandler: done)
     }
 
-    /// Wispr Flow's hands-free mode, started from the composer's mic. Only these two links, and Flow stays in the
-    /// background so it types into Taffy's message box.
     private func flow(_ args: [String: Any], _ ok: @escaping (Any) -> Void, _ fail: @escaping (String) -> Void) {
         let start = (args["action"] as? String) != "stop"
         guard let url = URL(string: start ? "wispr-flow://start-hands-free" : "wispr-flow://stop-hands-free") else { return }
@@ -199,8 +179,6 @@ final class TaffyMacBridge: NSObject {
         }
     }
 
-    /// Why a file, app or link must not be opened for a bot: Taffy itself, apps that run files, and files that
-    /// run something when opened (these would run outside the command sandbox).
     private func openRefusal(_ target: String) -> String? {
         let lower = target.lowercased()
         if let url = URL(string: target), let scheme = url.scheme?.lowercased(), scheme.count > 1 {
@@ -376,8 +354,6 @@ final class TaffyMacBridge: NSObject {
         return true
     }
 
-    /// Why the bot must not work in this app: Taffy itself (its own approvals and Colin's message box), or an
-    /// app where typing runs commands.
     func appRefusal(_ pid: pid_t) -> String? {
         if pid == getpid() { return "Zips never work in Zero itself. Open the app to work in with mac_open first." }
         return nil
@@ -385,8 +361,6 @@ final class TaffyMacBridge: NSObject {
 
     // MARK: Acting
 
-    /// Clicks without moving Colin's mouse: the click goes straight to the app under that point, and the
-    /// bot's own cursor shows where. With real set, it uses the real mouse (only after Colin agrees).
     private func click(_ args: [String: Any], _ ok: @escaping (Any) -> Void, _ fail: @escaping (String) -> Void) {
         if needAccessibility(fail) { return }
         guard let x = args["x"] as? Double, let y = args["y"] as? Double else { return fail("Need x and y.") }
@@ -476,7 +450,6 @@ final class TaffyMacBridge: NSObject {
         return CGPoint(x: p.x + s.width / 2, y: p.y + s.height / 2)
     }
 
-    /// The focused element of the app the bot is typing into is a password field: bots never type there.
     func focusIsSecure() -> Bool {
         let app = AXUIElementCreateApplication(targetPid)
         var focused: AnyObject?
@@ -489,7 +462,6 @@ final class TaffyMacBridge: NSObject {
         return (role as? String) == "AXSecureTextField" || (sub as? String) == "AXSecureTextField"
     }
 
-    /// Why typing into the bot's current app is not allowed, if it is not.
     func typingRefusal() -> String? {
         guard targetPid != 0, let app = NSRunningApplication(processIdentifier: targetPid) else {
             return "No app is chosen to type into. Open it with mac_open or click into it first."
@@ -697,7 +669,6 @@ final class TaffyMacBridge: NSObject {
         stopHandler?()
     }
 
-    /// Asks on the Mac itself before the bot's first use of Colin's real mouse in a grant.
     private func askForMouse(_ reply: @escaping (Bool) -> Void) {
         if realMouseAllowed { return reply(true) }
         dismissMousePanel(false)
@@ -779,7 +750,6 @@ final class TaffyMacBridge: NSObject {
         }
     }
 
-    /// Glides the bot's cursor to a point in screen coordinates (top-left origin, like the clicks).
     func moveCursor(to p: CGPoint, click: Bool) {
         let size = NSSize(width: 160, height: 48)
         if cursor == nil {

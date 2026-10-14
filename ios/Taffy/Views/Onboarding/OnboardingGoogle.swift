@@ -2,10 +2,6 @@ import SwiftUI
 
 // MARK: 9. Connect Google (after What I Found, only when a picked Zip uses Gmail, Calendar or Drive)
 
-/// The onboarding's Connect Google screen: which picked Zips need Google, what Zero can do with Gmail, Calendar and
-/// Drive, a button that opens the Connectors page of the person's Claude account (or the Apps page of their ChatGPT
-/// account when that is their only plan), and three rows that turn green live. Skipping is fine; a Zip asks later
-/// with a card when it needs Google. The full steps and disconnect guidance are one tap away (Show Me How).
 struct GoogleScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -17,7 +13,6 @@ struct GoogleScreen: View {
     private var status: AccountsStatus? { accounts.status }
     private var done: Bool { status?.allConnected(.google) ?? false }
     private var plan: String { status?.planName(for: .google) ?? "Claude" }
-    /// "Inbox and Calendar", the picked Zips that use Google.
     private var zips: String { ConnectAccountsView.list(model.pickedGoogle.map(\.name)) }
     private var intro: String {
         let who = zips.isEmpty ? "Some of your Zips" : zips

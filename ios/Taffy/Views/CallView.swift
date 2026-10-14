@@ -1,9 +1,6 @@
 import AVKit
 import SwiftUI
 
-/// A voice chat with one bot, styled like an iPhone call to a contact: the bot's picture and name at
-/// the top with the call timer, round controls at the bottom, and the red End button. The words of
-/// the call stay behind the Transcript button.
 struct CallView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
@@ -147,7 +144,6 @@ struct CallView: View {
         }
     }
 
-    /// "Connecting..." until the call connects, then the running time, like the Phone app.
     private var callFailed: Bool {
         if case .failed = engine?.phase { return true }
         return false
@@ -219,8 +215,6 @@ struct CallView: View {
 }
 
 
-/// The words of the call so far. Its own view, so only new lines redraw it, and it follows the newest
-/// line the way Messages does.
 private struct CallTranscript: View {
     let engine: CallEngine
     @Environment(\.dismiss) private var dismiss
@@ -258,7 +252,6 @@ private struct CallTranscript: View {
 }
 
 
-/// The system's audio output menu (iPhone, Speaker, AirPods, the car), like the Phone app's Audio button.
 private struct RoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()

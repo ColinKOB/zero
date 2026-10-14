@@ -1,6 +1,5 @@
 import Foundation
 
-/// One sentence to speak, and the pause that should follow it when another comes after.
 struct SpokenSentence: Equatable {
     let text: String
     let paragraphEnd: Bool
@@ -8,7 +7,6 @@ struct SpokenSentence: Equatable {
     var pauseAfter: Double { SpokenPause.after(text, paragraphEnd: paragraphEnd) }
 }
 
-/// The pauses the app puts between sentences (measured from the voices themselves on the Mac).
 enum SpokenPause {
     static let sentence = 0.25
     static let comma = 0.24
@@ -29,14 +27,11 @@ enum SpokenPause {
         return base + (paragraphEnd ? paragraphExtra : 0)
     }
 
-    /// Silence to put before a sentence that follows another. `trailing` is the silence the previous sentence
-    /// already ended with, and `late` is time already lost waiting for this one.
     static func pad(previous: Double, trailing: Double, late: Double) -> Double {
         max(0, previous * pocketShare - trailing - late)
     }
 }
 
-/// Splits streamed text into whole sentences. It cuts at commas only for a runaway sentence of over 60 words.
 struct SentenceSplitter {
     private(set) var buffer = ""
     static let capWords = 60
@@ -114,13 +109,11 @@ struct SentenceSplitter {
     }
 }
 
-/// Hands out the sentences of one reply in order, and removes an opening interjection from the first one.
 struct ReplySentences {
     private var splitter = SentenceSplitter()
     private var ready: [SpokenSentence] = []
     private(set) var done = false
     private(set) var emitted = 0
-    /// The interjection removed from the start of the reply, if any (for the call's saved events).
     private(set) var strippedOpening: String?
 
     mutating func push(_ s: String) { ready += splitter.push(s) }
@@ -131,7 +124,6 @@ struct ReplySentences {
         done = true
     }
 
-    /// True when all text has arrived and every sentence has been handed out.
     var finished: Bool { done && ready.isEmpty }
 
     mutating func next() -> SpokenSentence? {
@@ -149,9 +141,6 @@ struct ReplySentences {
     }
 }
 
-/// Two questions run together with a comma ("How about you, how is your day going?") are spoken as one long
-/// question with the rise only at the very end. A short question lead-in before a comma becomes its own question
-/// when what follows is a question (Colin, Oct 9).
 enum QuestionSplit {
     static let leads: Set<String> = ["how", "what", "and", "you", "do", "does", "did", "is", "are", "was", "were", "can",
                                      "could", "would", "will", "should", "have", "has", "any", "want", "ready", "sound",
@@ -182,7 +171,6 @@ enum QuestionSplit {
     }
 }
 
-/// Removes an opening interjection such as "Oh, man." or "Hmm," and returns the rest and what was cut.
 func stripLeadingInterjection(_ text: String) -> (String, String?) {
     let pattern = #"^\s*(?:(?:oh|ah|aw|ooh|whoa|wow|hmm+|mm+|um+|uh+|well|so|man)(?:,?\s*(?:man|boy|wow|yeah|okay))?\s*[,.!…]+|oh,?\s+man\b[,.!…]*)\s*"#
     guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
@@ -195,7 +183,6 @@ func stripLeadingInterjection(_ text: String) -> (String, String?) {
     return (rest, cut)
 }
 
-/// Text cleanup before the voice: no markup, no emojis, no bracketed notes, plain apostrophes and quotes.
 func speakableText(_ s: String) -> String {
     var t = s.replacingOccurrences(of: #"\[[^\]]*\]"#, with: "", options: .regularExpression)
     t = t.replacingOccurrences(of: "[*_#`~>|]", with: "", options: .regularExpression)
@@ -218,7 +205,6 @@ enum TextShape: String {
     case incomplete
 }
 
-/// Whether the words so far sound finished. "um" and "uh" mean the person is still thinking.
 enum TurnRules {
     static let fillers: Set<String> = ["um", "umm", "ummm", "uh", "uhh", "uhm", "er", "erm", "hmm", "hm", "mm", "ah", "eh", "mhm"]
     static let strong: Set<String> = [
@@ -260,14 +246,11 @@ enum TurnRules {
     }
 }
 
-/// Cleaning up what speech recognition returns.
 enum HeardText {
     static func wordCount(_ s: String) -> Int {
         s.split(whereSeparator: \.isWhitespace).filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }.count
     }
 
-    /// Removes punctuation that stands alone (". , ..." between words, left where a segment held no words) and
-    /// shortens runs of marks ("for.." to "for.", "of.........." to "of...").
     static func tidy(_ s: String) -> String {
         var out: [String] = []
         for tok in s.split(whereSeparator: \.isWhitespace) {
@@ -285,7 +268,6 @@ enum HeardText {
         return out.joined(separator: " ")
     }
 
-    /// Lowercased words without punctuation, for comparing two versions of the same words.
     static func norm(_ s: String) -> String {
         s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == " " }
             .map(String.init).joined().split(separator: " ").joined(separator: " ")
@@ -295,16 +277,12 @@ enum HeardText {
         s.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "'") }.map { $0.replacingOccurrences(of: "'", with: "") }
     }
 
-    /// Short sounds that mean "go on" while the voice talks; they never stop it.
     static let backchannel: Set<String> = [
         "yeah", "yep", "yup", "yes", "uh", "huh", "uhhuh", "mhm", "mm", "mmm", "hmm", "um", "okay", "ok", "right", "sure",
         "cool", "nice", "wow", "oh", "ah",
     ]
-    /// Words that do stop it, even alone.
     static let commands: Set<String> = ["stop", "wait", "hold", "no", "nope", "zero", "hey", "actually", "sorry", "pause", "quiet"]
 
-    /// Whether words heard while the voice talks on the speaker are really the person (not the voice's own echo).
-    /// Returns the words that count.
     static func interruption(heard: [String], voiceWords: Set<String>) -> (confirmed: Bool, foreign: [String]) {
         let foreign = heard.filter { !voiceWords.contains($0) && !backchannel.contains($0) }
         let confirmed = foreign.count >= 2 || foreign.contains { $0.count >= 4 || commands.contains($0) }

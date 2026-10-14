@@ -5,7 +5,6 @@ import Foundation
 final class OnDeviceCall {
     enum Phase: String { case off, starting, listening, hearing, thinking, speaking }
 
-    /// One reply: asked for, maybe before the turn is certain, and spoken once it is.
     @MainActor private final class Attempt {
         let n: Int
         let text: String
@@ -41,7 +40,6 @@ final class OnDeviceCall {
 
     private static let fillerWait = 1.8
     private static let bargeMin: Float = 0.03
-    /// How long before the planned confirmation the one finalize is asked for (35 to 140 ms on the phone).
     private static let finalizeLead = 0.1
 
     private let client: HubClient
@@ -52,17 +50,12 @@ final class OnDeviceCall {
     private let voice: OnDeviceVoiceName
     private let engine: PocketVoiceEngine
     private let sink: (String, [String: Any]) -> Void
-    /// How long the person waited from tapping Call to the greeting (the hub saves it with the hello).
     private let waitedMs: Int
-    /// Work sounds from the hub, played through the call's own player into silence (CallCues.swift).
     private var cues = CueGate()
     private var earcons: [Earcon: [Float]] = [:]
-    /// When the voice last asked the person to say something again because no words came through.
     private var askedAgainHost = -Double.infinity
 
-    /// The person's words ("You") and the voice's (the bot's name), for the call screen's transcript.
     var onTranscript: ((String, String) -> Void)?
-    /// Something broke that ends the call, in a sentence for the call screen.
     var onFailed: ((String) -> Void)?
 
     private(set) var phase: Phase = .off
@@ -123,8 +116,6 @@ final class OnDeviceCall {
         self.sink = note
     }
 
-    /// Adds an event to the saved call. Only strings, numbers and booleans go (nil values are left out), since
-    /// the diagnostics are sent as JSON.
     private func note(_ event: String, _ fields: [String: Any]) {
         sink(event, Self.clean(fields))
     }
@@ -152,7 +143,6 @@ final class OnDeviceCall {
 
     // MARK: Start and stop
 
-    /// `sessionReady`: CallKit or the call's fallback already activated the audio session.
     func start(sessionReady: Bool) async throws {
         phase = .starting
         onDeviceNote = { [weak self] event, fields in
@@ -194,8 +184,6 @@ final class OnDeviceCall {
         speakGreeting()
     }
 
-    /// Stops the sound and the microphone at once (the audio session is handed back right after this), then
-    /// the recognizer.
     func stop() {
         guard phase != .off else { return }
         tickTask?.cancel()
@@ -224,7 +212,6 @@ final class OnDeviceCall {
         }
     }
 
-    /// News from the Zip's work (a hub `news` event): said at the next pause.
     func news(id: Int) {
         newsQueue.append(id)
     }
@@ -260,7 +247,6 @@ final class OnDeviceCall {
         Task { await client.voiceReady(call: id, waitedMs: waited) }
     }
 
-    /// Says a short line of the phone's own (not from the hub), such as asking for words that did not come through.
     private func speakLocal(_ text: String) {
         let sp = ReplySpeaker(engine: engine, output: audio, voice: voice)
         sp.add(text)
@@ -278,13 +264,10 @@ final class OnDeviceCall {
 
     // MARK: Work sounds
 
-    /// A work sound from the hub (`cue` event): started, working or done, for task `task`.
     func cue(_ kind: Earcon, task: Int) {
         cues.add(kind, task: task, now: hostNow())
     }
 
-    /// Plays a waiting work sound when nobody is talking and nothing is playing. Through the call's own player,
-    /// so the echo cancellation hears it and it never counts as the person.
     private func playCue() {
         let quiet = phase == .listening && attempt == nil && !held && !mic.speaking && !audio.isPlaying
             && hostNow() - mic.lastVoiceHost > 0.5
@@ -295,10 +278,8 @@ final class OnDeviceCall {
         note("cue_played", ["cue": e.rawValue])
     }
 
-    /// Whether anyone is talking or anything is playing (an ending after goodbye waits for quiet).
     var busy: Bool { phase != .listening || attempt != nil || mic.speaking || audio.isPlaying }
 
-    /// Whether the person is talking now.
     var personTalking: Bool { mic.speaking || phase == .hearing }
 
     // MARK: Turn detection
@@ -371,7 +352,6 @@ final class OnDeviceCall {
         updateTalking()
     }
 
-    /// Tells the hub when the person is talking, repeated every 2 s while it lasts (the hub forgets after 3 s).
     private func updateTalking() {
         let talking = !muted && !held && (phase == .hearing || mic.speaking)
         let now = hostNow()
@@ -641,7 +621,6 @@ final class OnDeviceCall {
         return listener.text(since: max(0, mic.hostToAudio(c.onset) - 0.25))
     }
 
-    /// A loud sound while the voice talks on the speaker: lower the voice and wait for words that are not its own.
     private func bargeCandidate(onset: Double, info: BargeInfo, source: String) {
         guard candidate == nil else { return }
         guard let a = attempt, a.confirmed, phase == .speaking || phase == .thinking else {

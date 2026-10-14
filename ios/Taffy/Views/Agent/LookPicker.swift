@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// The column of outfit boxes on the left: white, a faint gray border, each showing the outfit's pieces. Flat
-/// bodies wear no outfits, so on them the column is dimmed and does nothing.
 struct OutfitColumn: View {
     @Binding var look: AgentLook
 
@@ -34,7 +32,6 @@ struct OutfitColumn: View {
     }
 }
 
-/// An outfit's pieces as small icons, stacked as they are worn (glasses are short, so they get less height).
 struct OutfitIcon: View {
     let outfit: AgentOutfit
 
@@ -55,7 +52,6 @@ struct OutfitIcon: View {
     }
 }
 
-/// The carousel of bodies under the agent, with a Plush and Flat switch above it.
 struct BodyCarousel: View {
     @Binding var selected: String
     @State private var style: Style

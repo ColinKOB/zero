@@ -1,18 +1,13 @@
 import QuickLook
 import SwiftUI
 
-/// What the team is doing: what needs Colin first, then work in progress, then what got done.
-/// Laid out like the home list: candies on the left, a title and one gray line beside them.
 struct WorkView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @State private var selectedID: String?
-    /// The Settings toggle "Open Threads Beside the Main Chat".
     @AppStorage(ThreadPanel.settingKey) private var beside = true
-    /// How wide the side panel is, remembered between launches.
     @AppStorage(ThreadPanel.widthKey) private var panelWidth = ThreadPanel.defaultWidth
     @State private var dragStart: Double?
-    /// Done starts folded into a small stack of its newest cards and stays the way Colin last left it.
     @AppStorage("workDoneOpen") private var doneOpen = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var doneSpace
@@ -146,8 +141,6 @@ struct WorkView: View {
         }
     }
 
-    /// Between the stack and the list the leaving one fades out quickly and the arriving one fades in just after,
-    /// so a card and its row are never both readable mid-slide. With Reduce Motion it is an even crossfade.
     private var handoff: AnyTransition {
         reduceMotion ? .opacity : .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.22).delay(0.03)),
                                               removal: .opacity.animation(.easeIn(duration: 0.14)))
@@ -176,8 +169,6 @@ struct WorkView: View {
         .contentShape(Rectangle())
     }
 
-    /// Opens or folds Done. The cards spring into the rows; with Reduce Motion the two simply crossfade. VoiceOver
-    /// lands on the header, which reads the new state.
     private func toggleDone(count: Int) {
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.48, dampingFraction: 0.84)) {
             doneOpen.toggle()
@@ -188,22 +179,15 @@ struct WorkView: View {
     }
 }
 
-/// Done, folded: the newest finished tasks as a small deck of cards. The newest is in front; each older card sits a
-/// step down and to the right behind it, with its Zip and title along the strip that shows below the card ahead.
-/// Top to bottom it reads in the list's order, so opening it slides each card straight into its row. One button;
-/// tapping it opens the full list.
 private struct DoneStack: View {
     @Environment(AppState.self) private var state
     static let depth = 3
-    /// Newest first, at most `depth`.
     let tasks: [TaskItem]
     let total: Int
     let space: Namespace.ID
     let matched: Bool
     let open: () -> Void
 
-    /// How far each card sits down and to the right of the one in front of it. The step down is the strip that
-    /// shows: a 30 pt Zip with 8 pt above and below.
     private let down: CGFloat = 46, right: CGFloat = 16
 
     var body: some View {
@@ -228,8 +212,6 @@ private struct DoneStack: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    /// Every card is sized by the front card's layout, so they match. A card behind shows only its Zip and title,
-    /// along its bottom edge.
     private func card(_ task: TaskItem, front: Bool) -> some View {
         let bot = state.bot(task.assignee ?? "default")
         return VStack(alignment: .leading, spacing: 6) {
@@ -257,14 +239,10 @@ private struct DoneStack: View {
 
 private struct TaskRef: Identifiable { let id: String }
 
-/// The side panel a task thread opens in when the window is wide enough: the panel's limits, and the draggable
-/// divider between it and the board.
 enum ThreadPanel {
     static let settingKey = "threadsBesideChat"
     static let widthKey = "threadPanelWidth"
     static let defaultWidth = 380.0
-    /// The pane must be at least this wide (points) for a thread to open beside the board. A Mac window at its
-    /// smallest (900) is narrower than this once the sidebar is counted, so it keeps the sheet.
     static let minPaneWidth: CGFloat = 700
     private static let minPanel = 300.0, maxPanel = 640.0, minBoard = 360.0
 
@@ -272,7 +250,6 @@ enum ThreadPanel {
         CGFloat(min(max(w, minPanel), max(minPanel, min(maxPanel, Double(pane) - minBoard))))
     }
 
-    /// A hairline with a wider grab area. Dragging left widens the panel; VoiceOver can adjust it too.
     static func divider(width: CGFloat, pane: CGFloat, dragStart: Binding<Double?>,
                         set: @escaping (Double) -> Void) -> some View {
         Rectangle().fill(Theme.rule).frame(width: 1)
@@ -320,7 +297,6 @@ struct TaskRow: View {
         .contentShape(Rectangle())
     }
 
-    /// "Builder, working since 8:41 AM" or the question or summary when there is one.
     static func meta(_ task: TaskItem, _ bot: Bot?) -> String {
         let name = bot?.name ?? task.assignee ?? "Zero"
         switch task.status {
@@ -338,12 +314,10 @@ struct TaskDetailView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     let taskID: String
-    /// Set when the thread is the side panel; the panel has its own header and close button instead of a sheet.
     var onClose: (() -> Void)?
     @State private var preview: URL?
     @State private var fileError: String?
 
-    /// Always the live copy from the board, so an answered task updates or closes this sheet.
     private var live: TaskItem? {
         let b = state.board
         return (b.needs_you + b.working + b.done).first { $0.id == taskID }
@@ -469,7 +443,6 @@ struct TaskDetailView: View {
     }
 }
 
-/// Grok Bot's file card: an icon tile, the file's name and its type.
 struct FileCard: View {
     let name: String
     var body: some View {
@@ -508,7 +481,6 @@ struct FileCard: View {
 }
 
 
-/// Attachments Colin opened, kept only until the app next starts.
 enum WorkFiles {
     static let folder: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("TaffyFiles", isDirectory: true)

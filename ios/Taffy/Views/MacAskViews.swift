@@ -1,8 +1,5 @@
 import SwiftUI
 
-/// A Zip asking to use the Mac, in its chat. On the iPhone it has Allow (Face ID or the passcode) and Not Now; on the
-/// Mac itself the request is answered on the card the Mac shows. Once answered it becomes one quiet line, with Stop
-/// while the Zip is still working on the Mac.
 struct MacAskCard: View {
     @Environment(AppState.self) private var state
     let message: ChatMessage
@@ -112,7 +109,6 @@ struct MacAskCard: View {
     }
 }
 
-/// Not Now and Allow on a Mac request. Allow asks for Face ID or the passcode first, because it hands over the Mac.
 struct MacAnswerButtons: View {
     @Environment(AppState.self) private var state
     let request: MacRequest
@@ -160,7 +156,6 @@ struct MacAnswerButtons: View {
     }
 }
 
-/// The same request on the call screen, while talking to the Zip that asked.
 struct MacCallPrompt: View {
     @Environment(AppState.self) private var state
     let botID: String

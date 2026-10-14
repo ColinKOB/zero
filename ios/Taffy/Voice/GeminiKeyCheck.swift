@@ -4,7 +4,6 @@ import Foundation
 /// session is set up, and closes it. No audio is sent, so the check uses no minutes. The key travels in the
 /// `x-goog-api-key` header, not the address, so it never lands in a URL or a log.
 enum GeminiKeyCheck {
-    /// The fast Live model that won Colin's voice test (docs/research/voice-test).
     static let model = "gemini-3.8-live"
     static var endpoint: URL {
         #if DEBUG
@@ -17,11 +16,8 @@ enum GeminiKeyCheck {
 
     enum Result: Equatable {
         case works
-        /// Google refused the key itself: mistyped, deleted, or turned off.
         case rejected
-        /// The key is fine but has hit a limit for now.
         case limited
-        /// Google said no for another reason (account, region, model access). Carries Google's own words.
         case refused(String)
         case offline
     }
@@ -77,7 +73,6 @@ enum GeminiKeyCheck {
         return reason.isEmpty ? "Closed with code \(task.closeCode.rawValue)." : reason
     }
 
-    /// Sorts Google's message into what the person can do about it. The message never contains the key.
     static func classify(_ message: String) -> Result {
         let m = message.lowercased()
         if m.contains("api key not valid") || m.contains("api_key_invalid") || m.contains("unauthenticated")

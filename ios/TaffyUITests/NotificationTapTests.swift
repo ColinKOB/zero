@@ -1,16 +1,5 @@
 import XCTest
 
-/// Tapping a notification opens the Zip's chat and the app keeps running (docs/qa/2026-10-09-notification-crash.md).
-///
-/// The app runs its -fixture home. `-testNotification checkin:<seconds>` makes it schedule a local notification with the
-/// hub's own payload for Money's "Daily spending update" check-in (bot_id "money", thread "money"), and `notice` one for
-/// a question from Zero (bot_id "default", feed_id, the zero.question category). The test taps it as a banner over the
-/// home screen and on the lock screen, with the app in the background (warm) and after it was closed (cold).
-///
-/// With TEST_RUNNER_ZERO_EXTERNAL_PUSH=1 the app schedules nothing and the test waits for a push sent with
-/// `xcrun simctl push` (how the crash was reproduced on build 328, which has no -testNotification).
-///
-/// Run: xcodebuild test -scheme Taffy -destination 'platform=iOS Simulator,name=...' -only-testing:TaffyUITests/NotificationTapTests
 final class NotificationTapTests: XCTestCase {
     private var app: XCUIApplication!
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

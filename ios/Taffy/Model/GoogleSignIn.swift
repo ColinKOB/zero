@@ -20,7 +20,6 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/calendar.events",
     ]
-    /// Connect Apps' Google Drive: asked for on its own, with the scopes granted before kept (include_granted_scopes).
     nonisolated static let driveScopes = ["openid", "email", "https://www.googleapis.com/auth/drive.readonly"]
     static let authorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
 
@@ -32,7 +31,6 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
     }
 
     enum Failure: LocalizedError {
-        /// The person closed Google's page. Nothing to say.
         case cancelled
         case denied
         case broken
@@ -46,7 +44,6 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
         }
     }
 
-    /// "com.googleusercontent.apps.1234-abc" for "1234-abc.apps.googleusercontent.com".
     static func reversedClientID(_ clientID: String) -> String {
         clientID.split(separator: ".").reversed().joined(separator: ".")
     }
@@ -60,7 +57,6 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
         return String((0..<64).map { _ in chars[Int(rng.next(upperBound: UInt32(chars.count)))] })
     }
 
-    /// S256: base64url of the SHA-256 of the verifier, without padding.
     static func challenge(for verifier: String) -> String {
         Data(SHA256.hash(data: Data(verifier.utf8))).base64URL
     }
@@ -87,7 +83,6 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
 
     private var session: ASWebAuthenticationSession?
 
-    /// Opens Google's page and waits for the code. Throws `Failure.cancelled` when the person closes it.
     func signIn(clientID: String, loginHint: String?, scopes: [String] = GoogleSignIn.scopes) async throws -> Grant {
         let verifier = Self.makeVerifier()
         let state = UUID().uuidString
@@ -135,9 +130,6 @@ private extension Data {
 // MARK: Adding and removing accounts
 
 extension HomeModel {
-    /// Sign In with Google, then the home connects the account. Nil on success, or a plain sentence. A closed Google
-    /// page returns nil and changes nothing.
-    /// `scopes` and `use` default to Gmail and Google Calendar; Connect Apps passes Drive's (`use` ["drive"]).
     func connectGoogle(_ state: AppState, loginHint: String?, scopes: [String] = GoogleSignIn.scopes,
                        use: [String]? = nil) async -> String? {
         guard let clientID = googleClientID else {
@@ -194,8 +186,6 @@ extension HomeModel {
         }
     }
 
-    /// Adds a mailbox with an app password; the home signs in to check it. Returns the home's answer, or nil with a
-    /// sentence when it couldn't be reached.
     func addMailbox(_ body: HubClient.MailboxBody, _ state: AppState) async -> (AccountCheck?, String?) {
         #if DEBUG
         if state.fixtureMode {

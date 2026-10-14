@@ -3,7 +3,6 @@ import UIKit
 
 // MARK: Reply to a specific message (Oct 10)
 
-/// The message being replied to in a chat: its quote and the message box's header ("Replying to Zero").
 struct ReplyTarget: Equatable {
     let messageID: String
     let quote: ReplyQuote
@@ -11,14 +10,11 @@ struct ReplyTarget: Equatable {
 }
 
 extension AppState {
-    /// The words a quote of this message uses: the reply as shown (in full when it is opened in full), without
-    /// markdown. A call is quoted by its summary.
     static func quotedWords(_ m: ChatMessage, full: Bool) -> String {
         let shown = full ? (m.full ?? m.text) : m.text
         return m.kind == .call ? "Voice call: \(plainText(shown))" : plainText(shown)
     }
 
-    /// Swipe or Reply on a bubble: the message box gets the reply header, in place of a card's answer if one was there.
     func startReply(to m: ChatMessage, bot: String) {
         let opened = m.full != nil && ShortReplies.shared.opened.contains(m.id)
         let name = self.bot(bot)?.name ?? "Zero"
@@ -41,14 +37,12 @@ extension AppState {
         replying[bot] = ReplyTarget(messageID: m.id, quote: quote, title: title)
     }
 
-    /// A reply that did not go out comes back to the message box with its header, unless the box moved on.
     func restoreReply(_ target: ReplyTarget?, to bot: String) {
         guard let target, replying[bot] == nil, answering[bot] == nil else { return }
         replying[bot] = target
     }
 }
 
-/// The soft spring of the reply header and the swipe, or a short fade with Reduce Motion.
 enum ReplyMotion {
     static func header(_ reduceMotion: Bool) -> Animation {
         reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.36, dampingFraction: 0.86)
@@ -61,18 +55,15 @@ private struct RowHoveredKey: EnvironmentKey { static let defaultValue = false }
 private struct FlashedMessageKey: EnvironmentKey { static let defaultValue: String? = nil }
 private struct ShowOriginalKey: EnvironmentKey { static let defaultValue: ShowOriginal? = nil }
 
-/// Scrolls the chat to the message a quote points at and highlights it for a moment.
 struct ShowOriginal {
     let run: (_ quote: ReplyQuote, _ replyID: String) -> Void
 }
 
 extension EnvironmentValues {
-    /// On the Mac, the pointer is over this message's row (the hover actions show).
     var rowHovered: Bool {
         get { self[RowHoveredKey.self] }
         set { self[RowHoveredKey.self] = newValue }
     }
-    /// The message briefly highlighted after its quote was tapped.
     var flashedMessage: String? {
         get { self[FlashedMessageKey.self] }
         set { self[FlashedMessageKey.self] = newValue }
@@ -83,8 +74,6 @@ extension EnvironmentValues {
     }
 }
 
-/// Every chat row: on the Mac it notes when the pointer is over it, and any row lights up briefly when a quote of it
-/// is tapped.
 struct RowChrome: ViewModifier {
     let id: String
     @Environment(\.flashedMessage) private var flashed
@@ -122,19 +111,13 @@ private struct HoverTracking: ViewModifier {
 
 // MARK: Swipe, hover and menus on a bubble
 
-/// Makes a bubble take replies: the swipe on the iPhone, the hover actions and (optionally) the right-click menu on the
-/// Mac, and Reply for VoiceOver. Bubbles that take tapbacks get this from Tapbackable, whose menus have Reply too.
 struct Replyable: ViewModifier {
     let isMine: Bool
     let copyText: String
     let onReply: () -> Void
-    /// Opens the tapback bar, for messages that take one.
     var onTapback: (() -> Void)? = nil
-    /// The Mac's right-click menu with Reply and Copy, for bubbles with no tapback menu of their own.
     var ownMenu = false
-    /// Reply as a VoiceOver action; Tapbackable adds its own beside Copy and React.
     var voiceOverAction = true
-    /// One more line in the Mac's More menu, like Show Question on a card's answer.
     var extra: BubbleAction? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -143,7 +126,6 @@ struct Replyable: ViewModifier {
     @State private var horizontal = false
     @State private var barHover = false
 
-    /// How far the bubble goes before letting go replies.
     static let threshold: CGFloat = 58
 
     struct Swipe: Equatable {
@@ -188,7 +170,6 @@ struct Replyable: ViewModifier {
             .modifier(ReplyAction(on: voiceOverAction, onReply: onReply))
     }
 
-    /// How far from the left edge a swipe belongs to going back rather than to a reply.
     static let backEdge: CGFloat = 44
 
     private var swipeGesture: some Gesture {
@@ -222,7 +203,6 @@ struct Replyable: ViewModifier {
             .modifier(ReplyAction(on: voiceOverAction, onReply: onReply))
     }
 
-    /// Tapback, Reply and More, the way Grok Bot shows them beside a message.
     private var hoverBar: some View {
         HStack(spacing: 0) {
             if let onTapback {
@@ -272,7 +252,6 @@ private struct ReplyAction: ViewModifier {
     }
 }
 
-/// The right-click menu with Reply and Copy, for Mac bubbles with no tapback menu.
 private struct MacMenu: ViewModifier {
     let on: Bool
     let copyText: String
@@ -290,7 +269,6 @@ private struct MacMenu: ViewModifier {
 }
 
 extension View {
-    /// Swipe to reply on the iPhone, hover actions and the right-click menu on the Mac, and Reply for VoiceOver.
     func replyable(_ message: ChatMessage, botID: String, isMine: Bool, state: AppState, ownMenu: Bool = true) -> some View {
         modifier(Replyable(isMine: isMine, copyText: AppState.quotedWords(message, full: false),
                            onReply: { state.startReply(to: message, bot: botID) }, ownMenu: ownMenu))
@@ -299,8 +277,6 @@ extension View {
 
 // MARK: The quote above a reply
 
-/// The message a reply points at, small and faded above the person's bubble like Messages. Tapping it scrolls to the
-/// original and highlights it, when it is loaded.
 struct ReplyQuoteView: View {
     let quote: ReplyQuote
     let replyID: String
@@ -341,8 +317,6 @@ struct ReplyQuoteView: View {
 
 // MARK: The message box's header
 
-/// "Replying to Zero" with a line of the message, over the message box; the X cancels. The same look as a card's
-/// answer header (ChatView.answeringHeader).
 struct ReplyingHeader: View {
     let target: ReplyTarget
     let onCancel: () -> Void

@@ -3,17 +3,9 @@ import SwiftUI
 import UIKit
 import WebKit
 
-/// Settings, Delete Everything: removes the person's data from this device and from their own computer.
-///
-/// Order matters. The computer goes first, because it needs the pairing this phone holds. If the computer cannot be
-/// reached, nothing is deleted and the person chooses: try again later, or delete only what is on this device. The
-/// device's own data goes last and is always complete: the pairing, the Google voice key, saved chats, drafts,
-/// settings, opened attachments, website sign-ins and the notification registration.
 enum DeleteEverythingResult: Equatable {
     case done
-    /// The computer could not be reached. Nothing was deleted anywhere.
     case computerUnreachable
-    /// The computer said no (a Zip is answering), in the computer's own plain words.
     case refused(String)
 }
 
@@ -40,7 +32,6 @@ extension AppState {
         return .done
     }
 
-    /// Everything the app keeps on this device, then back to the first screen.
     func wipeThisDevice() {
         stopPolling()
         saveTask?.cancel()

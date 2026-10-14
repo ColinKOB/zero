@@ -1,19 +1,13 @@
 import SwiftUI
 import WebKit
 
-/// A bot's own computer on alien, live. Watch by default; take over for a login or a 2FA code, then
-/// hand it back and the bot carries on with the session you signed in to.
 struct ScreenView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     let botID: String
-    /// Open already holding control (a Computer card's Take Over). With a `site`, the Zip's browser goes to that
-    /// page first, which is what a sign-in needs.
     var takeOver = false
     var site: URL? = nil
-    /// Why Colin is here ("Sign in to Salesforce"), shown in the banner while he has control.
     var reason: String? = nil
-    /// The chat's sign-in card this answers, so I'm Done, Continue tells the Zip he finished.
     var requestID: Int? = nil
 
     @State private var status: ScreenStatus?
@@ -30,21 +24,16 @@ struct ScreenView: View {
 
     @State private var reconnects = 0
     @State private var scrollHint: String?
-    /// The iPhone's way to type and zoom on the bot's screen while Colin has control.
     @State private var web = WebHandle()
     @State private var typed = ""
     @State private var secret = false
     @State private var zoomed = false
     @State private var moving = false
-    /// The viewer page handles pinch, two-finger pan and double tap itself (hubs from Oct 10 on). An older page
-    /// keeps the app's swipe-to-scroll and the Move button.
     @State private var pageGestures = false
     @FocusState private var typing: Bool
     @Environment(\.verticalSizeClass) private var verticalSize
     private static let onPhone = !ProcessInfo.processInfo.isMacCatalystApp
-    /// An iPhone on its side: the header and the typing bar each take one row so the screen keeps some height.
     private var landscape: Bool { Self.onPhone && verticalSize == .compact }
-    /// The typing bar shows on the phone while Colin has control. It sits under the screen, above the keyboard.
     private var typingBar: Bool { status?.you_have_control == true && Self.onPhone }
 
     private var bot: Bot? { state.bot(botID) }
@@ -148,8 +137,6 @@ struct ScreenView: View {
         }
     }
 
-    /// A soft amber banner while Colin has control, like Grok Bot's: why he is here, and a dark button that hands the
-    /// computer back, tells the Zip and closes this screen.
     private var takeOverBanner: some View {
         HStack(spacing: 12) {
             Text(reason ?? "You're in control of \((bot?.name ?? "the Zip").possessive) computer.")
@@ -170,7 +157,6 @@ struct ScreenView: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// A made-up screen in the simulator's sample data, where there is no computer to connect to.
     private var demoScreen: Bool {
         #if DEBUG
         return state.fixtureMode && status?.running == true
@@ -179,7 +165,6 @@ struct ScreenView: View {
         #endif
     }
 
-    /// Opens the screen: watching, or already holding control when Colin tapped Take Over on a card.
     private func begin() async {
         #if DEBUG
         if state.fixtureMode {
@@ -207,7 +192,6 @@ struct ScreenView: View {
         await refresh(connect: true)
     }
 
-    /// I'm Done, Continue: the computer goes back to the Zip. For a sign-in the Zip is also told he finished.
     private func finishAndContinue() async {
         busy = true
         defer { busy = false }
@@ -228,9 +212,6 @@ struct ScreenView: View {
         dismiss()
     }
 
-    /// Typing on a phone: the text goes to whatever field is selected on the bot's screen when Colin presses
-    /// Return or Type. Password mode hides it and lets AutoFill fill it. Zoom switches between the whole width and
-    /// zoomed in on the last tap. With an older viewer page, Move makes a drag pan around instead of scrolling.
     private var keyboardBar: some View {
         VStack(spacing: 8) {
             if secret {
@@ -334,8 +315,6 @@ struct ScreenView: View {
         }
     }
 
-    /// The viewer page reports its connection. A dropped socket gets a fresh ticket a few times
-    /// before the screen says so.
     private func viewerState(_ s: String) {
         switch s {
         case "phone-gestures": pageGestures = true; moving = false; return
@@ -374,8 +353,6 @@ struct ScreenView: View {
     }
 
     #if DEBUG
-    /// Screenshot hooks: `-screenTapAt x,y` taps that point of the Zip's screen, `-screenTyping` then opens the
-    /// keyboard, `-screenLandscape` turns the phone.
     private func debugHooks() {
         let a = CommandLine.arguments
         Task {
@@ -468,7 +445,6 @@ struct ScreenView: View {
         } catch { self.error = ScreenTrouble.report(error, screen: "screen_control", bot: botID, state: state) }
     }
 
-    /// Leaving never strands the bot: control goes back to it.
     private func leave() async {
         if status?.you_have_control == true {
             do {
@@ -484,7 +460,6 @@ struct ScreenView: View {
     }
 }
 
-/// Lets the screen's buttons run the viewer page's functions (typing, keys, zoom).
 @MainActor
 final class WebHandle {
     weak var view: WKWebView?
@@ -495,10 +470,7 @@ struct ScreenWeb: UIViewRepresentable {
     let url: URL
     var onState: (String) -> Void = { _ in }
     var handle: WebHandle? = nil
-    /// Off while Colin is moving around a zoomed screen (then a drag pans the view instead of scrolling), and on the
-    /// iPhone once the page handles touches itself.
     var panScrolls = true
-    /// The iPhone: the page fits the screen to the width and takes pinch, two-finger pan and double tap.
     var phone = false
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
@@ -509,8 +481,6 @@ struct ScreenWeb: UIViewRepresentable {
             if let s = m.body as? String { onState(s) }
         }
 
-        /// Trackpad and mouse-wheel scrolling on the Mac, and swipes on the iPhone, become wheel steps
-        /// on the bot's screen.
         @objc func scrolled(_ g: UIPanGestureRecognizer) {
             guard let v = g.view as? WKWebView, g.state == .changed else { return }
             let t = g.translation(in: v)
@@ -563,8 +533,6 @@ struct ScreenWeb: UIViewRepresentable {
     }
 }
 
-/// The iPhone app is portrait only, except on a Zip's screen, where turning the phone gives the screen the full
-/// width. The iPad and the Mac are never limited.
 @MainActor
 enum OrientationLock {
     static var mask: UIInterfaceOrientationMask = .portrait

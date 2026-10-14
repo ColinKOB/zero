@@ -1,17 +1,11 @@
 import AVFoundation
 import Foundation
 
-/// The three work sounds. Made here from a few sine partials (nothing recorded or copied): short, soft, and
-/// different enough to tell apart. The phone plays them only into silence (CueGate).
 enum Earcon: String, CaseIterable {
-    /// A hand-off began: one small rising glide.
     case started
-    /// Still working, after a real delay: two very soft taps.
     case working
-    /// The result is about to be said: a rising fifth with a light bell tone.
     case done
 
-    /// The loudest sample. Well under the voice, so the sounds sit in the background (about -18 to -25 dBFS).
     var peak: Float {
         switch self {
         case .started: return 0.12
@@ -22,7 +16,6 @@ enum Earcon: String, CaseIterable {
 
     var seconds: Double { Double(samples(rate: 24_000).count) / 24_000 }
 
-    /// Mono samples at `rate`, starting and ending at silence (no clicks).
     func samples(rate: Double) -> [Float] {
         var out: [Float]
         switch self {
@@ -42,7 +35,6 @@ enum Earcon: String, CaseIterable {
         return Self.normalized(out, peak: peak)
     }
 
-    /// One note: a soft attack, an exponential decay, and a short fade to silence at the end.
     static func note(freq: Double, seconds: Double, decay: Double, partials: [(Double, Double)], rate: Double) -> [Float] {
         let n = Int(seconds * rate)
         return (0..<n).map { i in
@@ -53,7 +45,6 @@ enum Earcon: String, CaseIterable {
         }
     }
 
-    /// A tone that slides up, then rings out.
     static func glide(from f0: Double, to f1: Double, glideSeconds: Double, seconds: Double, rate: Double) -> [Float] {
         let n = Int(seconds * rate)
         var phase = 0.0
@@ -84,7 +75,6 @@ enum Earcon: String, CaseIterable {
         return out
     }
 
-    /// 16-bit mono WAV, for AVAudioPlayer.
     func wav(rate: Int = 24_000) -> Data {
         let pcm = samples(rate: Double(rate)).map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
         var d = Data()
@@ -101,9 +91,6 @@ enum Earcon: String, CaseIterable {
     }
 }
 
-/// When a work sound may play. The hub sends cues as work starts, runs and ends; a sound plays only when nobody is
-/// talking and nothing else is playing, and a cue that cannot play in time is dropped rather than played late over
-/// someone. "Done" plays only for a task whose start or progress was heard, so a quick answer gets no sounds at all.
 struct CueGate {
     struct Pending: Equatable {
         let kind: Earcon
@@ -111,7 +98,6 @@ struct CueGate {
         let arrived: Double
     }
 
-    /// How long each cue may wait for a quiet moment.
     static func window(_ kind: Earcon) -> Double {
         switch kind {
         case .started: return 3
@@ -120,7 +106,6 @@ struct CueGate {
         }
     }
 
-    /// No two sounds closer than this.
     static let minGap = 1.2
 
     private(set) var pending: [Pending] = []
@@ -136,7 +121,6 @@ struct CueGate {
         pending.append(Pending(kind: kind, task: task, arrived: now))
     }
 
-    /// The sound to play now, if any. `quiet`: neither the person nor the voice is talking and nothing is playing.
     mutating func next(now: Double, quiet: Bool) -> Earcon? {
         pending.removeAll { now - $0.arrived > Self.window($0.kind) }
         pending.removeAll { $0.kind == .done && !heard.contains($0.task) }
@@ -147,25 +131,18 @@ struct CueGate {
         return p.kind
     }
 
-    /// The person or the voice took the floor: waiting "started" and "working" sounds are no longer worth playing.
     mutating func clearProgress() {
         pending.removeAll { $0.kind != .done }
     }
 }
 
-/// Small rules both voices share.
 enum CallRules {
-    /// A call that took this long to connect opens with the honest hello (hub voice.LATE_GREETING_MS).
     static let lateGreetingMs = 6000
 
-    /// While a call connects: the first soft sound after this long (a fast connection makes none), then one now and
-    /// then. Never a ringback tone (#16, #17).
     static let connectingFirst = 0.6
     static let connectingEvery = 6.0
     static let connectingMax = 6
 
-    /// The On-Device Voice heard the person talk for this long but recognized no words: ask once for it again,
-    /// at most this often, instead of dropping the turn without a word (#30).
     static let missedWordsSeconds = 1.0
     static let missedWordsEvery = 20.0
 
@@ -173,17 +150,12 @@ enum CallRules {
         voicedSeconds >= missedWordsSeconds && sinceLastAsk >= missedWordsEvery
     }
 
-    /// ChatGPT's voices that sound feminine. When a call has to move to the On-Device Voice and the person never
-    /// picked one, it keeps the same kind of voice (#34: "A masculine-sounding voice answered", "I had expected the
-    /// familiar feminine voice").
     static let feminineChatGPTVoices: Set<String> = ["juniper", "maple", "sol", "vale"]
 
     static func onDeviceVoice(matching chatGPTVoice: String) -> String {
         feminineChatGPTVoices.contains(chatGPTVoice) ? "alba" : "george"
     }
 
-    /// Whether this device's voice choice is news for the hub: it was chosen here and not yet reported. A device
-    /// that never chose one takes the home's voice (hub voice.pick_voice).
     static func voiceChosen(current: String?, reported: String?) -> Bool {
         guard let current else { return false }
         return current != reported

@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Everything the app shows, kept fresh by polling the hub's feed while the app is open.
 @MainActor
 @Observable
 final class AppState {
@@ -10,54 +9,33 @@ final class AppState {
     var bots: [Bot] = []
     var board: Board = .empty
     var chats: [String: [ChatMessage]] = [:]
-    /// Live status line per bot while a turn runs ("Handing work to the team").
     var working: [String: String] = [:]
-    /// Chats whose Zip has its computer out right now: "working" while the Zip uses it, "control" while Colin holds it.
     var computers: [String: String] = [:]
-    /// Zips waiting on a teammate's answer, for the "Pinging" chip in their chats.
     var pinging: [PingInfo] = []
     var activity: [String: LiveActivity] = [:]
     var queuedIDs: Set<String> = []
     var problems: [String: TurnProblem] = [:]
     var away: [AwayItem] = []
     var lastError: String?
-    /// The last pairing failed because the home couldn't be reached at all (not a wrong code), so the code screen adds
-    /// the tailnet hint.
     var pairUnreachable = false
-    /// A zero://pair link or QR code waiting for the code screen to pick it up.
     var pendingPair: PairLink?
-    /// The Mac can't be the one bots use (another paired device holds it). Polling never clears this.
     var macLinkNote: String?
-    /// Simulator test builds started with -fixture: canned bots and chats, no hub (for screenshots and QA).
     var fixtureMode = false
-    /// The sample home for App Review and for anyone curious (Model/DemoHome.swift): invented people and chats, no
-    /// account, and the client refuses every request, so nothing reaches a real service. It also sets `fixtureMode`
-    /// so the polling, push and refresh paths stay quiet.
     var demoMode = false
-    /// Whether the first-run onboarding was showing when the sample home opened, so leaving returns to it.
     @ObservationIgnored var demoReturnsToOnboarding = true
-    /// Whether the person agreed to send their words to the AI company of their own plan (Model/AIConsent.swift).
     var aiConsent: AIConsentChoice = AIConsentChoice(rawValue: UserDefaults.standard.string(forKey: "aiConsent") ?? "") ?? .unasked {
         didSet {
             UserDefaults.standard.set(aiConsent.rawValue, forKey: "aiConsent")
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "aiConsentAt")
         }
     }
-    /// The consent sheet is up because something needs to send data and the person has not agreed.
     var aiConsentSheet = false
     @ObservationIgnored var consentWaiters: [CheckedContinuation<Bool, Never>] = []
-    /// True after a few failed polls in a row; the home screen shows a quiet banner.
     var offline = false
-    /// A short confirmation at the top of the screen after Always Allow on a card ("Allowed from now on: ...").
     var confirmation: Confirmation?
-    /// The chat on screen, so a notification for it shows no banner.
     var viewingBot: String?
-    /// A tapped notification's bot; the home screen opens its chat. It waits here until the home screen is up and the
-    /// bots are loaded (a tap can cold-launch the app), so it is taken with `takeOpenBotRequest`.
     var openBotRequest: String?
 
-    /// The tapped notification's chat to open now, or nil while it has to wait. It waits while no bots are loaded; a
-    /// bot the home doesn't have (deleted since the notification) is dropped once the bots have been refreshed.
     func takeOpenBotRequest(refreshed: Bool = false) -> String? {
         guard let want = openBotRequest, !bots.isEmpty else { return nil }
         if bot(want) != nil {
@@ -68,32 +46,17 @@ final class AppState {
         return nil
     }
     private var failures = 0
-    /// Bots with a send in flight, so a poll never reloads their chat underneath the reply.
-    /// Messages Colin sent that are still on their way, per bot. Several can be in flight: a message sent
-    /// while the bot is busy waits its turn on the hub.
     private var inFlight: [String: Int] = [:]
     private func isSending(_ bot: String) -> Bool { (inFlight[bot] ?? 0) > 0 }
-    /// The person's messages on the phone that the hub's history does not show yet, by their local id. A history load
-    /// that shows one confirms it (ChatSync.confirmed), whatever the reply stream said or failed to say.
     @ObservationIgnored private var unconfirmed: [String: (bot: String, text: String, at: Date)] = [:]
-    /// Each message's reply stream, so a stream the hub has stopped answering can be let go (pollOnce).
     @ObservationIgnored private var replyStreams: [String: (bot: String, task: Task<TurnOutcome, Never>)] = [:]
-    /// Polls in a row on which the hub said a Zip with a message in flight was idle.
     @ObservationIgnored private var idleLooks: [String: Int] = [:]
-    /// Chats whose reply is still to come after the stream ended without one (a hub restart, a dropped stream):
-    /// polls reload them until the reply shows, for a few minutes.
     @ObservationIgnored private var awaitingReply: [String: Date] = [:]
     static let awaitReplyFor: TimeInterval = 180
     var feedCursor: Int = UserDefaults.standard.integer(forKey: "feedCursor")
-    /// Bots whose updates never notify (reviewers of Grok Bot asked for exactly this).
     var mutedBots: Set<String> = []
-    /// Calls are saved on Colin's own computer for 30 days unless he turns this off (Settings).
     var saveCallTranscripts = true
-    /// Settings, Questions From Zero. Nil until loaded.
     var proactivity: ProactivityStatus?
-    /// Which voice carries calls (Settings, Voice): ChatGPT's voice, or the On-Device Voice, which is free. With
-    /// ChatGPT's voice chosen, a call still moves to the On-Device Voice on its own when ChatGPT's voice is signed
-    /// out or this month's minutes are used up (CallEngine).
     static let chatGPTEngine = "chatgpt"
     static let onDeviceEngine = "on-device"
     var callEngine: String = UserDefaults.standard.string(forKey: "callEngine") ?? AppState.chatGPTEngine {
@@ -102,38 +65,24 @@ final class AppState {
             if callEngine == AppState.onDeviceEngine { Task { await OnDeviceVoice.shared.prepare() } }
         }
     }
-    /// The On-Device Voice's speaker: George or Alba.
     var onDeviceVoice: String = OnDeviceVoiceName(rawValue: UserDefaults.standard.string(forKey: "onDeviceVoice") ?? "")?.rawValue ?? "george" {
         didSet {
             UserDefaults.standard.set(onDeviceVoice, forKey: "onDeviceVoice")
             OnDeviceVoice.shared.prepareGreeting()
         }
     }
-    /// The ChatGPT voice for calls.
     var callVoice: String = UserDefaults.standard.string(forKey: "callVoice").flatMap { CallEngine.chatGPTVoices.contains($0) ? $0 : nil } ?? "cove" {
         didSet { UserDefaults.standard.set(callVoice, forKey: "callVoice") }
     }
-    /// The message whose tapback bar is open, if any.
-    /// The message whose tapback bar is open (see TapbackLayer).
     var tapback: TapbackTarget?
-    /// The choice card Colin is answering in the chat's message box, per bot: its "Type your own answer" slid down
-    /// into the box, and what he sends from there answers the card (OwnAnswerSlot, ChatView's composer).
     var answering: [String: ChatMessage] = [:]
-    /// Cards answered from the message box, while the answer is on its way to the hub.
     var sentAnswers: Set<String> = []
-    /// Answers given on this device that the hub's history may not show yet, by card id. A history load keeps the
-    /// card answered until the hub says so, so it never flips back open under his finger.
     @ObservationIgnored var localAnswers: [String: CardAnswer] = [:]
-    /// The message Colin is replying to in each chat (swipe or Reply on a bubble): the message box's header says so,
-    /// and the next message he sends carries its quote. One header at a time: this and `answering` replace each other.
     var replying: [String: ReplyTarget] = [:]
     var tapbackMessageID: String? { tapback?.message.id }
-    /// Unsent text per conversation, kept when you leave a chat.
-    /// What Colin started typing to each bot, kept across launches.
     var drafts: [String: String] = (UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String]) ?? [:] {
         didSet { UserDefaults.standard.set(drafts, forKey: "drafts") }
     }
-    /// The hub's clock at the last feed check, for items changed in place since then.
     private var feedCheckedAt: Double = 0
 
     let client: HubClient
@@ -166,7 +115,6 @@ final class AppState {
 
     // MARK: What the phone keeps for offline reading
 
-    /// When the bots list last loaded from the hub (shown while offline).
     var updatedAt: Date?
 
     private struct Saved: Codable {
@@ -184,7 +132,6 @@ final class AppState {
         return dir.appendingPathComponent("saved.json")
     }
 
-    /// The last bots, board and opened chats, so Colin can read them with no signal.
     private func loadSaved() {
         guard let d = try? Data(contentsOf: Self.savedURL), let s = try? JSONDecoder().decode(Saved.self, from: d) else { return }
         bots = s.bots
@@ -195,7 +142,6 @@ final class AppState {
 
     @ObservationIgnored var saveTask: Task<Void, Never>?
 
-    /// Saves a moment after changes settle, not on every poll.
     private func saveSoon() {
         guard !fixtureMode, paired else { return }
         saveTask?.cancel()
@@ -211,24 +157,19 @@ final class AppState {
         }
     }
 
-    /// Forgets everything saved (unpairing).
     func clearSaved() { try? FileManager.default.removeItem(at: Self.savedURL) }
 
     func bot(_ id: String) -> Bot? { bots.first { $0.id == id } }
-    /// While You Were Away, without what is already taken care of: a Zip that needed him and no longer does, or one
-    /// whose chat he has opened since (Colin, Oct 10: it stayed until tapped even after everything was answered).
     var awayShown: [AwayItem] {
         away.filter { $0.needs == 0 || (bot($0.bot_id)?.needs_you ?? 0) > 0 }
     }
 
     var needsYouCount: Int { board.needs_you.count + (board.requests?.count ?? 0) }
 
-    /// Sign-in requests to show in a bot's chat. Taffy's chat shows every bot's.
     func signInRequests(for bot: String) -> [SignInRequest] {
         (board.requests ?? []).filter { bot == "default" || $0.bot_id == bot }
     }
 
-    /// Returns nil on success, or a plain sentence for the card.
     func decide(_ request: SignInRequest, _ decision: String) async -> String? {
         if demoMode { demoDecide(request, decision); return nil }
         #if DEBUG
@@ -256,7 +197,6 @@ final class AppState {
 
     // MARK: Pairing
 
-    /// `fingerprint`: the `fp` of the zero://pair link this address came from, if any (Model/HubTrust.swift).
     func pair(code: String, server: String, fingerprint: String? = nil) async {
         client.server = HubClient.normalizedAddress(server)
         pairUnreachable = false
@@ -337,10 +277,6 @@ final class AppState {
         do { board = try await client.board() } catch { handle(error) }
     }
 
-    /// Loads the chat from the hub. While a message is on its way this merges instead of skipping: the person's
-    /// unconfirmed messages and a streamed reply stay until the history shows them, and a message the history shows
-    /// is confirmed at once (Oct 9: the reply arrived on the hub, but a send that never heard back from its stream
-    /// kept the chat from ever reloading). Returns whether the history could be read.
     @discardableResult
     func loadChat(_ bot: String) async -> Bool {
         if fixtureMode { return true }
@@ -517,8 +453,6 @@ final class AppState {
         }
     }
 
-    /// The history, plus what the phone shows that the history does not have yet: the person's unconfirmed messages
-    /// and, while a send is in flight, the streamed reply. Messages the history now shows are confirmed.
     private func merged(history: [ChatMessage], bot: String) -> [ChatMessage] {
         var history = history
         for (i, m) in history.enumerated() where localAnswers[m.id] != nil {
@@ -542,7 +476,6 @@ final class AppState {
         return history + local.filter { done[$0.id] == nil }
     }
 
-    /// The hub has the person's message: it is no longer queued or pending, and it is safe from being put back.
     private func confirm(_ localID: String) {
         guard let u = unconfirmed.removeValue(forKey: localID) else { return }
         queuedIDs.remove(localID)
@@ -563,14 +496,11 @@ final class AppState {
         }
     }
 
-    /// What the person actually said: without the reactions note, the call tags and the guide a call adds. The hub's
-    /// notes name the person ("[Reactions from Sam ...") or, before homes had their own names, Colin; both are read.
     static func withoutReactionsNote(_ s: String) -> String {
         guard s.hasPrefix("[Reactions from "), let end = s.firstIndex(of: "\n") else { return s }
         return String(s[s.index(after: end)...])
     }
 
-    /// The call request's marker: "Request from the call: " now, and "Colin's request: " from hubs before homes.
     static let callRequestMarkers = ["Request from the call: ", "Colin's request: "]
 
     static func stripVoiceTag(_ s: String) -> String {
@@ -583,7 +513,6 @@ final class AppState {
         return t
     }
 
-    /// Colin's tapback; tapping the same one again removes it, like in Messages.
     func react(_ kind: String, to message: ChatMessage, bot: String) {
         guard var list = chats[bot], let i = list.firstIndex(where: { $0.id == message.id }) else { return }
         let current = list[i].reactions.first { $0.who == "colin" }?.kind
@@ -597,9 +526,6 @@ final class AppState {
 
     // MARK: Sending
 
-    /// Sends text to a bot and appends the reply. Returns the reply for callers like the call screen.
-    /// If the connection drops mid-turn, the hub keeps working, so this re-attaches to the same turn.
-    /// `replyingTo`: the message this one replies to; its quote goes with the words and shows above them.
     @discardableResult
     func send(_ text: String, to bot: String, replyingTo target: ReplyTarget? = nil) async -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -690,8 +616,6 @@ final class AppState {
         return reply
     }
 
-    /// The card turns into his answer at once (Oct 10): the view calls this inside its animation, before the answer
-    /// goes to the hub, so the message that carries it never shows as a second bubble.
     func markAnswered(_ message: ChatMessage, bot: String, text: String) {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return }
@@ -705,14 +629,11 @@ final class AppState {
         }
     }
 
-    /// An answer the hub refused: the card is as it was.
     private func unmarkAnswered(_ message: ChatMessage, bot: String) {
         localAnswers[message.id] = nil
         if let i = chats[bot]?.firstIndex(where: { $0.id == message.id }) { chats[bot]?[i] = message }
     }
 
-    /// Colin tapped an option on a choice card, or typed his own answer: the card becomes his answer and the words go
-    /// as his own message. Nil dismisses the card.
     func answerChoice(_ message: ChatMessage, bot: String, picked: String?, custom: Bool = false) async {
         guard let id = message.feedID else { return }
         var before = message
@@ -742,8 +663,6 @@ final class AppState {
         }
     }
 
-    /// One of Zero's own questions: the card stays with the answer checked and the hub's follow-through line. The
-    /// hub says what, if anything, goes to Zero as Colin's words; a send in it still waits for his okay on its card.
     private func answerQuestion(_ message: ChatMessage, bot: String, feedID: Int, picked: String?, custom: Bool) async {
         let answered: HubClient.AnsweredCard?
         do {
@@ -771,7 +690,6 @@ final class AppState {
         }
     }
 
-    /// The menu on one of Zero's questions: stop this question, or this kind of question.
     func stopQuestion(_ message: ChatMessage, bot: String, kind: Bool) async {
         guard let id = message.feedID else { return }
         if demoMode { chats[bot]?.removeAll { $0.id == message.id }; return }
@@ -820,7 +738,6 @@ final class AppState {
         UserDefaults.standard.set(u, forKey: "unsent")
     }
 
-    /// Puts a message that did not get through back in the message box, after anything already there.
     private func restore(_ text: String, to bot: String, localID: String, why: String) {
         chats[bot]?.removeAll { $0.id == localID }
         let current = (drafts[bot] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -831,8 +748,6 @@ final class AppState {
 
     private enum TurnOutcome { case reply(String), failed(String), finishedElsewhere, dropped, stopped(returned: Bool) }
 
-    /// Follows one message's reply stream. The stream runs in its own task, kept in `replyStreams`, so pollOnce can let
-    /// go of one the hub has stopped answering (the history then decides, in send).
     private func consume(_ stream: AsyncThrowingStream<TurnEvent, Error>, bot: String, localID: String? = nil,
                          onTurn: @escaping (String) -> Void = { _ in }) async -> TurnOutcome {
         let task = Task { [weak self] () -> TurnOutcome in
@@ -902,13 +817,9 @@ final class AppState {
         return .finishedElsewhere
     }
 
-    /// Whether the last poll said this Zip is busy on the hub (a turn running or the person's messages queued).
     private func isBusyOnHub(_ bot: String) -> Bool { lastBusy.contains(bot) }
     @ObservationIgnored private var lastBusy: Set<String> = []
 
-    /// The poll's look at sends in flight and replies still to come (Oct 9, 11:18 p.m.). A message whose stream
-    /// keeps quiet while the hub says the Zip is idle is let go, and the history decides; a chat waiting for a reply
-    /// after a dropped stream or a hub restart reloads until it shows.
     private func checkSends(busy: Set<String>) async {
         lastBusy = busy
         for (id, s) in replyStreams {
@@ -932,7 +843,6 @@ final class AppState {
         }
     }
 
-    /// Holds a bot's alerts until a time, or ends the snooze with nil.
     func snooze(_ bot: String, until: Date?) async -> String? {
         if demoMode { return DemoHome.cannotChange }
         do {
@@ -944,7 +854,6 @@ final class AppState {
         }
     }
 
-    /// Returns nil on success, or a plain sentence to show.
     func saveLook(_ id: String, _ look: ZipLook) async -> String? {
         if fixtureMode {
             if let i = bots.firstIndex(where: { $0.id == id }) { bots[i].look = look }
@@ -996,7 +905,6 @@ final class AppState {
         }
     }
 
-    /// The per-Zip notification switch. Shows the new state at once and goes back if the hub does not take it.
     func setNotify(_ bot: String, _ on: Bool) {
         guard let i = bots.firstIndex(where: { $0.id == bot }) else { return }
         let before = bots[i].notify
@@ -1022,14 +930,9 @@ final class AppState {
         }
     }
 
-    /// The first-run onboarding (Views/Onboarding) is on screen.
     var onboarding = false
-    /// The onboarding opened from Settings as a rehearsal on a device that is already set up: nothing is saved,
-    /// renamed, paired or sent, and finishing returns home as it was.
     var rehearsingOnboarding = false
 
-    /// Ends the onboarding for good. The older welcome flow is for devices paired before the onboarding existed,
-    /// so it is marked as seen too.
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboarded_v1")
         UserDefaults.standard.set(true, forKey: "welcomed_v1")
@@ -1041,9 +944,7 @@ final class AppState {
         onboarding = false
     }
 
-    /// The welcome flow: shown once after pairing, and again from Settings.
     var showWelcome: Bool = !UserDefaults.standard.bool(forKey: "welcomed_v1")
-    /// What to open right after the welcome closes.
     enum WelcomeNext: Equatable { case none, saveLogin, newBot, correctNotes }
     var welcomeNext: WelcomeNext = .none
 
@@ -1053,19 +954,15 @@ final class AppState {
         showWelcome = false
     }
 
-    /// Bots Colin pinned to the top row, in the order he pinned them. Taffy starts pinned.
     var pinned: [String] = UserDefaults.standard.stringArray(forKey: "pinnedBots") ?? ["default"] {
         didSet { UserDefaults.standard.set(pinned, forKey: "pinnedBots") }
     }
     static let topRowSize = 3
 
-    /// The top row: only the bots Colin pinned (up to three), in the order he pinned them. One pin means
-    /// one bot up top; everyone else is in the list below.
     var topRow: [Bot] {
         Array(pinned.compactMap { bot($0) }.prefix(Self.topRowSize))
     }
 
-    /// What a bot is doing right now: a reply in its chat, or a board task it is running. nil when idle.
     func workingText(for id: String) -> String? {
         if working[id] != nil, let step = activity[id]?.steps.last { return step }
         if let s = working[id] { return s }
@@ -1078,7 +975,6 @@ final class AppState {
 
     func isPinned(_ id: String) -> Bool { pinned.contains(id) }
 
-    /// Returns false when the top row is already full of pins.
     @discardableResult
     func togglePin(_ id: String) -> Bool {
         if let i = pinned.firstIndex(of: id) { pinned.remove(at: i); return true }
@@ -1087,7 +983,6 @@ final class AppState {
         return true
     }
 
-    /// Bots in the order the home list shows them: most recent activity first.
     var botsByActivity: [Bot] {
         bots.sorted { ($0.last_at ?? 0) > ($1.last_at ?? 0) }
     }
@@ -1098,7 +993,6 @@ final class AppState {
 
     // MARK: Tasks
 
-    /// Returns nil on success, or a plain sentence to show on the card that was tapped.
     func act(on task: TaskItem, _ action: String, note: String? = nil) async -> String? {
         if demoMode { demoAct(on: task, action); return nil }
         do {
@@ -1129,8 +1023,6 @@ final class AppState {
         pollTask = nil
     }
 
-    /// Checks the feed once. Called every few seconds in the foreground and by background refresh.
-    /// Alerts come from the hub as push notifications (Push.swift), so the app does not post its own.
     func pollOnce() async {
         if fixtureMode { return }
         guard paired else { return }
@@ -1185,23 +1077,19 @@ final class AppState {
 }
 
 
-/// The body of a "call" feed item: how long the call lasted and Haiku's summary of it.
 struct CallRecord: Decodable {
     let duration: Int
     let summary: String
 }
 
-/// The body of a "login" feed item: a bot in a chat asking Colin to sign in to a site.
 struct SignInAsk: Decodable {
     let url: String
     let site: String
     let why: String?
     let state: String
-    /// The Zip is paused on this card now (hub signin.waiting). Older hubs leave it out.
     var waiting: Bool? = nil
 }
 
-/// The body of an "account" feed item: a Zip needs an account (Gmail, Calendar, Drive or Trello) that isn't connected.
 struct AccountAsk: Decodable {
     let service: String
     let name: String
@@ -1210,8 +1098,6 @@ struct AccountAsk: Decodable {
     var waiting: Bool? = nil
 }
 
-/// The body of a "choices" feed item: Grok Bot's tap-to-answer card. A question Zero raised on its own also has
-/// its notice id, what it found, the answer Colin picked and the follow-through line.
 struct ChoiceCard: Decodable {
     let question: String
     let options: [String]
@@ -1222,14 +1108,9 @@ struct ChoiceCard: Decodable {
     var follow: String? = nil
     var detail: QuestionDetail? = nil
     var prepared: PreparedSend? = nil
-    /// The words that went to Zero as the person's message once a question from Zero was answered (nil from a hub
-    /// before Oct 10, or when the hub handled the answer itself).
     var sent: String? = nil
-    /// When it was answered (the hub's clock).
     var at: Double? = nil
 
-    /// The person's answer, once the card was answered: shown as his own bubble in place of the card. `lead` is
-    /// the lead Zip's name, for telling a question's "Sent to Zero" line from one the hub handled itself.
     func answer(lead: String) -> CardAnswer? {
         guard state == "picked", let picked, !picked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let when = at.map { Date(timeIntervalSince1970: $0) }
@@ -1238,7 +1119,6 @@ struct ChoiceCard: Decodable {
     }
 }
 
-/// The body of a "mac" feed item: what a bot did on Colin's Mac during one approved task.
 struct MacUse: Decodable {
     let task: String
     let summary: String
@@ -1246,7 +1126,6 @@ struct MacUse: Decodable {
     let details: [String]?
 }
 
-/// The body of an "image" feed item.
 struct SharedPicture: Decodable {
     let media: String
     let caption: String
@@ -1257,8 +1136,6 @@ struct SharedPicture: Decodable {
 
 #if DEBUG
 extension AppState {
-    /// Zero asking School for the morning brief, as School's chat shows it: the question, School's work folded into a
-    /// work log, and the answer, each message with its plain version (hub teamvoice.py) over the exact words.
     static func fixtureTeamThread(_ at: (Double) -> Date) -> [ChatMessage] {
         let askText = "Morning brief prep (10/12): check elearning.lakeview.test for assignments due today or tomorrow and confirm whether last night's ENG 102 submission went through. Reply with status only, no formatting."
         var ask = ChatMessage(id: "feed-t1", kind: .team, text: askText, date: at(3.0), label: "Zero asked School", botID: "default")
@@ -1285,8 +1162,6 @@ extension AppState {
         return [ask, signin, done, mail, answer]
     }
 
-    /// A sample team and one chat with every kind of message, so screens can be checked in the simulator
-    /// without pairing. Only in debug builds; nothing here talks to the hub.
     func loadFixture() {
         fixtureMode = true
         paired = true
@@ -1441,8 +1316,6 @@ extension AppState {
         }
     }
 
-    /// Clients' chat with the Computer card (-fixture computer: waiting on a sign-in; computer-working; computer-control),
-    /// the event lines and the Pinging chip, for screenshots. Open it with `-open clients`.
     private func loadComputerFixture(_ variant: String, at: (Double) -> Date) {
         board = .empty
         var chat: [ChatMessage] = [
@@ -1472,10 +1345,6 @@ extension AppState {
         chats["clients"] = chat
     }
 
-    /// A Zip's choice card and Zero's own questions, answered and not, for the card that turns into the answer
-    /// (Oct 10). `-fixture card-open`: the card before the tap (add `-pickOption 0` to tap the first option after a
-    /// moment); `card-answer`: answered, with the message that carried each answer in the chat (drawn only as the
-    /// answer); `card-typed`: an answer typed to one of Zero's questions. Open with `-open default`.
     private func loadCardAnswerFixture(_ variant: String, at: (Double) -> Date) {
         board = .empty
         let q = "Want me to put these somewhere so they come back up?"
@@ -1523,7 +1392,6 @@ extension AppState {
         chats["default"] = chat
     }
 
-    /// Zero's chat with its own questions in each state, for screenshots of the question card.
     private func loadQuestionFixture(_ variant: String, at: (Double) -> Date) {
         func q(_ id: Int, evidence: String, question: String, options: [String], state: String, picked: String? = nil,
                follow: String? = nil, detail: QuestionDetail? = nil, prepared: PreparedSend? = nil,

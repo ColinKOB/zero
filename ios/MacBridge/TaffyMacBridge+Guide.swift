@@ -1,7 +1,5 @@
 import AppKit
 
-/// The guided voice setup's door into the bridge. This is a separate selector from `handle:reply:` on
-/// purpose: only Zero's own window calls it, never the hub, so the hub can't start a guide or receive a key.
 extension TaffyMacBridge {
     /// `command`: `{op: "start", studio?: host, startURL?: url, browserApp?: path}`, `{op: "resume"}` or `{op: "stop"}`.
     /// `studio`, `startURL` and `browserApp` are for testing against the practice page in a test browser.
@@ -27,7 +25,6 @@ extension TaffyMacBridge {
     }
 }
 
-/// The permission guide's door (PermissionGuide.swift). Like `guide:events:`, only Zero's own window calls this.
 extension TaffyMacBridge {
     /// `command`: `{op: "start", focus?: "accessibility" | "screen" | "files"}`, `{op: "status"}`, `{op: "resume"}`
     /// (at launch, after a restart) or `{op: "stop"}`. `events` gets `{type: "status", status: {step: Bool}}`.
@@ -49,7 +46,6 @@ extension TaffyMacBridge {
         }
     }
 
-    /// A Zip ran into a permission that is off: the guide opens at that step on the Mac (at most every ten minutes).
     func offerGuide(_ step: PermissionGuide.Step) {
         let show = {
             MainActor.assumeIsolated {

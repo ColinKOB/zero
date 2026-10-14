@@ -1,13 +1,6 @@
 import AppKit
 import CryptoKit
 
-/// Allowing a Zip's task from the iPhone, without giving the hub the power to allow anything.
-///
-/// Each iPhone makes a signing key in its Secure Enclave that only Face ID or the passcode unlocks, and the hub passes
-/// its public half here. This Mac trusts a phone only after Colin says so once, on this Mac. An Allow from the phone
-/// arrives as `grant` with a signature over the request on this Mac's card (its id, the Zip, the task, his words and
-/// when the card closes), and it starts the grant only if that signature checks out against a trusted phone. A hub
-/// that was changed or broken into can pass requests along or close the card, but it cannot allow one.
 extension TaffyMacBridge {
     private static let trustedKey = "zero.mac.trustedPhones"
     private static let declinedKey = "zero.mac.declinedPhones"
@@ -42,9 +35,6 @@ extension TaffyMacBridge {
         ok(true)
     }
 
-    /// Phones the hub says can allow from afar. A new one gets a one-time question on this Mac, with its key's
-    /// fingerprint to compare against the phone's Settings, because the name and the key both come through the hub:
-    /// a hub that was broken into could offer its own key under the phone's name.
     func phonesSeen(_ keys: [[String: Any]]) {
         let declined = Set(UserDefaults.standard.stringArray(forKey: Self.declinedKey) ?? [])
         var trusted = Self.trustedPhones

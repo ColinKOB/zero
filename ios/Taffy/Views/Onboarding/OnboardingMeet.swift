@@ -97,11 +97,9 @@ struct NameScreen: View {
     }
 }
 
-/// A "HELLO my name is" sticker: a red badge with a white writing area.
 private struct NameBadge: View {
     @Binding var text: String
     var focused: FocusState<Bool>.Binding
-    /// Smaller while the keyboard is up, so the badge fits above it on the smallest iPhones.
     var compact = false
     let onDone: () -> Void
 
@@ -143,8 +141,6 @@ private struct NameBadge: View {
 
 // MARK: 3. Its first words
 
-/// Scripted, game-style dialogue: the agent asks a few questions about you, one at a time, with a typewriter.
-/// No AI is available until the Mac is set up, so the lines are fixed.
 struct TalkScreen: View {
     @Environment(AppState.self) private var state
     @Environment(OnboardingModel.self) private var model
@@ -240,7 +236,6 @@ struct TalkScreen: View {
         (key == "name" ? model.draft.personName : model.draft.about[key] ?? "").trimmingCharacters(in: .whitespaces)
     }
 
-    /// What the agent says before question i, reacting to whether the last one was answered.
     private func line(_ i: Int) -> String {
         let person = model.personName
         let answered = i > 0 && i <= questions.count && !value(questions[i - 1]).isEmpty
@@ -298,8 +293,6 @@ struct TalkScreen: View {
     }
 }
 
-/// A game-style dialogue box: the speaker's name on a tab, a tail pointing up at the agent, and the line
-/// typing out. The full line is laid out invisibly so the box never changes size as it types.
 private struct SpeechBubble: View {
     let speaker: String
     let shown: String

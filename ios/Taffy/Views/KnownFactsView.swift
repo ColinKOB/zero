@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// One thing the Zips remember about the person (the hub's facts store, `GET /api/facts`).
 struct KnownFact: Decodable, Identifiable, Equatable {
     let id: Int
     let text: String
@@ -41,8 +40,6 @@ extension HubClient {
     }
 }
 
-/// Settings > What I Know About You: everything the Zips share about the person, grouped, with where each came from
-/// in plain words. The person can change the wording, add something, or delete anything.
 struct KnownFactsView: View {
     @Environment(AppState.self) private var state
     @State private var facts: [KnownFact] = []
@@ -158,7 +155,6 @@ struct KnownFactsView: View {
     }
 }
 
-/// Changing one fact's wording, or adding one.
 struct FactEditorSheet: View {
     let fact: KnownFact?
     let onSave: (String, String) async -> Void

@@ -1,8 +1,6 @@
 import AVFoundation
 import SwiftUI
 
-/// Scans the pairing QR code (zero://pair?server=...&code=...) with the iPhone's camera. On a Mac there is no
-/// scanner; the code screen offers Paste Link instead.
 struct PairScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onFound: (PairLink) -> Void
@@ -68,7 +66,6 @@ struct PairScannerSheet: View {
 }
 
 #if !targetEnvironment(macCatalyst)
-/// The camera with a QR reader. Says plainly when there is no camera or no permission.
 private struct QRCameraView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
     let onProblem: (String) -> Void
@@ -147,7 +144,6 @@ private struct QRCameraView: UIViewControllerRepresentable {
 }
 #endif
 
-/// "Scan a Code" on the iPhone, "Paste Link" on the Mac: both fill the address and the code from a zero://pair link.
 struct PairLinkButton: View {
     let onLink: (PairLink) -> Void
     @State private var scanning = false

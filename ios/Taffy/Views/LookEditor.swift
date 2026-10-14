@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// Change Look: the same picker as the onboarding's first screen. A body from the carousel and, for any plush body,
-/// an outfit from the boxes on the left (dimmed on flat bodies). Saved on the hub with the Zip.
 struct LookEditor: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss

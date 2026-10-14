@@ -2,8 +2,6 @@ import SwiftUI
 
 // MARK: The bottom of a chat
 
-/// What sits under the conversation: a failed or stuck reply with a way forward, "Paused for your okay" while a card
-/// waits, or what the Zip is doing in plain words. Nothing when the Zip is idle.
 struct ChatStatusArea: View {
     @Environment(AppState.self) private var state
     let botID: String
@@ -20,8 +18,6 @@ struct ChatStatusArea: View {
     }
 }
 
-/// The Zip is working: three dots, and one compact line of its steps in plain words (#4). Tap to see every step, so a
-/// person can spot it going off track and stop it, without a tool log.
 struct ActivityRow: View {
     let steps: [String]
     var fallback: String = ""
@@ -36,7 +32,6 @@ struct ActivityRow: View {
         #endif
     }
 
-    /// "Opening elearning.lakeside.edu, signing in, reading a file": the newest three steps as one line.
     static func line(_ steps: [String]) -> String {
         let recent = Array(steps.suffix(3))
         return recent.enumerated().map { i, s in
@@ -96,8 +91,6 @@ struct ActivityRow: View {
     }
 }
 
-/// A card is waiting for the person: the Zip is paused on it, not working (#43: "make it clear that the task is
-/// paused").
 struct PausedRow: View {
     var bot: Bot?
 
@@ -114,8 +107,6 @@ struct PausedRow: View {
     }
 }
 
-/// A reply that failed, or a turn that went quiet too long: one plain sentence and a way forward, never an endless
-/// typing indicator (#50 to #52).
 struct TurnProblemRow: View {
     @Environment(AppState.self) private var state
     let problem: TurnProblem
@@ -161,7 +152,6 @@ struct TurnProblemRow: View {
     }
 }
 
-/// Under the person's own message while it waits behind the Zip's current work (#57).
 struct QueuedCaption: View {
     var body: some View {
         Label("Queued, it will see this next.", systemImage: "clock")
@@ -173,7 +163,6 @@ struct QueuedCaption: View {
     }
 }
 
-/// The square Stop button in the message box while the Zip works and the box is empty (#56).
 struct StopButton: View {
     let action: () -> Void
 
@@ -195,8 +184,6 @@ struct StopButton: View {
 
 // MARK: Rows
 
-/// A Zip row's second line, most pressing first: paused for an okay, a stuck or failed reply, what it is doing, then
-/// blocked or a card that closed, else its latest message (#43, #50 to #53).
 struct RowStatusLine: View {
     @Environment(AppState.self) private var state
     let bot: Bot
@@ -236,8 +223,6 @@ struct RowStatusLine: View {
     }
 }
 
-/// The one action a row offers beside its line: Ask Again for a card that closed (#38, #39), Retry for a failed or
-/// stuck reply (#52). Nil when there is nothing to do from the list.
 struct RowAction {
     let title: String
     let run: (AppState) async -> Void
@@ -280,8 +265,6 @@ struct RowActionButton: View {
 
 // MARK: While You Were Away
 
-/// Back after an hour or more, and only when there is something to say: one line per Zip, what needs the person
-/// first (#75, #76). Got It puts it away.
 struct AwayCard: View {
     @Environment(AppState.self) private var state
     var open: (String) -> Void
@@ -321,8 +304,6 @@ struct AwayCard: View {
 
 // MARK: First run
 
-/// Zero meets the person in its chat right after the onboarding: who it is, and two or three first tasks made from
-/// what the onboarding learned, each one tap to start (#6, principle 12).
 struct FirstTasksCard: View {
     @Environment(AppState.self) private var state
     @Binding var tasks: FirstTasks?
@@ -392,7 +373,6 @@ struct FirstTasksCard: View {
 
 // MARK: Notification kinds
 
-/// Under a Zip's notify switch: which kinds reach the phone (#75 to #77).
 struct NotifyKindsSection: View {
     @Environment(AppState.self) private var state
     let botID: String
