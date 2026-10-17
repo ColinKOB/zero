@@ -36,7 +36,7 @@ jobs:
             Review this pull request. The whole repository is checked out, so read beyond the diff.
 
             1. Read CLAUDE.md, AGENTS.md, and README if present for project rules.
-            2. Read the diff with `gh pr diff`. For every changed function, type, route, or schema, search the repo for its callers and dependents and check whether the change breaks them.
+            2. Read the diff with `gh pr diff ${{ github.event.pull_request.number }}`. The checkout has no current branch, so always pass the PR number. For every changed function, type, route, or schema, search the repo for its callers and dependents and check whether the change breaks them.
             3. Report only real problems: bugs, broken callers, security issues, data loss, race conditions, missing error handling on a live path, and violations of the project rules. Skip style nitpicks and praise.
             4. Before posting, list existing review comments with `gh api --paginate repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments`. Do not repeat an issue that is already raised.
             5. Post each problem as an inline comment on the exact line, starting with `[blocking]` or `[minor]`.
@@ -56,7 +56,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           marker='<!-- claude-review -->'
-          verdict=$(jq -r '.verdict' <<<"$OUT")
+          # An APPROVE that still counts blocking issues is not an approval.
+          verdict=$(jq -r 'if .verdict == "APPROVE" and .blocking_issues == 0 then "APPROVE" else "CHANGES_REQUESTED" end' <<<"$OUT")
           summary=$(jq -r '.summary // ""' <<<"$OUT")
           body=$(printf '%s\n**Claude review: %s**\n\n%s\n' "$marker" "$verdict" "$summary")
           id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -n 1)
@@ -71,8 +72,9 @@ jobs:
           OUT: ${{ steps.review.outputs.structured_output }}
         run: |
           verdict=$(echo "$OUT" | jq -r '.verdict // empty')
-          echo "Verdict: ${verdict:-none}"
-          if [ "$verdict" != "APPROVE" ]; then
+          blocking=$(echo "$OUT" | jq -r '.blocking_issues // empty')
+          echo "Verdict: ${verdict:-none}, blocking issues: ${blocking:-none}"
+          if [ "$verdict" != "APPROVE" ] || [ "$blocking" != "0" ]; then
             echo "Claude review found blocking issues or returned no verdict. See the PR comments."
             exit 1
           fi
