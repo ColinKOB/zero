@@ -4,10 +4,11 @@ name: Codex Review Gate
 # workflow with the Claude review job, its skipped run would count as passing and could hide a failed review.
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-  # The Codex bot on GitHub reports through comments and reviews.
+    # edited covers a PR retargeted to a different base, which changes the diff without a new commit.
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+  # The Codex bot on GitHub reports through comments and reviews. deleted puts the gate back to pending.
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
   pull_request_review:
     types: [submitted]
 
@@ -19,7 +20,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') ||
-      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]' && github.event.pull_request.head.repo.full_name == github.repository)
     concurrency:
       group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
@@ -42,6 +43,14 @@ jobs:
             --jq ".[] | select(.user.login == \"$bot\") | select(.body | contains(\"codex-review-state:v1\")) | .body" \
             | { grep -o 'codex-review-state:v1 {.*}' || true; } | tail -n 1 | sed 's/^codex-review-state:v1 //')
           [ -n "$state" ] || state='{}'
+          # A review from before the PR's last change of base covered a different diff, so it no longer counts.
+          # The bot writes when the review finished into its summary table; the comment's own edit time can move later.
+          reviewed_at=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"$bot\") | select(.body | contains(\"codex-review-state:v1\")) | .body" \
+            | { grep -o 'datetime="[^"]*"' || true; } | tail -n 1 | cut -d'"' -f2)
+          rebased_at=$(gh api --paginate "repos/$REPO/issues/$PR/events" \
+            --jq '.[] | select(.event == "base_ref_changed") | .created_at' | tail -n 1)
+          if [ -n "$rebased_at" ] && [[ ! "$reviewed_at" > "$rebased_at" ]]; then state='{}'; fi
           verdict=$(jq -r --arg head "$head" '
             .code_review as $r
             | if $r.commit_sha != $head then "pending"
