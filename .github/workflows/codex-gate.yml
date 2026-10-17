@@ -1,0 +1,59 @@
+name: Codex Review Gate
+
+# Kept apart from Claude Review on purpose. Comment and review events start this workflow, and if they shared a
+# workflow with the Claude review job, its skipped run would count as passing and could hide a failed review.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  # The Codex bot on GitHub reports through comments and reviews.
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  # A PR needs a clean review from the Codex bot on GitHub for its latest commit. A local Codex run does not count.
+  # This job keeps a "Codex review" status on the PR's head commit: pending until the bot reviews that commit,
+  # failure when it finds problems or cannot run (for example out of credits), success when it finds none.
+  codex:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') ||
+      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+    concurrency:
+      group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+      pull-requests: read
+      issues: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+    steps:
+      - name: Set the Codex review status
+        run: |
+          bot='chatgpt-codex-connector[bot]'
+          head=$(gh pr view "$PR" -R "$REPO" --json headRefOid --jq .headRefOid)
+          state=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"$bot\") | select(.body | contains(\"codex-review-state:v1\")) | .body" \
+            | { grep -o 'codex-review-state:v1 {.*}' || true; } | tail -n 1 | sed 's/^codex-review-state:v1 //')
+          [ -n "$state" ] || state='{}'
+          verdict=$(jq -r --arg head "$head" '
+            .code_review as $r
+            | if $r.commit_sha != $head then "pending"
+              elif $r.status == "completed" and $r.has_unresolved_findings == false then "success"
+              elif $r.status == "completed" or $r.status == "failed" then "failure"
+              else "pending" end' <<<"$state" 2>/dev/null || echo pending)
+          case "$verdict" in
+            success) desc="Codex found no problems in this commit." ;;
+            failure) desc="Codex found problems or could not run. Read its comments." ;;
+            # The bot reviews new PRs on its own. After a push, someone has to comment "@codex review" from a person's
+            # account; on Oct 17 2026 it ignored the same request posted by github-actions.
+            *) verdict=pending; desc="Waiting for Codex to review this commit. After a push, comment @codex review." ;;
+          esac
+          echo "Codex review for $head: $verdict"
+          gh api -X POST "repos/$REPO/statuses/$head" -f state="$verdict" -f context="Codex review" -f description="$desc" >/dev/null
