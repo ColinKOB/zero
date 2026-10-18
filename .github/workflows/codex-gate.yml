@@ -24,7 +24,9 @@ jobs:
     concurrency:
       group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    # GitHub's machines unless the repo sets the REVIEW_RUNNER variable to a runner's labels as JSON, for example
+    # ["self-hosted", "mac"] (Oct 17 2026: these reviews used most of the month's free Actions minutes).
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       statuses: write
@@ -50,7 +52,13 @@ jobs:
             | { grep -o 'datetime="[^"]*"' || true; } | tail -n 1 | cut -d'"' -f2)
           rebased_at=$(gh api --paginate "repos/$REPO/issues/$PR/events" \
             --jq '.[] | select(.event == "base_ref_changed") | .created_at' | tail -n 1)
-          if [ -n "$rebased_at" ] && [[ ! "$reviewed_at" > "$rebased_at" ]]; then state='{}'; fi
+          # The summary has no start time, so a review that was already running at the retarget could finish after it
+          # with the old diff (Codex review of zero-private#65). After a retarget, only a review asked for after it counts.
+          requested_at=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.type != \"Bot\") | select(.body | test(\"@codex review\")) | .created_at" | tail -n 1)
+          if [ -n "$rebased_at" ] && { [[ ! "$reviewed_at" > "$rebased_at" ]] || [[ ! "$requested_at" > "$rebased_at" ]]; }; then
+            state='{}'
+          fi
           verdict=$(jq -r --arg head "$head" '
             .code_review as $r
             | if $r.commit_sha != $head then "pending"
