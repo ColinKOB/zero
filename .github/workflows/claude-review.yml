@@ -12,7 +12,9 @@ jobs:
   review:
     # Fork PRs never receive secrets, so skip them instead of failing.
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    # GitHub's machines unless the repo sets the REVIEW_RUNNER variable to a runner's labels as JSON, for example
+    # ["self-hosted", "mac"] (Oct 17 2026: these reviews used most of the month's free Actions minutes).
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 20
     permissions:
       contents: read
