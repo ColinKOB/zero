@@ -11,6 +11,8 @@ on:
     types: [created, edited, deleted]
   pull_request_review:
     types: [submitted]
+  # Resolving a thread can't start a workflow (pull_request_review_thread is a webhook event only; Actions rejects the
+  # whole file for it, Oct 18 2026). A resolved P0 or P1 shows on the next push or review: comment @codex review.
 
 jobs:
   # A PR needs a clean review from the Codex bot on GitHub for its latest commit. A local Codex run does not count.
@@ -65,9 +67,47 @@ jobs:
               elif $r.status == "completed" and $r.has_unresolved_findings == false then "success"
               elif $r.status == "completed" or $r.status == "failed" then "failure"
               else "pending" end' <<<"$state" 2>/dev/null || echo pending)
+          # Only P0 and P1 findings block (Colin, Oct 18 2026: chasing P2s took about a tenth of his daily usage; of
+          # 55 findings on three PRs, 5 were P0 or P1). Every thread of the bot's is read, all pages, with the commit
+          # its finding was made on, and so is the summary of the bot's review of this commit:
+          # - an open P0 or P1 thread, from this commit or an earlier one, fails the gate even after a clean review;
+          # - a P0 or P1 badge in the review's summary (a finding with no inline thread) fails it;
+          # - a review of this commit whose findings are all P2 or P3 threads passes, whether or not those threads
+          #   have been resolved since (resolving the last one must not turn the gate back to failure);
+          # - a review with findings but no thread on this commit (only in its summary, unrated) still fails;
+          # - when the threads or the summary can't be read, the verdict stays as the bot's summary has it.
+          if [ "$verdict" = success ] || [ "$verdict" = failure ]; then
+            threads=$(gh api graphql --paginate -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$PR" -f query='
+              query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+                repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
+                  reviewThreads(first: 100, after: $endCursor) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes { isResolved comments(first: 1) { nodes { author { login } body originalCommit { oid } } } }
+                  }
+                } }
+              }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                       | (if .isResolved then "resolved" else "open" end) as $state | .comments.nodes[0]
+                       | select(.author.login == "chatgpt-codex-connector")
+                       | "\($state) \(if (.body | test("\\[P[01] Badge\\]")) then "serious" else "minor" end) \(.originalCommit.oid // "")"') \
+              || threads=error
+            summary=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+              --jq ".[] | select(.user.login == \"$bot\") | select(.commit_id == \"$head\") | .body") || summary=error
+            if [ "$threads" != error ] && [ "$summary" != error ]; then
+              serious_open=$(grep -c '^open serious ' <<<"$threads" || true)
+              serious_summary=$(grep -cE '\[P[01] Badge\]' <<<"$summary" || true)
+              on_head=$(grep -c " $head\$" <<<"$threads" || true)
+              completed=$([ "$(jq -r '.code_review.status // empty' <<<"$state")" = completed ] && echo yes || echo no)
+              if [ "$serious_open" -gt 0 ] || [ "$serious_summary" -gt 0 ]; then
+                verdict=failure
+              elif [ "$verdict" = failure ] && [ "$completed" = yes ] && [ "$on_head" -gt 0 ]; then
+                verdict=minor
+              fi
+            fi
+          fi
           case "$verdict" in
             success) desc="Codex found no problems in this commit." ;;
-            failure) desc="Codex found problems or could not run. Read its comments." ;;
+            minor) verdict=success; desc="Codex found only P2 or P3 findings, which do not block. Add them to the follow-up list; do not push fixes." ;;
+            failure) desc="Codex found a P0 or P1 problem or could not run. Read its comments." ;;
             # The bot reviews new PRs on its own. After a push, someone has to comment "@codex review" from a person's
             # account; on Oct 17 2026 it ignored the same request posted by github-actions.
             *) verdict=pending; desc="Waiting for Codex to review this commit. After a push, comment @codex review." ;;
