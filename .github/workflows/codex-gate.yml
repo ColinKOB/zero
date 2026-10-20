@@ -4,12 +4,21 @@ name: Codex Review Gate
 # workflow with the Claude review job, its skipped run would count as passing and could hide a failed review.
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-  # The Codex bot on GitHub reports through comments and reviews.
+    # edited covers a PR retargeted to a different base, which changes the diff without a new commit.
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+  # The Codex bot on GitHub reports through comments and reviews. deleted puts the gate back to pending.
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
   pull_request_review:
     types: [submitted]
+  # Resolving a thread can't start a workflow (pull_request_review_thread is a webhook event only; Actions rejects the
+  # whole file for it, Oct 18 2026). After resolving one, check again with the same rule and no new review (Oct 19
+  # 2026: each review round costs Colin money): gh workflow run codex-gate.yml -f pr=<number>
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
 
 jobs:
   # A PR needs a clean review from the Codex bot on GitHub for its latest commit. A local Codex run does not count.
@@ -17,22 +26,28 @@ jobs:
   # failure when it finds problems or cannot run (for example out of credits), success when it finds none.
   codex:
     if: >-
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') ||
-      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]' && github.event.pull_request.head.repo.full_name == github.repository)
     concurrency:
-      group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    # GitHub's machines unless the repo sets the REVIEW_RUNNER variable to a runner's labels as JSON, for example
+    # ["self-hosted", "mac"] (Oct 17 2026: these reviews used most of the month's free Actions minutes).
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       statuses: write
       pull-requests: read
       issues: read
+      # The thread check reads each finding's commit. Without this every thread came back "Resource not accessible
+      # by integration", and the gate fell back to the bot's summary, so a resolved P1 never cleared it (Oct 19 2026).
+      contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+      PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
     steps:
       - name: Set the Codex review status
         run: |
@@ -42,15 +57,67 @@ jobs:
             --jq ".[] | select(.user.login == \"$bot\") | select(.body | contains(\"codex-review-state:v1\")) | .body" \
             | { grep -o 'codex-review-state:v1 {.*}' || true; } | tail -n 1 | sed 's/^codex-review-state:v1 //')
           [ -n "$state" ] || state='{}'
+          # A review from before the PR's last change of base covered a different diff, so it no longer counts.
+          # The bot writes when the review finished into its summary table; the comment's own edit time can move later.
+          reviewed_at=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"$bot\") | select(.body | contains(\"codex-review-state:v1\")) | .body" \
+            | { grep -o 'datetime="[^"]*"' || true; } | tail -n 1 | cut -d'"' -f2)
+          rebased_at=$(gh api --paginate "repos/$REPO/issues/$PR/events" \
+            --jq '.[] | select(.event == "base_ref_changed") | .created_at' | tail -n 1)
+          # The summary has no start time, so a review that was already running at the retarget could finish after it
+          # with the old diff (Codex review of zero-private#65). After a retarget, only a review asked for after it counts.
+          requested_at=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.type != \"Bot\") | select(.body | test(\"@codex review\")) | .created_at" | tail -n 1)
+          if [ -n "$rebased_at" ] && { [[ ! "$reviewed_at" > "$rebased_at" ]] || [[ ! "$requested_at" > "$rebased_at" ]]; }; then
+            state='{}'
+          fi
           verdict=$(jq -r --arg head "$head" '
             .code_review as $r
             | if $r.commit_sha != $head then "pending"
               elif $r.status == "completed" and $r.has_unresolved_findings == false then "success"
               elif $r.status == "completed" or $r.status == "failed" then "failure"
               else "pending" end' <<<"$state" 2>/dev/null || echo pending)
+          # Only P0 and P1 findings block (Colin, Oct 18 2026: chasing P2s took about a tenth of his daily usage; of
+          # 55 findings on three PRs, 5 were P0 or P1). Every thread of the bot's is read, all pages, with the commit
+          # its finding was made on, and so is the summary of the bot's review of this commit:
+          # - an open P0 or P1 thread, from this commit or an earlier one, fails the gate even after a clean review;
+          # - a P0 or P1 badge in the review's summary (a finding with no inline thread) fails it;
+          # - a review of this commit whose findings are all P2 or P3 threads passes, whether or not those threads
+          #   have been resolved since (resolving the last one must not turn the gate back to failure);
+          # - a review with findings but no thread on this commit (only in its summary, unrated) still fails;
+          # - when the threads or the summary can't be read, the verdict stays as the bot's summary has it.
+          if [ "$verdict" = success ] || [ "$verdict" = failure ]; then
+            threads=$(gh api graphql --paginate -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$PR" -f query='
+              query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+                repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
+                  reviewThreads(first: 100, after: $endCursor) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes { isResolved comments(first: 1) { nodes { author { login } body originalCommit { oid } } } }
+                  }
+                } }
+              }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                       | (if .isResolved then "resolved" else "open" end) as $state | .comments.nodes[0]
+                       | select(.author.login == "chatgpt-codex-connector")
+                       | "\($state) \(if (.body | test("\\[P[01] Badge\\]")) then "serious" else "minor" end) \(.originalCommit.oid // "")"') \
+              || threads=error
+            summary=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+              --jq ".[] | select(.user.login == \"$bot\") | select(.commit_id == \"$head\") | .body") || summary=error
+            if [ "$threads" != error ] && [ "$summary" != error ]; then
+              serious_open=$(grep -c '^open serious ' <<<"$threads" || true)
+              serious_summary=$(grep -cE '\[P[01] Badge\]' <<<"$summary" || true)
+              on_head=$(grep -c " $head\$" <<<"$threads" || true)
+              completed=$([ "$(jq -r '.code_review.status // empty' <<<"$state")" = completed ] && echo yes || echo no)
+              if [ "$serious_open" -gt 0 ] || [ "$serious_summary" -gt 0 ]; then
+                verdict=failure
+              elif [ "$verdict" = failure ] && [ "$completed" = yes ] && [ "$on_head" -gt 0 ]; then
+                verdict=minor
+              fi
+            fi
+          fi
           case "$verdict" in
             success) desc="Codex found no problems in this commit." ;;
-            failure) desc="Codex found problems or could not run. Read its comments." ;;
+            minor) verdict=success; desc="Codex found only P2 or P3 findings, which do not block. Add them to the follow-up list; do not push fixes." ;;
+            failure) desc="Codex found a P0 or P1 problem or could not run. Read its comments." ;;
             # The bot reviews new PRs on its own. After a push, someone has to comment "@codex review" from a person's
             # account; on Oct 17 2026 it ignored the same request posted by github-actions.
             *) verdict=pending; desc="Waiting for Codex to review this commit. After a push, comment @codex review." ;;
