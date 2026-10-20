@@ -12,7 +12,13 @@ on:
   pull_request_review:
     types: [submitted]
   # Resolving a thread can't start a workflow (pull_request_review_thread is a webhook event only; Actions rejects the
-  # whole file for it, Oct 18 2026). A resolved P0 or P1 shows on the next push or review: comment @codex review.
+  # whole file for it, Oct 18 2026). After resolving one, check again with the same rule and no new review (Oct 19
+  # 2026: each review round costs Colin money): gh workflow run codex-gate.yml -f pr=<number>
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
 
 jobs:
   # A PR needs a clean review from the Codex bot on GitHub for its latest commit. A local Codex run does not count.
@@ -20,11 +26,12 @@ jobs:
   # failure when it finds problems or cannot run (for example out of credits), success when it finds none.
   codex:
     if: >-
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') ||
       (github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]' && github.event.pull_request.head.repo.full_name == github.repository)
     concurrency:
-      group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       cancel-in-progress: false
     # GitHub's machines unless the repo sets the REVIEW_RUNNER variable to a runner's labels as JSON, for example
     # ["self-hosted", "mac"] (Oct 17 2026: these reviews used most of the month's free Actions minutes).
@@ -34,10 +41,13 @@ jobs:
       statuses: write
       pull-requests: read
       issues: read
+      # The thread check reads each finding's commit. Without this every thread came back "Resource not accessible
+      # by integration", and the gate fell back to the bot's summary, so a resolved P1 never cleared it (Oct 19 2026).
+      contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+      PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
     steps:
       - name: Set the Codex review status
         run: |
