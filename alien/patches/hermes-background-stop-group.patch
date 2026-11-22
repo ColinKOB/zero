@@ -1,0 +1,71 @@
+diff --git a/tools/process_registry.py b/tools/process_registry.py
+index bb7f60dd..e954e677 100644
+--- a/tools/process_registry.py
++++ b/tools/process_registry.py
+@@ -25,6 +25,7 @@ _IS_WINDOWS = platform.system() == "Windows"
+ # (not merely "not Windows") so macOS and other POSIX platforms never touch systemd.
+ # See #70716.
+ _IS_LINUX = platform.system() == "Linux"
++from tools import sandbox_process_group
+ from tools.environments.local import _find_shell, _resolve_safe_cwd, _sanitize_subprocess_env
+ from hermes_cli._subprocess_compat import windows_hide_flags
+ from dataclasses import dataclass, field
+@@ -1298,12 +1299,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
+                                     persist_on_release=persist_on_release)
+         temp_dir = self._env_temp_dir(env)
+         log_path, pid_path, exit_path = (f"{temp_dir}/hermes_bg_{session.id}.{ext}" for ext in ("log", "pid", "exit"))
+-        q = shlex.quote
+-        bg_command = (
+-            f"mkdir -p {q(temp_dir)} && "
+-            f"( nohup bash -lc {q(command)} > {q(log_path)} 2>&1; "
+-            f"rc=$?; printf '%s\\n' \"$rc\" > {q(exit_path)} ) & "
+-            f"echo $! > {q(pid_path)} && cat {q(pid_path)}")
++        bg_command = sandbox_process_group.spawn_command(command, temp_dir, log_path, pid_path, exit_path)
+         try:
+             result = env.execute(bg_command, timeout=timeout, rewrite_compound_background=False)
+             output = result.get("output", "").strip()
+@@ -2278,7 +2274,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
+             # leaves Git Bash descendants behind.
+             self._terminate_host_pid(session.process.pid, session.host_start_time)
+         elif session.env_ref and session.pid:
+-            session.env_ref.execute(f"kill {session.pid} 2>/dev/null", timeout=5)
++            session.env_ref.execute(sandbox_process_group.stop_command(session.pid), timeout=8)
+         elif session.detached and session.pid_scope == "host" and session.pid:
+             # Same fate as poll/list: a gone or reused PID means our process is
+             # gone — never tree-kill the stranger — but a live PID with an
+diff --git a/tools/sandbox_process_group.py b/tools/sandbox_process_group.py
+new file mode 100644
+index 00000000..6e04f312
+--- /dev/null
++++ b/tools/sandbox_process_group.py
+@@ -0,0 +1,30 @@
++"""Zero: how a background command starts and stops inside a Zip's container (problem reports 38 and 39).
++
++The engine used to start the command behind a wrapper shell and stop it with ``kill <wrapper pid>``. Only the wrapper
++died, so the command and everything it started went on running after Stop. Each command now leads its own process
++group, and Stop signals the whole group. The hub's morning computer check runs these same two strings in every
++container (hub/taffy_hub/zipcheck.py), so it tests what the engine does. This module imports nothing from the engine.
++"""
++
++import shlex
++
++STOP_GRACE_TENTHS = 20  # how long a stopped command has to exit by itself, in tenths of a second
++
++
++def spawn_command(command: str, temp_dir: str, log_path: str, pid_path: str, exit_path: str) -> str:
++    """Shell that starts ``command`` in its own process group and prints the group's id. setsid forks when the shell
++    already made it a group leader, so the id comes from the wrapper itself, never from ``$!``."""
++    q = shlex.quote
++    wrapper = (f"echo $$ > {q(pid_path)}; nohup bash -lc {q(command)} > {q(log_path)} 2>&1; "
++               f"rc=$?; printf '%s\\n' \"$rc\" > {q(exit_path)}")
++    return (f"mkdir -p {q(temp_dir)}; "
++            f"$(command -v setsid) sh -c {q(wrapper)} </dev/null >/dev/null 2>&1 & "
++            f"i=0; while [ ! -s {q(pid_path)} ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; cat {q(pid_path)}")
++
++
++def stop_command(pid: int | str) -> str:
++    """Shell that stops the whole group: SIGTERM, a short wait, then SIGKILL for what is left. A command started before
++    this change is not a group leader, so the plain ``kill`` still reaches it."""
++    return (f"kill -TERM -{pid} 2>/dev/null || kill {pid} 2>/dev/null; "
++            f"i=0; while kill -0 -{pid} 2>/dev/null && [ $i -lt {STOP_GRACE_TENTHS} ]; do sleep 0.1; i=$((i+1)); done; "
++            f"kill -KILL -{pid} 2>/dev/null; true")

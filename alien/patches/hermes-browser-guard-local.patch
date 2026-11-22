@@ -1,0 +1,19 @@
+Hermes patch: browser.guard_local. On a home on a person's own Mac the terminal is off, so the browser is the one tool
+that can reach the Mac's files and home network; this makes the local browser refuse file: pages and private addresses.
+Base: Hermes 74943bb889. Set by mac/engine/zero_engine.py (render_config). Design: docs/plans/2026-11-21-friend-mac-home.md.
+
+diff --git a/tools/browser_tool_cloud.py b/tools/browser_tool_cloud.py
+--- a/tools/browser_tool_cloud.py
++++ b/tools/browser_tool_cloud.py
+@@ -172,6 +172,11 @@
+     _bt = _origin()
+     if _cdp._get_cdp_override_raw():
+         return False
++    # Zero: a home on a person's own Mac turns its terminal off, so the browser is the one tool that can reach the
++    # Mac's files and its home network. browser.guard_local applies the off-host checks to the local browser too:
++    # no file: pages, no private or internal addresses (Zero, Nov 21 2026).
++    if _bt._browser_cfg("guard_local", False, lambda v: is_truthy_value(v, default=False), "guard_local from config"):
++        return False
+     if _bt._is_camofox_mode():
+         return True
+     if _get_cloud_provider() is not None:

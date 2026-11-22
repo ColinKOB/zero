@@ -1,0 +1,27 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 3d7817f..17e1498 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -3729,6 +3729,13 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                 events.enqueue("assistant.commentary", {
+                     "message_id": message_id, "text": text, "already_streamed": bool(already_streamed)})
+ 
++        def _reasoning(delta: str) -> None:
++            # Zero, Nov 16 2026: the provider's thinking summary as it streams (Codex summary text, Claude's
++            # summarized thinking), so a client can show a live line during a long think instead of a blank wait.
++            # The text goes only to this stream as written: nothing here stores or logs it.
++            if isinstance(delta, str) and delta:
++                events.enqueue("reasoning.delta", {"message_id": message_id, "delta": delta})
++
+         approval_notify = self._register_session_stream_approval(run_id, events, message_id)
+ 
+         async def _run_and_signal() -> None:
+@@ -3742,7 +3749,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                 result, usage = await self._run_agent(
+                     conversation_history=history, stream_delta_callback=_delta,
+                     tool_progress_callback=_tool_progress, interim_assistant_callback=_commentary,
+-                    active_run_id=run_id, approval_notify_callback=approval_notify,
++                    reasoning_callback=_reasoning, active_run_id=run_id, approval_notify_callback=approval_notify,
+                     approval_session_key=run_id, idle_compaction=True, **ctx["run_kwargs"])
+                 is_dict = isinstance(result, dict)
+                 final_response = _resolve_media_to_data_urls(result.get("final_response", "") if is_dict else "")

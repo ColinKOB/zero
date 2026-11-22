@@ -1,0 +1,716 @@
+diff --git a/agent/compression_facade.py b/agent/compression_facade.py
+index 8a5e44b..38814b4 100644
+--- a/agent/compression_facade.py
++++ b/agent/compression_facade.py
+@@ -243,6 +243,13 @@ class CompressionFacadeMixin:
+             resolve_context_compression_timeouts,
+         )
+         reset_context_compression_timeout_outcome(self)
++        # A correction earns one uncompressed continuation while the request fits.
++        # Provider-proven overflow and manual compression keep their normal recovery.
++        from agent.conversation_compression import request_exceeds_model_window
++        if (getattr(self, "_compression_deferred_for_input", False)
++                and not force and not bypass_cooldown
++                and request_exceeds_model_window(self, approx_tokens) is False):
++            return messages, _timeout_fallback_prompt(self, system_message)
+         from agent.portal_tags import (
+             get_affinity_scope, get_conversation_context, reset_affinity_scope, reset_conversation_context,
+             set_affinity_scope, set_conversation_context,
+diff --git a/agent/conversation_compression.py b/agent/conversation_compression.py
+index 7f7e028..da12242 100644
+--- a/agent/conversation_compression.py
++++ b/agent/conversation_compression.py
+@@ -3012,6 +3012,15 @@ def _run_summary_dispatch(
+         )
+
+     def _compression_cancel_requested() -> bool:
++        # Guidance stays queued until the turn loop persists it. Abort the candidate,
++        # never replace a cancelled summary with the deterministic fallback.
++        if (getattr(agent, "_pending_steer", None)
++                or getattr(agent, "_pending_redirect", None)
++                or getattr(agent, "_interrupt_requested", False)):
++            agent._compression_deferred_for_input = True
++            if commit_fence is not None:
++                commit_fence.revoke_commit_admission()
++            return True
+         return bool(
+             (hard_cancel_event is not None and hard_cancel_event.is_set())
+             or (commit_fence is not None and commit_fence.is_cancelled)
+@@ -3038,7 +3047,7 @@ def _run_summary_dispatch(
+                 _mark_compressor_working_attempt(agent.context_compressor, attempt_generation)
+                 compressed = compress_fn(messages, **compress_kwargs)
+                 # Freeze a hard stop that arrived after the last provider attempt but before session state rotates.
+-                if hard_cancel_event is not None and hard_cancel_event.is_set():
++                if _compression_cancel_requested():
+                     raise AuxiliaryExplicitCancellation()
+     finally:
+         _COMPRESSOR_ATTEMPT_GENERATION.reset(_attempt_ctx_token)
+@@ -4180,8 +4189,8 @@ def compress_context(
+         lease.release()
+         return messages, _existing_system_prompt(agent, system_message)
+
+-    # Interrupts/redirects must not tear a summary in half. Use the explicit stop
+-    # Event (message fields race) + fence timeout so pool slots free promptly.
++    # Interrupts and redirects abandon the candidate before its transaction commits.
++    # The explicit stop Event and fence timeout also free stalled pool slots promptly.
+     # Explicit stop surfaces set a separate Event atomically; never infer cause from the racy message
+     # fields. A host timeout also cancels the attempt's commit fence. Feed BOTH into the protected
+     # auxiliary-call seam so the compression owner unwinds promptly while an isolated provider stream
+diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
+index 5e48e3c..458ce8a 100644
+--- a/agent/conversation_loop.py
++++ b/agent/conversation_loop.py
+@@ -1564,6 +1564,7 @@ def _run_conversation_turn(
+     # in-place boundary would make a later uncompressed result look compacted.
+     agent._last_compaction_in_place = agent._last_compression_attempt_recorded = False
+     agent._last_compression_attempt_in_place = None
++    agent._compression_deferred_for_input = False
+     begin_fast_mode_turn(agent, conversation_history)
+
+     # Adopt ~/.hermes/.env credential/base-url edits made since the last turn — a
+diff --git a/agent/turn_preflight.py b/agent/turn_preflight.py
+index 7361f04..9ef8127 100644
+--- a/agent/turn_preflight.py
++++ b/agent/turn_preflight.py
+@@ -148,6 +148,13 @@ def run_preflight_compression(
+             v.messages, system_message, approx_tokens=request_pressure_tokens,
+             task_id=effective_task_id,
+         )
++        if (getattr(agent, "_compression_deferred_for_input", False)
++                and (getattr(agent, "_pending_steer", None)
++                     or getattr(agent, "_interrupt_requested", False))):
++            v.api_call_count = _refund_api_call(agent, v.api_call_count)
++            v.compression_attempts -= 1
++            v._last_preflight_pressure = None
++            return _done("continue")
+         if context_compression_timed_out(agent):
+             # Progress-aware timeout: never reached the provider — refund the
+             # call/budget and stop; an overflow retry would only re-compress.
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index eb01b22..9e8c412 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -3593,7 +3593,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         gateway_session_key = ctx["gateway_session_key"]
+         session_id = ctx["session_id"]
+         history = await self._conversation_history_for_session(session_id)
+-        result, usage = await self._run_agent(conversation_history=history, **ctx["run_kwargs"])
++        result, usage = await self._run_agent(conversation_history=history, idle_compaction=True, **ctx["run_kwargs"])
+         # One policy-gated re-run of a transiently failed turn — the peer-DM transport's half of the
+         # retry the local (``tools.bot_mode_dm``) and relayed (``tui_gateway.methods_bot_relay``)
+         # delivery lanes already apply (#93091 item 5, #115325). Same policy, same gate: transient
+@@ -3644,6 +3644,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+
+         if any(getattr(a, "session_id", None) in (session_id, tip) for a in list(self._active_run_agents.values())):
+             return _skip("busy")
++        from gateway.platforms.api_server_idle_compaction import busy
++        if busy(self, _api_request_profile.get(), tip):
++            return _skip("busy")
+         row = (await asyncio.to_thread(db.get_session, tip) if db is not None else None) or session
+         if not (row or {}).get("system_prompt"):
+             return _skip("no_stored_prompt")
+@@ -3740,7 +3743,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                     conversation_history=history, stream_delta_callback=_delta,
+                     tool_progress_callback=_tool_progress, interim_assistant_callback=_commentary,
+                     active_run_id=run_id, approval_notify_callback=approval_notify,
+-                    approval_session_key=run_id, **ctx["run_kwargs"])
++                    approval_session_key=run_id, idle_compaction=True, **ctx["run_kwargs"])
+                 is_dict = isinstance(result, dict)
+                 final_response = _resolve_media_to_data_urls(result.get("final_response", "") if is_dict else "")
+                 effective_session_id = result.get("session_id", session_id) if is_dict else session_id
+@@ -4261,7 +4264,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         session_history_delivery: str = "", turn_author: Optional[Dict[str, Any]] = None,
+         relay_metadata: Optional[Dict[str, Any]] = None, notification_category: str = "result",
+         resume_unanswered_turn: bool = False, approval_notify_callback=None,
+-        approval_session_key: Optional[str] = None, keep_warm: bool = False) -> tuple:
++        approval_session_key: Optional[str] = None, keep_warm: bool = False,
++        idle_compaction: bool = False) -> tuple:
+         """Create an agent and run one turn in a thread executor -> ``(result, usage)``.
+         ``approval_notify_callback`` (with ``approval_session_key``) routes dangerous-command
+         approval requests to the caller's stream, keyed like ``/v1/runs`` approvals (#51871).
+@@ -4281,6 +4285,17 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         request_profile = _api_request_profile.get()
+         request_browser_control_principal = _api_request_browser_control_principal.get()
+         request_browser_control_transport_family = _api_request_browser_control_transport_family.get()
++        idle_generation = None
++        created_agent = [None]
++        if idle_compaction and session_id and not keep_warm:
++            from gateway.platforms.api_server_idle_compaction import foreground
++            idle_generation = await foreground(self, session_id)
++            conversation_history = await self._conversation_history_for_session(session_id)
++        idle_agent_kwargs = dict(
++            ephemeral_system_prompt=ephemeral_system_prompt, session_id=session_id,
++            gateway_session_key=gateway_session_key, requested_model=requested_model,
++            requested_provider=requested_provider, model_options=model_options, route=route,
++            session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock)
+
+         def _run():
+             from gateway.session_context import clear_session_vars
+@@ -4305,6 +4320,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                         gateway_session_key=gateway_session_key, requested_model=requested_model,
+                         requested_provider=requested_provider, model_options=model_options, route=route,
+                         session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock)
++                    created_agent[0] = agent
+                     if agent_ref is not None:
+                         agent_ref[0] = agent
+                     if keep_warm:
+@@ -4415,6 +4431,10 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+ # Worker-scoped count rides along so the shutdown close gate still sees the thread
+             # after this handler task is cancelled (#116535); released in the worker's finally.
+             result, usage = await _api_runs._submit_api_worker(loop, _run)
++            if idle_generation is not None and created_agent[0] is not None:
++                from gateway.platforms.api_server_idle_compaction import IdleSession, schedule
++                schedule(self, IdleSession(session_id, request_profile, idle_agent_kwargs, idle_generation,
++                                           gateway_session_key=gateway_session_key), created_agent[0], result)
+             return result, usage
+         finally:
+             self._inflight_agent_runs -= 1
+diff --git a/gateway/platforms/api_server_idle_compaction.py b/gateway/platforms/api_server_idle_compaction.py
+new file mode 100644
+index 0000000..35c32ad
+--- /dev/null
++++ b/gateway/platforms/api_server_idle_compaction.py
+@@ -0,0 +1,181 @@
++"""Between-turn compaction for durable API runs, with foreground priority.
++
++The event loop owns the job registry and admission generations. A worker owns a
++fresh agent and both durable leases. Foreground admission cancels the candidate
++and joins its owner before loading history, so neither a stale summary nor stale
++caller history can overwrite the next turn.
++"""
++
++import asyncio
++import logging
++import threading
++import uuid
++from dataclasses import dataclass, field
++
++logger = logging.getLogger("gateway.platforms.api_server")
++IDLE_SECONDS = 5.0
++TRIGGER_RATIO = 0.85
++
++
++@dataclass
++class IdleSession:
++    session_id: str
++    request_profile: object
++    agent_kwargs: dict
++    idle_compaction_generation: int
++    session_history_delivery: bool = True
++    gateway_session_key: str = ""
++
++
++@dataclass
++class IdleCompaction:
++    cancelled: threading.Event = field(default_factory=threading.Event)
++    wake: asyncio.Event = field(default_factory=asyncio.Event)
++    task: object = None
++    agent: object = None
++
++
++def _state(owner):
++    return vars(owner).setdefault("_idle_compactions", {}), vars(owner).setdefault("_idle_compaction_generations", {})
++
++
++def _key(profile, session_id):
++    return str(profile or ""), str(session_id)
++
++
++def busy(owner, profile, session_id):
++    return _key(profile, session_id) in _state(owner)[0]
++
++
++async def foreground(owner, session_id):
++    from gateway.platforms.api_server import _api_request_profile
++    jobs, generations = _state(owner)
++    key = _key(_api_request_profile.get(), session_id)
++    generation = generations[key] = generations.get(key, 0) + 1
++    job = jobs.get(key)
++    if job is not None:
++        job.cancelled.set()
++        job.wake.set()
++        if job.agent is not None:
++            from gateway.platforms.api_server import request_hard_interrupt
++            await asyncio.to_thread(request_hard_interrupt, job.agent, "Foreground turn arrived")
++        await asyncio.shield(job.task)
++    return generation
++
++
++def eligible(agent, messages):
++    from agent.turn_context import _preflight_request_tokens
++    compressor = getattr(agent, "context_compressor", None)
++    if (not getattr(agent, "compression_enabled", False) or compressor is None
++            or getattr(agent, "_persist_disabled", False)
++            or not getattr(agent, "compression_in_place", True)
++            or getattr(agent, "api_mode", "") == "codex_app_server"
++            or getattr(compressor, "awaiting_real_usage_after_compression", False)):
++        return None
++    threshold = compressor.threshold_tokens
++    pressure = _preflight_request_tokens(agent, messages, agent._cached_system_prompt or "")
++    last = getattr(compressor, "last_compression_rough_tokens", 0) or 0
++    if (pressure < threshold * TRIGGER_RATIO or pressure <= last * 1.10
++            or compressor.get_active_compression_failure_cooldown()):
++        return None
++    return pressure
++
++
++def schedule(owner, run, agent, result):
++    if (not isinstance(result, dict) or not run.session_history_delivery or run.agent_kwargs.get("room_dispatch")
++            or result.get("error") or result.get("partial") or result.get("pending_steer")
++            or result.get("interrupted") or result.get("failed")):
++        return
++    try:
++        pressure = eligible(agent, result.get("messages") or [])
++        if pressure is None:
++            return
++        jobs, generations = _state(owner)
++        key = _key(run.request_profile, run.session_id)
++        if generations.get(key) != run.idle_compaction_generation or key in jobs:
++            return
++        if getattr(owner, "_run_shutdown_requested_at", None) is not None:
++            return
++        job = jobs[key] = IdleCompaction()
++        job.task = asyncio.create_task(_idle(owner, run, job, key))
++    except Exception:
++        logger.warning("Could not schedule idle compaction", exc_info=True)
++
++
++async def _idle(owner, run, job, key):
++    from gateway.platforms.api_server_runs import _submit_api_worker
++    try:
++        try:
++            await asyncio.wait_for(job.wake.wait(), timeout=IDLE_SECONDS)
++        except asyncio.TimeoutError:
++            pass
++        if (job.cancelled.is_set() or getattr(owner, "_run_shutdown_requested_at", None) is not None):
++            return
++        await _submit_api_worker(asyncio.get_running_loop(), lambda: _compact(owner, run, job))
++    except Exception:
++        logger.warning("Idle compaction failed for session %s", run.session_id, exc_info=True)
++    finally:
++        jobs, _ = _state(owner)
++        if jobs.get(key) is job:
++            jobs.pop(key, None)
++
++
++def _compact(owner, run, job):
++    from agent.aux_accounting import reset_accounting_context, set_accounting_context
++    from agent.conversation_loop import _restore_or_build_system_prompt
++    from agent.turn_facade_lease import DurableTurnLease, LEASE_TTL_SECONDS
++    from gateway.session_context import clear_session_vars
++    from hermes_state_pidns import holder_namespace_token
++    import os
++
++    agent = lease = tokens = acct_token = None
++    with owner._profile_scope(run.request_profile):
++        try:
++            if job.cancelled.is_set():
++                return
++            tokens = owner._bind_api_server_session(
++                chat_id=run.session_id, session_key=run.gateway_session_key or run.session_id,
++                session_id=run.session_id, profile=run.request_profile or "", session_history_delivery="1")
++            agent = owner._create_agent(**run.agent_kwargs)
++            job.agent = agent
++            owner._shutdown_interruptible_agents[id(agent)] = agent
++            db = agent._session_db
++            if (job.cancelled.is_set() or db is None
++                    or getattr(owner, "_run_shutdown_requested_at", None) is not None):
++                return
++            holder = f"pid={os.getpid()}{holder_namespace_token()}:idle={uuid.uuid4().hex}"
++            if not db.acquire_session_turn_lease(
++                    run.session_id, holder, ttl_seconds=LEASE_TTL_SECONDS,
++                    wait_seconds=0, should_abort=job.cancelled.is_set):
++                return
++            acct_token = set_accounting_context(db, run.session_id)
++            lease = DurableTurnLease(agent, db, run.session_id, holder)
++            agent._active_session_turn_lease_holder = holder
++            agent._active_session_turn_lease_ttl_seconds = LEASE_TTL_SECONDS
++            lease.start()
++            history = db.get_messages_as_conversation(run.session_id, repair_alternation=True, include_row_ids=True)
++            from agent.usage_anchor import restore_usage_anchor
++            restore_usage_anchor(agent, history)
++            _restore_or_build_system_prompt(agent, None, history)
++            # Keep the saved system/tools prefix. Only the history boundary changes.
++            agent._retain_seeded_system_prompt = True
++            pressure = eligible(agent, history)
++            if pressure is None or job.cancelled.is_set():
++                return
++            logger.info("Idle compaction: session=%s pressure=%d trigger=%d", run.session_id,
++                        pressure, agent.context_compressor.threshold_tokens)
++            agent._compress_context(history, agent._cached_system_prompt or "",
++                                    approx_tokens=pressure, task_id=run.session_id, trigger="idle")
++        finally:
++            if lease is not None:
++                lease.stop_refresher()
++                lease.join_threads()
++                lease.release()
++            if agent is not None:
++                owner._shutdown_interruptible_agents.pop(id(agent), None)
++                owner._memory_sessions.checkin(agent)
++                agent.release_clients()
++            if tokens:
++                clear_session_vars(tokens)
++            if acct_token is not None:
++                reset_accounting_context(acct_token)
+diff --git a/gateway/platforms/api_server_runs.py b/gateway/platforms/api_server_runs.py
+index 8b662ca..8dee30a 100644
+--- a/gateway/platforms/api_server_runs.py
++++ b/gateway/platforms/api_server_runs.py
+@@ -501,6 +501,7 @@ class _RunLaunch:
+     browser_control_principal: Any
+     browser_control_transport_family: Any
+     turn_author: Optional[Dict[str, Any]] = None  # memory-attribution label only; grants nothing
++    idle_compaction_generation: int = 0
+
+     @property
+     def approval_session_key(self) -> str:
+@@ -701,6 +702,11 @@ async def _handle_runs(self, request: "web.Request", *, _api_server) -> "web.Res
+     if selected_session_id:
+         selected_session_id = await _resolve_live_session_id(self, str(selected_session_id))
+     session_id = selected_session_id or run_id
++    from gateway.platforms.api_server_idle_compaction import foreground
++    idle_generation = await foreground(self, session_id)
++    if selected_session_id:
++        selected_session_id = await _resolve_live_session_id(self, str(selected_session_id))
++        session_id = selected_session_id
+     # History loads for the session the request actually selected — including one resolved from
+     # a declared X-Hermes-Session-Key, whose persisted delivery rows must reach the next
+     # same-key run's context (#98619).  previous_response_id continuations keep their
+@@ -738,7 +744,7 @@ async def _handle_runs(self, request: "web.Request", *, _api_server) -> "web.Res
+         request_profile=_api_server._api_request_profile.get(),
+         browser_control_principal=_api_server._api_request_browser_control_principal.get(),
+         browser_control_transport_family=_api_server._api_request_browser_control_transport_family.get(),
+-        turn_author=turn_author)
++        turn_author=turn_author, idle_compaction_generation=idle_generation)
+     self._activate_admitted_request()
+     # A canonical Bot Chat that a Desktop holds live is that Desktop's to run: executing here would
+     # be a second writer beside its lease (#114959). The owner's mailbox takes the turn and its
+@@ -918,6 +924,8 @@ async def _execute_run(self, run: _RunLaunch, *, _api_server) -> None:
+     run_id, loop = run.run_id, asyncio.get_running_loop()
+     _run_started_at = time.perf_counter()
+
++    idle_candidate = None
++
+     def _text_cb(delta: Optional[str]) -> None:
+         if delta is None or run_id not in self._run_streams:
+             return
+@@ -984,6 +992,8 @@ async def _execute_run(self, run: _RunLaunch, *, _api_server) -> None:
+                 route_source=("model_routes" if run.agent_kwargs.get("route")
+                               else "raw_request" if any(requested.values()) else "global"))
+             _finish(status, fields, output=result.get("final_response", ""), usage=usage, runtime=served_runtime)
++            if status == "completed" and run.session_history_delivery:
++                idle_candidate = (agent, result)
+     except asyncio.CancelledError:
+         _finish("cancelled")
+         raise
+@@ -1001,6 +1011,9 @@ async def _execute_run(self, run: _RunLaunch, *, _api_server) -> None:
+         with suppress(Exception):
+             loop.call_soon(run.put_event, None)  # close after the queued events
+         _retire_live_run(self, run_id)
++        if idle_candidate is not None:
++            from gateway.platforms.api_server_idle_compaction import schedule
++            schedule(self, run, *idle_candidate)
+
+
+ def _unregister_approval_notify(approval_session_key: Optional[str]) -> None:
+diff --git a/tests/agent/test_compaction_foreground_priority.py b/tests/agent/test_compaction_foreground_priority.py
+new file mode 100644
+index 0000000..234b8d8
+--- /dev/null
++++ b/tests/agent/test_compaction_foreground_priority.py
+@@ -0,0 +1,161 @@
++"""User input cancels a summary candidate without consuming its queued message."""
++
++import copy
++import threading
++import time
++from concurrent.futures import ThreadPoolExecutor
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++
++from agent.auxiliary_client import _run_protected_sync_provider_call
++from hermes_state import SessionDB
++
++
++@pytest.fixture
++def conversation(tmp_path):
++    from run_agent import AIAgent
++    db = SessionDB(db_path=tmp_path / "state.db")
++    sid = "owned-compaction-test"
++    db.create_session(sid, source="api_server", system_prompt="saved prefix")
++    agent = AIAgent(api_key="test", base_url="https://example.test/v1", model="test/model",
++                    quiet_mode=True, session_db=db, session_id=sid,
++                    skip_context_files=True, skip_memory=True)
++    agent._compression_feasibility_checked = True
++    agent._cached_system_prompt = "saved prefix"
++    agent._retain_seeded_system_prompt = True
++    agent.context_compressor.threshold_tokens = 200_000
++    agent.context_compressor._resolved_context_length = 1_000_000
++    for i in range(40):
++        db.append_message(sid, "user" if i % 2 == 0 else "assistant", f"turn {i} " + "rice recipe notes " * 200)
++    history = db.get_messages_as_conversation(sid, include_row_ids=True)
++    yield agent, db, history
++    agent.release_clients()
++    db.close()
++
++
++@pytest.mark.parametrize("kind", ["steer", "typed", "stop"])
++def test_summary_yields_and_late_provider_cannot_commit(conversation, kind):
++    from gateway.platforms.api_server import request_hard_interrupt
++    agent, db, history = conversation
++    before = copy.deepcopy(db.get_messages_as_conversation(agent.session_id))
++    started, release = threading.Event(), threading.Event()
++    correction = "No, not fried chicken. fried rice"
++
++    def provider(_):
++        started.set()
++        release.wait(3)
++        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Recipe context preserved. " * 80))])
++
++    def summary(**kwargs):
++        return _run_protected_sync_provider_call(provider, kwargs)
++
++    with patch("agent.context_compressor.call_llm", side_effect=summary), ThreadPoolExecutor(1) as executor:
++        future = executor.submit(agent._compress_context, history, "saved prefix", approx_tokens=205_000)
++        try:
++            assert started.wait(3)
++            t0 = time.monotonic()
++            if kind == "stop":
++                request_hard_interrupt(agent, "Stop requested via API")
++            elif kind == "typed":
++                agent.interrupt(correction)
++            else:
++                assert agent.steer(correction)
++            messages, prompt = future.result(timeout=1)
++            assert time.monotonic() - t0 < 1
++            assert messages == history
++            assert prompt == "saved prefix"
++            assert db.get_messages_as_conversation(agent.session_id) == before
++            assert db.get_compression_lock_holder(agent.session_id) is None
++            if kind == "steer":
++                assert agent._drain_pending_steer() == correction
++                assert agent._drain_pending_steer() is None
++            elif kind == "typed":
++                assert agent._interrupt_message == correction
++            assert db.get_session(agent.session_id)["system_prompt"] == "saved prefix"
++        finally:
++            release.set()
++    assert db.get_messages_as_conversation(agent.session_id) == before
++
++
++def test_deferred_summary_does_not_reenter_until_next_turn(conversation):
++    agent, _, history = conversation
++    agent._compression_deferred_for_input = True
++    with patch("agent.conversation_compression.compress_context") as compact:
++        result, prompt = agent._compress_context(history, "saved prefix", approx_tokens=205_000)
++    assert result is history
++    assert prompt == "saved prefix"
++    compact.assert_not_called()
++
++
++def test_over_window_still_requires_compression(conversation):
++    agent, _, history = conversation
++    agent._compression_deferred_for_input = True
++    with patch("agent.conversation_compression.compress_context", return_value=(history, "saved prefix")) as compact:
++        agent._compress_context(history, "saved prefix", approx_tokens=1_100_000)
++    compact.assert_called_once()
++
++
++def test_idle_worker_commits_with_saved_prefix_and_releases_turn(conversation, monkeypatch):
++    from contextlib import nullcontext
++    from gateway.platforms import api_server_idle_compaction as idle
++    agent, db, history = conversation
++    sid = agent.session_id
++    owner = SimpleNamespace(_profile_scope=lambda profile: nullcontext(),
++        _bind_api_server_session=lambda **kw: None, _create_agent=lambda **kw: agent,
++        _shutdown_interruptible_agents={}, _memory_sessions=SimpleNamespace(checkin=lambda a: None))
++    run = idle.IdleSession(sid, "trace", {}, 1)
++    monkeypatch.setattr("agent.turn_context._preflight_request_tokens", lambda *a: 180_000)
++    summary = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Rice recipe context. " * 100))])
++    def summarize(**kwargs):
++        from agent.aux_accounting import _accounting
++        assert _accounting.get() == (db, sid)
++        return summary
++
++    with patch("agent.context_compressor.call_llm", side_effect=summarize):
++        idle._compact(owner, run, idle.IdleCompaction())
++    assert db.get_session(sid)["system_prompt"] == "saved prefix"
++    assert db.get_compression_lock_holder(sid) is None
++    assert agent._active_session_turn_lease_holder is None
++    assert not owner._shutdown_interruptible_agents
++    active = db.get_messages_as_conversation(sid)
++    assert len(active) < len(history)
++    import sqlite3
++    with sqlite3.connect(db.db_path) as stored:
++        assert stored.execute("SELECT count(*) FROM messages WHERE session_id=? AND _compressed_summary=1 AND active=1", (sid,)).fetchone()[0] == 1
++        assert stored.execute("SELECT count(*) FROM messages WHERE session_id=?", (sid,)).fetchone()[0] >= len(history)
++
++
++def test_foreground_cancels_idle_summary_and_releases_both_leases(conversation, monkeypatch):
++    from contextlib import nullcontext
++    from gateway.platforms import api_server_idle_compaction as idle
++    from gateway.platforms.api_server import request_hard_interrupt
++    agent, db, history = conversation
++    owner = SimpleNamespace(_profile_scope=lambda profile: nullcontext(),
++        _bind_api_server_session=lambda **kw: None, _create_agent=lambda **kw: agent,
++        _shutdown_interruptible_agents={}, _memory_sessions=SimpleNamespace(checkin=lambda a: None))
++    run, job = idle.IdleSession(agent.session_id, "trace", {}, 1), idle.IdleCompaction()
++    started, release = threading.Event(), threading.Event()
++    before = db.get_messages_as_conversation(agent.session_id)
++    monkeypatch.setattr("agent.turn_context._preflight_request_tokens", lambda *a: 180_000)
++
++    def provider(_):
++        started.set()
++        release.wait(3)
++        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="late summary"))])
++
++    with patch("agent.context_compressor.call_llm", side_effect=lambda **kw: _run_protected_sync_provider_call(provider, kw)), ThreadPoolExecutor(1) as executor:
++        future = executor.submit(idle._compact, owner, run, job)
++        try:
++            assert started.wait(3)
++            job.cancelled.set()
++            request_hard_interrupt(job.agent, "Foreground turn arrived")
++            future.result(timeout=1)
++            assert db.get_messages_as_conversation(agent.session_id) == before
++            assert db.get_compression_lock_holder(agent.session_id) is None
++            assert agent._active_session_turn_lease_holder is None
++            assert not owner._shutdown_interruptible_agents
++        finally:
++            release.set()
++    assert db.get_messages_as_conversation(agent.session_id) == before
+diff --git a/tests/gateway/test_api_idle_compaction.py b/tests/gateway/test_api_idle_compaction.py
+new file mode 100644
+index 0000000..2bb45dc
+--- /dev/null
++++ b/tests/gateway/test_api_idle_compaction.py
+@@ -0,0 +1,128 @@
++"""Idle admission, foreground priority, and durable compaction ownership."""
++
++import asyncio
++from types import SimpleNamespace
++from unittest.mock import Mock
++
++import pytest
++
++from gateway.platforms import api_server_idle_compaction as idle
++
++
++def agent():
++    return SimpleNamespace(
++        compression_enabled=True, api_mode="chat_completions", _cached_system_prompt="saved prefix",
++        context_compressor=SimpleNamespace(threshold_tokens=200_000, last_compression_rough_tokens=0,
++            awaiting_real_usage_after_compression=False, get_active_compression_failure_cooldown=lambda: None))
++
++
++def run():
++    return SimpleNamespace(session_id="owned", request_profile="trace", session_history_delivery=True,
++        agent_kwargs={}, idle_compaction_generation=1)
++
++
++def owner():
++    return SimpleNamespace(_run_shutdown_requested_at=None)
++
++
++@pytest.mark.parametrize("tokens,expected", [(169_999, None), (170_000, 170_000), (199_999, 199_999)])
++def test_near_threshold_uses_same_pressure_estimator(monkeypatch, tokens, expected):
++    monkeypatch.setattr("agent.turn_context._preflight_request_tokens", lambda *a: tokens)
++    assert idle.eligible(agent(), []) == expected
++
++
++def test_cooldown_checkpoint_and_no_growth_skip(monkeypatch):
++    monkeypatch.setattr("agent.turn_context._preflight_request_tokens", lambda *a: 180_000)
++    a = agent()
++    a.context_compressor.last_compression_rough_tokens = 170_000
++    assert idle.eligible(a, []) is None
++    a.context_compressor.last_compression_rough_tokens = 0
++    a.context_compressor.awaiting_real_usage_after_compression = True
++    assert idle.eligible(a, []) is None
++    a.context_compressor.awaiting_real_usage_after_compression = False
++    a.context_compressor.get_active_compression_failure_cooldown = lambda: {"until": 99}
++    assert idle.eligible(a, []) is None
++
++
++@pytest.mark.asyncio
++async def test_foreground_cancels_before_idle_worker_starts(monkeypatch):
++    from gateway.platforms.api_server import _api_request_profile
++    o, r = owner(), run()
++    token = _api_request_profile.set("trace")
++    compact = Mock()
++    monkeypatch.setattr(idle, "eligible", lambda *a: 180_000)
++    monkeypatch.setattr(idle, "_compact", compact)
++    try:
++        assert await idle.foreground(o, "owned") == 1
++        idle.schedule(o, r, agent(), {"messages": []})
++        assert len(o._idle_compactions) == 1
++        assert await idle.foreground(o, "owned") == 2
++        compact.assert_not_called()
++        assert not o._idle_compactions
++        idle.schedule(o, r, agent(), {"messages": []})
++        assert not o._idle_compactions
++    finally:
++        _api_request_profile.reset(token)
++
++
++@pytest.mark.asyncio
++async def test_foreground_joins_active_worker_before_return(monkeypatch):
++    from gateway.platforms.api_server import _api_request_profile
++    o, r = owner(), run()
++    monkeypatch.setattr(idle, "IDLE_SECONDS", 0.001)
++    monkeypatch.setattr(idle, "eligible", lambda *a: 180_000)
++    started = asyncio.Event()
++    finished = asyncio.Event()
++
++    async def execute(o, r, j, key):
++        started.set()
++        await j.wake.wait()
++        assert j.cancelled.is_set()
++        finished.set()
++        o._idle_compactions.pop(key)
++    monkeypatch.setattr(idle, "_idle", execute)
++    token = _api_request_profile.set("trace")
++    try:
++        await idle.foreground(o, "owned")
++        idle.schedule(o, r, agent(), {"messages": []})
++        await started.wait()
++        await idle.foreground(o, "owned")
++        assert finished.is_set()
++    finally:
++        _api_request_profile.reset(token)
++
++
++@pytest.mark.asyncio
++async def test_session_turn_joins_idle_before_loading_history_and_schedules_after_reply():
++    from unittest.mock import MagicMock, patch
++    from gateway.config import PlatformConfig
++    from gateway.platforms.api_server import APIServerAdapter
++    adapter = APIServerAdapter(PlatformConfig(enabled=True, extra={}))
++    events = []
++    history = [{"role": "assistant", "content": "Fresh compacted history"}]
++    result = {"final_response": "Rice recipe", "messages": history}
++    a = MagicMock()
++    a.run_conversation.side_effect = lambda **kw: events.append("model") or result
++
++    async def foreground(owner, sid):
++        events.append("cancel")
++        return 7
++
++    async def load(sid):
++        events.append("load")
++        return history
++
++    with (patch.object(idle, "foreground", side_effect=foreground),
++          patch.object(idle, "schedule") as scheduled,
++          patch.object(adapter, "_create_agent", return_value=a),
++          patch.object(adapter, "_conversation_history_for_session", side_effect=load),
++          patch.object(adapter, "_finish_turn_result", return_value=(result, {}))):
++        out, _ = await adapter._run_agent(user_message="Rice", conversation_history=[],
++            session_id="owned", idle_compaction=True, requested_provider="openai-compat", requested_model="test/model")
++    assert out is result
++    assert events == ["cancel", "load", "model"]
++    assert a.run_conversation.call_args.kwargs["conversation_history"] is history
++    session = scheduled.call_args.args[1]
++    assert session.idle_compaction_generation == 7
++    assert session.agent_kwargs["requested_model"] == "test/model"
++    assert scheduled.call_args.args[2] is a

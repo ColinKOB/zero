@@ -1,0 +1,38 @@
+diff --git a/agent/relay_runtime.py b/agent/relay_runtime.py
+index 4c8871b..45d2ba9 100644
+--- a/agent/relay_runtime.py
++++ b/agent/relay_runtime.py
+@@ -924,6 +924,7 @@ class RelayTurnContext:
+     _active_registered: bool = field(default=False, repr=False)
+     relay_enabled: bool = True
+     closed: bool = False
++    usage_context: dict[str, str] = field(default_factory=dict)
+ 
+ 
+ _CURRENT_TURN: contextvars.ContextVar[RelayTurnContext | None] = contextvars.ContextVar(
+@@ -1053,7 +1054,8 @@ class RelaySessionCoordinator:
+     ) -> RelayTurnContext:
+         if lease.released:
+             raise RuntimeError("Hermes Relay conversation lease is released")
+-        turn = RelayTurnContext(lease=lease, turn_id=turn_id, task_id=task_id)
++        turn = RelayTurnContext(lease=lease, turn_id=turn_id, task_id=task_id,
++                                usage_context=dict((metadata or {}).get("zero_usage") or {}))
+         key = (lease.profile_key, lease.session_id)
+         with self._active_turns_lock:
+             if self._active_turns.get(key):
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 38d4eef..d63141f 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -3406,6 +3406,11 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             requested_runtime=runtime_request.get("requested") or {},
+             route_source=runtime_request.get("route_source") or "global",
+             confirmed_runtime_lock=lock_active, turn_author=turn_author,
++            relay_metadata={"zero_usage": {
++                k: v for k, v in (body.get("usage_context") or {}).items()
++                if k in ("errand_id", "parent_errand_id", "zip")
++                and isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_:.-]{1,160}", v)
++            }} if isinstance(body.get("usage_context"), dict) else None,
+             # #98619: the client addresses this session by construction — the id is in the
+             # request path (/api/sessions/{session_id}/chat) — so a wake self-post lands where
+             # the client will read it. The audited native-session opt-in.

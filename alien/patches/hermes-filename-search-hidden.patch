@@ -1,0 +1,93 @@
+diff --git a/tools/file_operations_search.py b/tools/file_operations_search.py
+index 42492e2..666b096 100644
+--- a/tools/file_operations_search.py
++++ b/tools/file_operations_search.py
+@@ -722,83 +722,87 @@ class SearchMixin:
+             except ValueError:
+                 mtimes.append(0.0)
+         # A path can disappear between traversal and stat. Keep such paths at
+         # the end, preserving their existing relative order as a stable fallback.
+         mtimes.extend([0.0] * (len(paths) - len(mtimes)))
+         return [
+             item
+             for _, item in sorted(
+                 zip(mtimes, paths), key=lambda pair: pair[0], reverse=True
+             )
+         ]
+ 
+     def _search_directories_with_find(
+         self, pattern: str, path: str, fetch_limit: int
+     ) -> tuple[List[str], Optional[str]]:
+         """Return matching descendant directories using find, if available.
+ 
+         ``rg --files`` and ``find -type f`` both enumerate files only, so
+         directories — especially empty ones — are invisible (#54347). rg stays
+         authoritative for which *files* survive ignore processing; this adds
+         the matching directory entries so the tool honours its documented
+         ls-replacement contract.
+         """
+         if fetch_limit <= 0 or not self._has_command("find"):
+             return [], None
+ 
+         escaped_path = self._escape_shell_arg(path)
+         escaped_pattern = self._escape_shell_arg(pattern)
+         q_roots = [escaped_path]
+         hidden_prune = self._hidden_prune_expr(q_roots)
+         cmd = (
+             f"find -H {escaped_path} -mindepth 1 {hidden_prune} -o -type d "
+             f"! -name '.*' -name {escaped_pattern} -printf '%T@ %p\\n' "
+             f"2>/dev/null | sort -rn"
+         )
+         result = self._exec(cmd, timeout=30)
+         stdout, limit_reason = _search_stdout_and_limit(result)
+ 
+         if not stdout.strip() and not limit_reason:
+             # Try without -printf (BSD find compatibility -- macOS)
++            # Zero, Nov 16 2026 (Personal Brand): "File search returned unrelated hidden directories for '*ndq*' and
++            # '*starfish*,' obscuring the actual results." With no action of its own, find printed the whole
++            # expression, so every hidden folder the prune skipped came back as a match. This fallback runs whenever
++            # no folder matches (GNU find) or -printf is missing (BSD), so -print belongs to the matching branch.
+             cmd_simple = (
+                 f"find -H {escaped_path} -mindepth 1 {hidden_prune} -o -type d "
+-                f"! -name '.*' -name {escaped_pattern} 2>/dev/null"
++                f"! -name '.*' -name {escaped_pattern} -print 2>/dev/null"
+             )
+             result = self._exec(cmd_simple, timeout=30)
+             stdout, limit_reason = _search_stdout_and_limit(result)
+ 
+         dirs = []
+         for line in stdout.strip().split('\n'):
+             if not line:
+                 continue
+             parts = line.split(' ', 1)
+             if len(parts) == 2 and parts[0].replace('.', '').isdigit():
+                 dirs.append(parts[1])
+             else:
+                 dirs.append(line)
+ 
+         if dirs:
+             # An explicitly selected hidden root keeps its (hidden) subtree;
+             # any other hidden descendants stay invisible, matching rg.
+             if self._root_under_hidden_dir(path):
+                 dirs = self._filter_hidden_descendants(dirs, Path(path))
+             dirs = self._filter_gitignored_paths(dirs, path)
+         return self._sort_paths_by_mtime(dirs)[:fetch_limit], limit_reason
+ 
+     def _search_files(self, pattern: str, path: str | List[str], limit: int, offset: int,
+                       order: str = "discovery") -> SearchResult:
+         """Search for files by name (glob-like) across one or more roots: rg --files,
+         else a bounded find. ``order``: "discovery" (fast, bounded) or "modified"
+         (exact global newest-first; needs rg 14+ or GNU find)."""
+         search_pattern = pattern if (not pattern.startswith('**/') and '/' not in pattern) \
+             else pattern.split('/')[-1]
+         roots = [path] if isinstance(path, str) else path
+         if not roots:
+             return SearchResult(error="File search requires at least one search root in 'path'.")
+ 
+         # Prefer ripgrep: bounded parallel traversal with ignore semantics. Resolve
+         # the engine and exact-order capability BEFORE admission so a queued request
+         # does not occupy a root while doing command discovery.
+         if self._has_command("rg"):
+             rg_executable = self._resolve_command("rg") or "rg"
+             if order == "modified":
+                 capability_error = self._modified_rg_capability_error(rg_executable)

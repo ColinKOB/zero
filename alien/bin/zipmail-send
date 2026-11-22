@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import base64
+import email.utils
+import json
+import os
+import pwd
+import socket
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+MAX_BYTES = 5 * 1024 * 1024
+TIMEOUT_SEC = 60
+UNSURE = ("Zero's mail service stopped answering, so the message may or may not have gone. Look in Sent and ask "
+          "before sending it again.")
+
+
+class Refused(Exception):
+    def __init__(self, code: int, sentence: str):
+        super().__init__(sentence)
+        self.code = code
+
+
+def settings_file() -> Path:
+    home = os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir
+    return Path(home) / ".config" / "zero" / "zip-mail.json"
+
+
+def registry_file() -> Path:
+    ""
+
+    env = os.environ.get("ZERO_ZIP_MAIL_REGISTRY", "").strip()
+    if env:
+        return Path(env)
+    home = os.environ.get("ZERO_USER_HOME") or pwd.getpwuid(os.getuid()).pw_dir
+    return Path(home) / "taffy" / "hub-state" / "zip-mail.json"
+
+
+def address_of(account: str) -> str:
+    ""
+
+    try:
+        rows = json.loads(registry_file().read_text())
+    except (OSError, ValueError):
+        rows = []
+    for r in rows if isinstance(rows, list) else []:
+        if isinstance(r, dict) and r.get("id") == account and r.get("address"):
+            return str(r["address"]).strip().lower()
+    raise Refused(2, f"{account} isn't one of the Zips' own addresses.")
+
+
+def _fields(head: bytes) -> list[tuple[str, bytes]]:
+    ""
+    out: list[list] = []
+    for line in head.splitlines(keepends=True):
+        if line[:1] in (b" ", b"\t") and out:
+            out[-1][1] += line
+        else:
+            out.append([line.split(b":", 1)[0].strip().decode("ascii", "replace").lower(), line])
+    return [(name, raw) for name, raw in out]
+
+
+def _value(raw: bytes) -> str:
+    text = raw.decode("utf-8", "replace").split(":", 1)[-1]
+    return " ".join(text.split())
+
+
+def prepare(raw: bytes) -> tuple[str, list[str], bytes]:
+    ""
+
+    cut = [(i, k) for i, k in ((raw.find(b"\r\n\r\n"), 2), (raw.find(b"\n\n"), 1)) if i >= 0]
+    at, newline = min(cut) if cut else (len(raw), 0)
+    end = at + newline
+    head, rest = raw[:end], raw[end:]
+    fields = _fields(head)
+    froms = [a for n, r in fields if n == "from" for _name, a in email.utils.getaddresses([_value(r)]) if a]
+    if not froms:
+        raise Refused(2, "The message has no From address.")
+    rcpt, seen = [], set()
+    for n, r in fields:
+        if n in ("to", "cc", "bcc"):
+            for _name, a in email.utils.getaddresses([_value(r)]):
+                if a and "@" in a and a.lower() not in seen:
+                    seen.add(a.lower())
+                    rcpt.append(a)
+    if not rcpt:
+        raise Refused(2, "The message has no one to send it to.")
+    out = b"".join(r for n, r in fields if n != "bcc") + rest
+    if len(out) > MAX_BYTES:
+        raise Refused(2, "This message is over 5 MB, which is the most a Zip's own address can send.")
+    return froms[0].lower(), rcpt, out
+
+
+def post(url: str, token: str, body: dict) -> tuple[int, dict]:
+    ""
+
+
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                                          "User-Agent": "zero-zipmail-send/1"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as r:
+            status, text = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        status, text = e.code, e.read()
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, (ConnectionRefusedError, socket.gaierror)):
+            raise Refused(4, "Zero's mail service could not be reached, so the message was not sent.") from None
+        raise Refused(6, UNSURE) from None
+    except OSError:
+        raise Refused(6, UNSURE) from None
+    try:
+        answer = json.loads(text or b"{}")
+    except ValueError:
+        answer = {}
+    return status, answer if isinstance(answer, dict) else {}
+
+
+def send(raw: bytes, account: str) -> str:
+    ""
+    try:
+        s = json.loads(settings_file().read_text())
+        url, token = str(s["url"]).strip().rstrip("/"), str(s["token"]).strip()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        raise Refused(3, "Zip mail isn't set up on this computer.") from None
+    if not url or not token:
+        raise Refused(3, "Zip mail isn't set up on this computer.")
+    sender, rcpt, message = prepare(raw)
+    mine = address_of(account)
+    if sender.strip().lower() != mine:
+        raise Refused(2, f"A message from {account} must come from {mine}.")
+    if len(rcpt) > 20:
+        raise Refused(2, "A message from a Zip's own address can go to at most 20 people.")
+    status, answer = post(url + "/send", token, {"from": sender, "rcpt": rcpt,
+                                                  "raw": base64.b64encode(message).decode()})
+    if status != 200:
+        said = str(answer.get("error") or "").strip()
+        raise Refused(4, said or f"Zero's mail service refused the message ({status}).")
+    results = answer.get("results")
+    results = [r for r in results if isinstance(r, dict)] if isinstance(results, list) else []
+    if not results:
+        raise Refused(4, "Zero's mail service gave no answer for the recipients, so the message may not have gone.")
+    ok = [str(r.get("rcpt")) for r in results if r.get("ok")]
+    failed = [r for r in results if not r.get("ok")]
+    if failed:
+        why = str(failed[0].get("error") or "it was refused.")
+        missed = ", ".join(str(r.get("rcpt")) for r in failed)
+        if ok:
+            raise Refused(5, f"The message went to {', '.join(ok)} but not to {missed}: {why}")
+        raise Refused(4, f"The message was not sent: {why}")
+    return f"Sent to {', '.join(ok)}."
+
+
+def main(argv: list[str] | None = None, stdin=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) != 2 or argv[0] != "--account":
+        print("zipmail-send takes only --account <mailbox>.", file=sys.stderr)
+        return 2
+    raw = (stdin if stdin is not None else sys.stdin.buffer).read()
+    try:
+        print(send(raw, argv[1]))
+    except Refused as e:
+        print(str(e), file=sys.stderr)
+        return e.code
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

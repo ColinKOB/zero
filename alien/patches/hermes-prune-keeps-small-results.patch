@@ -1,0 +1,162 @@
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+index 2d921947..b6c96239 100644
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -910,13 +910,34 @@ _PRUNED_TOOL_PLACEHOLDER = "[Old tool output cleared to save context space]"
+ 
+ def _is_summary_stub(content: str) -> bool:
+     """True for a tool result already replaced by a 1-line ``[tool] ... (N chars)`` summary."""
+-    return content.startswith("[") and " chars)" in content and len(content) < 400
++    return content.startswith("[") and (
++        (" chars)" in content and len(content) < 400)
++        or (_PRUNED_HEAD_MARKER in content[:240] and len(content) < 240 + _PRUNED_HEAD_CHARS + 20)
++    )
+ 
+ 
+ # Shared floor; the clarify summary cap must stay strictly BELOW it so a preserved
+ # user answer is never re-summarized away on a later prune pass.
+ _PRUNE_MIN_CHARS = 200
+ 
++# Nov 1 2026: Zero: "Sometimes I get only '354 chars result' with no text, so I don't actually know what happened."
++# The compaction prune passes no floor, so every result past 200 chars before the tail became its tool name and a
++# length. Plugin tools (course_status, the board, notes) have no summarizer of their own and lost every word. Their
++# results this small now stay whole through every prune, and a pruned one keeps the start of its text after the count.
++# Tools with their own summarizer (terminal, read_file, clarify) keep upstream's 200-char floor.
++_SMALL_RESULT_KEEP_CHARS = 2_000
++_PRUNED_HEAD_CHARS = 300
++_PRUNED_HEAD_MARKER = " begins: "
++
++
++def _with_head(summary: str, content: str) -> str:
++    """``summary`` plus the first ``_PRUNED_HEAD_CHARS`` of ``content`` on one line, so a stub is never only a length."""
++    text = re.sub(r"\s+", " ", content if isinstance(content, str) else "").strip()
++    if not text:
++        return summary
++    head = text if len(text) <= _PRUNED_HEAD_CHARS else text[:_PRUNED_HEAD_CHARS].rstrip() + "..."
++    return f"{summary}{_PRUNED_HEAD_MARKER}{head}"
++
+ # Ghost-skill defense: the ONE canonical prune marker; emit sites and presence
+ # checks must use the same string so they cannot drift.
+ # Ghost-skill defense (#32106): when compaction reduces an old ``skill_view`` result to a 1-line metadata
+@@ -1758,7 +1779,7 @@ def _summarize_tool_result(tool_name: str, tool_args: str, tool_content: str) ->
+     except Exception as exc:  # noqa: BLE001 — a summary must never crash compression
+         logger.debug("Tool-result summary failed for %s: %s", tool_name, exc)
+         _len = len(tool_content) if isinstance(tool_content, str) else 0
+-        return f"[{tool_name}] ({_len:,} chars result)"
++        return _with_head(f"[{tool_name}] ({_len:,} chars result)", tool_content)
+ 
+ 
+ def _sum_terminal(name, args, content, content_len, line_count):
+@@ -2118,7 +2139,7 @@ def _summarize_tool_result_unguarded(tool_name: str, tool_args: str, tool_conten
+     if summarizer is not None:
+         return summarizer(tool_name, args, content, content_len, line_count)
+     first_arg = "".join(f" {k}={str(v)[:40]}" for k, v in list(args.items())[:2])
+-    return f"[{tool_name}]{first_arg} ({content_len:,} chars result)" + _result_failure_suffix(content)
++    return _with_head(f"[{tool_name}]{first_arg} ({content_len:,} chars result)" + _result_failure_suffix(content), content)
+ 
+ 
+ def _model_threshold_key_rank(key: str, model: str, provider: str) -> "tuple[int, int] | None":
+@@ -3365,6 +3386,8 @@ class ContextCompressor(SummaryDispatchMixin, PreLlmSkipMixin, MicroCompactionMi
+         ):
+             return False
+         tool_name, tool_args = call_id_to_tool.get(msg.get("tool_call_id", ""), ("unknown", ""))
++        if tool_name not in _TOOL_RESULT_SUMMARIZERS and len(content) <= _SMALL_RESULT_KEEP_CHARS:
++            return False
+         if protected_skills and tool_name == "skill_view":
+             _skill = _json_dict(tool_args).get("name", "")
+             if isinstance(_skill, str) and _skill.lower() in protected_skills:
+@@ -3743,7 +3766,8 @@ class ContextCompressor(SummaryDispatchMixin, PreLlmSkipMixin, MicroCompactionMi
+                     assistant_actions.append(text)
+             elif role == "tool":
+                 tool_name, tool_args = call_id_to_tool.get(str(msg.get("tool_call_id") or ""), ("unknown", ""))
+-                tool_actions.append(_summarize_tool_result(tool_name, tool_args, text or ""))
++                # A result the prune already shortened keeps its own line instead of a summary of that line.
++                tool_actions.append(text if _is_summary_stub(text) else _summarize_tool_result(tool_name, tool_args, text or ""))
+                 if re.search(r"\b(error|failed|exception|traceback|timeout|timed out|fatal)\b", text, re.I):
+                     blockers.append(text[:500])
+         return {
+diff --git a/tests/agent/test_context_compressor.py b/tests/agent/test_context_compressor.py
+index 87b85415..4dccc89a 100644
+--- a/tests/agent/test_context_compressor.py
++++ b/tests/agent/test_context_compressor.py
+@@ -251,7 +251,7 @@ class TestSummarizeToolResultOutcome:
+          {"status": "exited", "exit_code": 1, "completion_reason": "nonzero_exit"},
+          "[process] poll session=p1 FAILED: exit code 1"),
+         # Every MCP/plugin tool falls through to the generic stub.
+-        ("some_mcp_tool", {"a": 1}, {"error": "boom"}, "[some_mcp_tool] a=1 (17 chars result) FAILED: boom"),
++        ("some_mcp_tool", {"a": 1}, {"error": "boom"}, "[some_mcp_tool] a=1 (17 chars result) FAILED: boom begins: {\"error\": \"boom\"}"),
+         ("delegate_task", {"goal": "ship it"}, {"error": "Unknown action"},
+          "[delegate_task] 'ship it' (27 chars result) FAILED: Unknown action"),
+         # The stale-write guard refused: nothing was written, so the stub must not say "wrote to".
+diff --git a/tests/agent/test_prune_keeps_small_results.py b/tests/agent/test_prune_keeps_small_results.py
+new file mode 100644
+index 00000000..f35b9cb2
+--- /dev/null
++++ b/tests/agent/test_prune_keeps_small_results.py
+@@ -0,0 +1,53 @@
++"""A compaction prune never leaves a plugin result as only its length (Zero, Nov 1 2026: "354 chars result")."""
++
++from unittest.mock import patch
++
++from agent.context_compressor import ContextCompressor
++
++
++def _compressor() -> ContextCompressor:
++    with patch("agent.context_compressor.get_model_context_length", return_value=100_000):
++        return ContextCompressor(model="m", protect_first_n=1, protect_last_n=2, quiet_mode=True)
++
++
++def _history(tool: str, content: str) -> list:
++    out = [{"role": "system", "content": "S"}, {"role": "user", "content": "check the course"},
++           {"role": "assistant", "content": "", "tool_calls": [
++               {"id": "c1", "type": "function", "function": {"name": tool, "arguments": '{"course": "BNS 101"}'}}]},
++           {"role": "tool", "tool_call_id": "c1", "content": content}]
++    for i in range(10):
++        out += [{"role": "assistant", "content": f"step {i}"}, {"role": "user", "content": f"next {i}"}]
++    return out
++
++
++def _pruned(tool: str, content: str) -> str:
++    c = _compressor()
++    once, _ = c._prune_old_tool_results(_history(tool, content), protect_tail_count=2)
++    twice, _ = c._prune_old_tool_results(once, protect_tail_count=2)
++    assert twice[3]["content"] == once[3]["content"], "a second pass leaves the first stub alone"
++    return once[3]["content"]
++
++
++def test_a_small_plugin_result_stays_whole():
++    content = '{"course": "BNS 101", "status": "graded", "grade": "A-"} ' + "x" * 300
++    assert _pruned("course_status", content) == content
++
++
++def test_a_large_plugin_result_keeps_its_start_and_count():
++    content = '{"course": "BNS 101", "status": "graded", "grade": "A-", "items": "' + "y" * 5000 + '"}'
++    stub = _pruned("course_status", content)
++    assert stub.startswith("[course_status]") and f"({len(content):,} chars result)" in stub
++    assert '"grade": "A-"' in stub
++    assert len(stub) < 500
++
++
++def test_a_tool_with_its_own_summary_keeps_the_upstream_floor():
++    stub = _pruned("terminal", '{"output": "' + "z" * 900 + '", "exit_code": 0}')
++    assert stub.startswith("[terminal]") and len(stub) < 200
++
++
++def test_the_fallback_summary_names_what_a_plugin_result_said():
++    turns = _history("course_status", '{"course": "BNS 101", "status": "graded", "grade": "A-"}')[1:5]
++    summary = _compressor()._build_static_fallback_summary(turns, reason="test")
++    line = next(line for line in summary.splitlines() if "[course_status]" in line)
++    assert '"grade": "A-"' in line
+diff --git a/tests/agent/test_summarize_tool_result_type_safety.py b/tests/agent/test_summarize_tool_result_type_safety.py
+index a173ea9d..1fc4284d 100644
+--- a/tests/agent/test_summarize_tool_result_type_safety.py
++++ b/tests/agent/test_summarize_tool_result_type_safety.py
+@@ -102,7 +102,7 @@ class TestBackstopWrapper:
+             side_effect=TypeError("boom"),
+         ):
+             result = _summarize_tool_result("terminal", "{}", "y" * 300)
+-        assert result == "[terminal] (300 chars result)"
++        assert result == "[terminal] (300 chars result) begins: " + "y" * 300
+ 
+     def test_backstop_handles_non_string_content(self):
+         from unittest.mock import patch as _patch

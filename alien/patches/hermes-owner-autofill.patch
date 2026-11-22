@@ -1,0 +1,714 @@
+Zero owner autofill. Keep credential writes and registered redaction in the gateway process.
+
+diff --git a/gateway/owner_vault.py b/gateway/owner_vault.py
+new file mode 100644
+--- /dev/null
++++ b/gateway/owner_vault.py
+@@ -0,0 +1,166 @@
++"""One human-selected login fill, inside the gateway that owns the profile's redaction memory.
++
++This control-socket verb is not a model tool. The ordinary browser_vault_fill path keeps its
++agent-only lease fence. No secret is accepted from, or returned to, the socket caller.
++"""
++from __future__ import annotations
++
++import contextlib
++import secrets
++import threading
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from tools.browser_owner_fill import Browser, Page, Refused
++
++VIEWER = "taffy-app"
++
++
++@dataclass(frozen=True)
++class Control:
++    holder: str
++    viewer: str
++    since: float
++
++
++@dataclass(frozen=True)
++class Choice:
++    home: str
++    source: str
++    handle: str
++    page: Page
++    control: Control
++    expires: float
++
++
++def current_control(home: Path) -> Control:
++    from tools.bot_desktop import lease
++    value = lease.get(str(home))
++    if value.holder != lease.HUMAN or value.viewer_id != VIEWER:
++        raise Refused("control_required")
++    return Control(value.holder, value.viewer_id, value.since)
++
++
++def matches(meta: Any, origin: str) -> bool:
++    from tools.browser_vault_tool import _same_login_site
++    allowed = list(meta.allowed_origins) or ([str(meta.origin)] if meta.origin else [])
++    return meta.kind == "login" and bool(allowed) and (origin in allowed or _same_login_site(origin, allowed))
++
++
++class OwnerVault:
++    def __init__(self, runner):
++        self.runner = runner
++        self.choices: dict[str, Choice] = {}
++        self.lock = threading.Lock()
++
++    def homes(self) -> dict[str, Path]:
++        from hermes_constants import get_process_hermes_home
++        return {"default": Path(get_process_hermes_home()),
++                **{str(name): Path(home) for name, home in (getattr(self.runner, "_served_profile_homes", None) or {}).items()}}
++
++    def __call__(self, params: dict) -> dict:
++        try:
++            from gateway.run import _profile_runtime_scope
++            from hermes_constants import hermes_home_key
++            if params.get("action") == "probe":
++                return {"available": True}
++            homes = self.homes()
++            requested = hermes_home_key(str(params.get("home") or ""))
++            home = next((h for h in homes.values() if hermes_home_key(h) == requested), None)
++            if home is None:
++                raise Refused("unavailable")
++            # Owner requests serialize inspection and rollback. Agent tools do not use this lock.
++            with self.lock, _profile_runtime_scope(home, hydrate_secrets=False):
++                control = current_control(home)
++                if params.get("action") == "list":
++                    return self.list(home, homes, control)
++                if params.get("action") == "fill":
++                    return self.fill(home, homes, control, str(params.get("choice") or ""))
++                raise Refused("choice_required")
++        except Refused as exc:
++            return {"ok": False, "code": exc.code}
++        except Exception:
++            # Scope setup and browser errors can include credential bytes. None of that text crosses the socket.
++            return {"ok": False, "code": "unavailable"}
++
++    def list(self, home: Path, homes: dict[str, Path], control: Control) -> dict:
++        from agent.vault_store import VaultStore
++        now = time.monotonic()
++        self.choices = {key: value for key, value in self.choices.items() if value.expires > now and value.home != str(home)}
++        with Browser() as browser:
++            page = browser.snapshot()
++        rows = []
++        for profile, source in homes.items():
++            for meta in VaultStore(base_dir=source / "vault").list_items():
++                if matches(meta, page.origin):
++                    rows.append((source != home, meta.label.endswith("(sign-in page)"),
++                                 str(meta.created_at), profile, source, meta))
++        rows.sort(key=lambda row: row[2], reverse=True)
++        rows.sort(key=lambda row: (row[0], row[1]))
++        items, seen = [], set()
++        for other, _, _, profile, source, meta in rows:
++            identity = (meta.identifier or "").strip().casefold() or meta.id
++            if identity in seen:
++                continue
++            seen.add(identity)
++            key = secrets.token_urlsafe(24)
++            self.choices[key] = Choice(str(home), str(source), meta.id, page, control, now + 90)
++            items.append({"id": key, "label": meta.label, "username": meta.identifier or "",
++                          "profile": profile, "own": not other})
++        if current_control(home) != control:
++            raise Refused("control_changed")
++        items.sort(key=lambda item: (not item["own"], item["label"].lower(), item["username"].casefold()))
++        return {"ok": True, "origin": page.origin, "items": items}
++
++    def fill(self, home: Path, homes: dict[str, Path], control: Control, key: str) -> dict:
++        from agent.redact import register_vault_redaction_value
++        from agent.vault_store import VaultStore
++        choice = self.choices.get(key)
++        if choice is None or choice.home != str(home) or choice.expires <= time.monotonic():
++            raise Refused("choice_expired")
++        self.choices.pop(key)
++        if control != choice.control:
++            raise Refused("control_changed")
++        if choice.source not in {str(h) for h in homes.values()}:
++            raise Refused("login_removed")
++        store = VaultStore(base_dir=Path(choice.source) / "vault")
++        meta = store.get_meta(choice.handle)
++        if meta is None or not matches(meta, choice.page.origin):
++            raise Refused("login_removed")
++        started = False
++        with Browser() as browser:
++            prepared = browser.prepare(choice.page, meta.identifier_type or "username")
++            try:
++                values = {"username": meta.identifier or ""}
++                if prepared.password:
++                    password = store.resolve_secret(choice.handle).get("password")
++                    if not isinstance(password, str) or not password:
++                        raise Refused("login_unavailable")
++                    register_vault_redaction_value(password)
++                    values["password"] = password
++                if current_control(home) != control:
++                    raise Refused("control_changed")
++                started = True
++                fields = browser.write(prepared, values)
++                if current_control(home) != control:
++                    raise Refused("control_changed")
++                if browser.snapshot() != choice.page:
++                    raise Refused("page_changed")
++                if current_control(home) != control:
++                    raise Refused("control_changed")
++                browser.commit(prepared)
++                if current_control(home) != control:
++                    raise Refused("control_changed")
++                return {"ok": True, "origin": choice.page.origin, "fields": fields}
++            except Exception as exc:
++                restored = False
++                with contextlib.suppress(Exception):
++                    restored = browser.rollback(prepared)
++                safe = exc.code if isinstance(exc, Refused) else "fill_uncertain"
++                return {"ok": False, "code": safe, "may_have_filled": started and not restored}
++
++
++def owner_vault_verb(runner):
++    return OwnerVault(runner)
+diff --git a/tools/browser_owner_fill.py b/tools/browser_owner_fill.py
+new file mode 100644
+--- /dev/null
++++ b/tools/browser_owner_fill.py
+@@ -0,0 +1,226 @@
++"""Bound browser writes for an explicit human selection. The gateway owns admission and redaction.
++
++A unique isolated-world context pins a prepared form to one document. Secret-bearing CDP messages
++use an unregistered, silent transport logger and never pass through a subprocess or browser tool result.
++"""
++from __future__ import annotations
++
++import contextlib
++import json
++import logging
++import secrets
++import time
++import urllib.request
++from dataclasses import dataclass
++from string import Template
++from urllib.parse import urlsplit
++
++
++class Refused(Exception):
++    """Only a bounded reason code can cross the control socket, including for an unexpected exception."""
++    def __init__(self, code: str):
++        allowed = {"control_required", "unavailable", "choice_required", "control_changed", "choice_expired",
++                   "login_removed", "login_unavailable", "page_changed", "fill_uncertain", "open_page",
++                   "browser_unavailable", "form_changed", "focus_form", "no_fields"}
++        self.code = code if code in allowed else "unavailable"
++        super().__init__(self.code)
++
++
++@dataclass(frozen=True)
++class Page:
++    target: str
++    frame: str
++    loader: str
++    origin: str
++
++
++@dataclass(frozen=True)
++class Prepared:
++    page: Page
++    session: str
++    context: int
++    nonce: str
++    fields: list[dict]
++
++    @property
++    def password(self):
++        return any(field["value_key"] == "password" for field in self.fields)
++
++
++_TRANSPORT_LOG = logging.Logger("owner-vault-private-transport", level=logging.CRITICAL + 1)
++_TRANSPORT_LOG.addHandler(logging.NullHandler())
++_TRANSPORT_LOG.propagate = False
++
++
++class Browser:
++    def __enter__(self):
++        from tools.bot_desktop import browser
++        from websockets.sync.client import connect
++        port = browser.running_instance_cdp_port(str(browser.profile_dir()))
++        if port is None:
++            raise Refused("open_page")
++        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++        with opener.open(f"http://127.0.0.1:{port}/json/version", timeout=3) as response:
++            endpoint = json.loads(response.read(65536))["webSocketDebuggerUrl"]
++        parsed = urlsplit(endpoint)
++        if parsed.scheme != "ws" or parsed.hostname not in ("127.0.0.1", "localhost") or parsed.port != port:
++            raise Refused("browser_unavailable")
++        self.ws = connect(endpoint, proxy=None, open_timeout=3, close_timeout=1,
++                          compression=None, logger=_TRANSPORT_LOG, max_size=1024 * 1024)
++        self.navigations = set()
++        self.dead_contexts = set()
++        self.cleared_sessions = set()
++        self.sequence = 0
++        self.deadline = time.monotonic() + 8
++        return self
++
++    def __exit__(self, *_):
++        with contextlib.suppress(Exception):
++            self.ws.close()
++
++    def call(self, method, params=None, session=None):
++        self.sequence += 1
++        request = {"id": self.sequence, "method": method, "params": params or {}}
++        if session:
++            request["sessionId"] = session
++        self.ws.send(json.dumps(request))
++        while time.monotonic() < self.deadline:
++            reply = json.loads(self.ws.recv(timeout=min(3, self.deadline - time.monotonic())))
++            if reply.get("id") != self.sequence:
++                event, body, scope = reply.get("method"), reply.get("params", {}), reply.get("sessionId")
++                if event in ("Page.frameRequestedNavigation", "Page.frameScheduledNavigation", "Page.frameStartedLoading"):
++                    self.navigations.add((scope, body.get("frameId")))
++                if event == "Runtime.executionContextDestroyed":
++                    self.dead_contexts.add(body.get("executionContextId"))
++                if event == "Runtime.executionContextsCleared":
++                    self.cleared_sessions.add(scope)
++                continue
++            if "error" in reply:
++                raise Refused("page_changed")
++            return reply.get("result", {})
++        raise Refused("browser_unavailable")
++
++    def evaluate(self, session, context, expression):
++        result = self.call("Runtime.evaluate", {"expression": expression, "contextId": context,
++                                               "returnByValue": True}, session)
++        if "exceptionDetails" in result:
++            raise Refused("form_changed")
++        value = result.get("result", {}).get("value")
++        return json.loads(value) if isinstance(value, str) else value
++
++    def attach(self, target):
++        return self.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
++
++    def world(self, session, frame, name):
++        return self.call("Page.createIsolatedWorld", {"frameId": frame, "worldName": name}, session)["executionContextId"]
++
++    def snapshot(self) -> Page:
++        found = []
++        targets = self.call("Target.getTargets").get("targetInfos", [])
++        for target in targets:
++            if target.get("type") != "page":
++                continue
++            session = self.attach(target["targetId"])
++            try:
++                frame = self.call("Page.getFrameTree", session=session)["frameTree"]["frame"]
++                context = self.world(session, frame["id"], "zero-owner-probe")
++                visible = self.evaluate(session, context,
++                    "({visible:document.visibilityState==='visible' && document.hasFocus(),origin:location.origin})")
++                if visible.get("visible"):
++                    origin = str(visible.get("origin") or "")
++                    parsed = urlsplit(origin)
++                    if parsed.scheme in ("http", "https") and parsed.hostname:
++                        found.append(Page(target["targetId"], frame["id"], frame["loaderId"], origin))
++            finally:
++                self.call("Target.detachFromTarget", {"sessionId": session})
++        if len(found) != 1:
++            raise Refused("focus_form")
++        return found[0]
++
++    def prepare(self, expected: Page, identifier_type: str) -> Prepared:
++        from agent.vault_login_classifier import LoginControl, build_inspection_js, classify_login_control
++        if self.snapshot() != expected:
++            raise Refused("page_changed")
++        session = self.attach(expected.target)
++        self.call("Page.enable", session=session)
++        self.call("Runtime.enable", session=session)
++        nonce = secrets.token_hex(16)
++        context = self.world(session, expected.frame, "zero-owner-fill")
++        frame = self.call("Page.getFrameTree", session=session)["frameTree"]["frame"]
++        if frame.get("id") != expected.frame or frame.get("loaderId") != expected.loader:
++            raise Refused("page_changed")
++        raw = self.evaluate(session, context, build_inspection_js(nonce))
++        classified = [item for control in raw
++                      if (item := classify_login_control(LoginControl.from_dict(control))) is not None]
++        passwords = sorted((item for item in classified if item.token == "current-password"),
++                           key=lambda item: (-item.score, item.control.index))
++        password = passwords[0] if passwords else None
++        tokens = {"phone": {"tel"}, "email": {"email", "username"}}.get(identifier_type, {"username", "email"})
++        usernames = sorted((item for item in classified if item.token in tokens and
++                            (password is None or item.control.form_index == password.control.form_index)),
++                           key=lambda item: (-item.score, item.control.index))
++        fields = []
++        if usernames:
++            item = usernames[0]
++            fields.append({"index": item.control.index, "token": item.token, "value_key": "username"})
++        if password:
++            fields.append({"index": password.control.index, "token": "current-password", "value_key": "password"})
++        if not fields:
++            raise Refused("no_fields")
++        return Prepared(expected, session, context, nonce, fields)
++
++    def assert_document(self, prepared: Prepared):
++        if prepared.context in self.dead_contexts or prepared.session in self.cleared_sessions or \
++                (prepared.session, prepared.page.frame) in self.navigations:
++            raise Refused("page_changed")
++
++    def write(self, prepared: Prepared, values: dict[str, str]) -> list[str]:
++        self.assert_document(prepared)
++        from agent.vault_login_classifier import build_fill_js
++        shape = [{"index": field["index"], "token": field["token"],
++                  "value": prepared.nonce + ":" + field["value_key"]} for field in prepared.fields]
++        script = build_fill_js(shape, expected_origin=prepared.page.origin, nonce=prepared.nonce)
++        for field in prepared.fields:
++            placeholder = json.dumps(prepared.nonce + ":" + field["value_key"])
++            if script.count(placeholder) != 1:
++                raise Refused("form_changed")
++            script = script.replace(placeholder, "values." + field["value_key"])
++        expression = Template("""(() => {
++          if(location.origin !== $origin) return {refused:true};
++          const values = $values, fields = $fields, nonce = $nonce;
++          const records = fields.map(f => {
++            const el=document.querySelector('[data-hermes-vault-slot="'+nonce+':'+f.index+'"]');
++            return el ? {el, before:f.value_key==='password' ? '' : el.value, ours:values[f.value_key]} : null;
++          }).filter(Boolean);
++          globalThis[$nonce] = records;
++          return $script;
++        })()""").substitute(origin=json.dumps(prepared.page.origin), values=json.dumps(values),
++                           fields=json.dumps(prepared.fields), nonce=json.dumps(prepared.nonce), script=script)
++        result = self.evaluate(prepared.session, prepared.context, expression)
++        if isinstance(result, str):
++            result = json.loads(result)
++        if not isinstance(result, dict) or result.get("refused") or result.get("filled") != len(prepared.fields):
++            raise Refused("form_changed")
++        return [field["value_key"] for field in prepared.fields]
++
++    def rollback(self, prepared: Prepared) -> bool:
++        expression = Template("""(() => {
++          if(location.origin !== $origin) return false;
++          if(!Object.hasOwn(globalThis,$nonce)) return false;
++          const records=globalThis[$nonce];
++          for(const {el,before,ours} of records) {
++            if(el.isConnected && el.value===ours) {
++              const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
++              set.call(el,before);el.dispatchEvent(new Event('input',{bubbles:true}));
++            }
++          }
++          delete globalThis[$nonce];
++          document.querySelectorAll('[data-hermes-vault-slot]').forEach(el=>el.removeAttribute('data-hermes-vault-slot'));
++          return true;
++        })()""").substitute(origin=json.dumps(prepared.page.origin), nonce=json.dumps(prepared.nonce))
++        return self.evaluate(prepared.session, prepared.context, expression) is True
++
++    def commit(self, prepared: Prepared):
++        self.assert_document(prepared)
++        self.evaluate(prepared.session, prepared.context, "delete globalThis[" + json.dumps(prepared.nonce) + "]; true")
++        self.assert_document(prepared)
+diff --git a/tests/test_owner_vault.py b/tests/test_owner_vault.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_owner_vault.py
+@@ -0,0 +1,286 @@
++"""Owner fills retain the agent fence and redact before a browser can expose a credential."""
++import contextlib
++import importlib.util
++import io
++import json
++import logging
++import os
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++from unittest import mock
++
++SOURCE = Path(__file__).resolve().parents[1]
++for name, file in (("tools.browser_owner_fill", SOURCE / "tools/browser_owner_fill.py"),
++                   ("gateway.owner_vault", SOURCE / "gateway/owner_vault.py")):
++    spec = importlib.util.spec_from_file_location(name, file)
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[name] = module
++    spec.loader.exec_module(module)
++
++from gateway import owner_vault as owner
++from tools.browser_owner_fill import Page, Prepared, Refused, _TRANSPORT_LOG
++from agent import redact
++from agent.vault_store import VaultStore
++from hermes_constants import reset_hermes_home_override, set_hermes_home_override
++from tools.bot_desktop import lease
++
++FAKE = 'only-a-fake-login__NONCE__FILL東京'
++PAGE = Page("tab-1", "frame-1", "document-1", "https://example.com")
++
++
++@contextlib.contextmanager
++def scoped(home, **_):
++    token = set_hermes_home_override(str(home))
++    try:
++        yield
++    finally:
++        reset_hermes_home_override(token)
++
++
++class FakeBrowser:
++    page = PAGE
++    after_write = None
++    fail_write = False
++    fail_commit = False
++    rollback_ok = True
++    writes = 0
++    rollbacks = 0
++    registered_first = False
++
++    def __enter__(self): return self
++    def __exit__(self, *_): pass
++    def snapshot(self): return self.page
++    def prepare(self, expected, _):
++        if self.page != expected:
++            raise Refused("page_changed")
++        return Prepared(expected, "session", 42, "nonce", [{"index": 0, "token": "current-password", "value_key": "password"}])
++    def write(self, prepared, values):
++        type(self).writes += 1
++        type(self).registered_first = values["password"] not in redact.redact_registered_vault_values(values["password"])
++        if self.after_write:
++            self.after_write()
++        if self.fail_write:
++            raise RuntimeError(FAKE)
++        return ["password"]
++    def rollback(self, _):
++        type(self).rollbacks += 1
++        return self.rollback_ok
++    def commit(self, _):
++        if self.fail_commit:
++            raise RuntimeError(FAKE)
++
++
++class OwnerFill(unittest.TestCase):
++    def setUp(self):
++        from gateway import run
++        self.tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.tmp.cleanup)
++        self.root = Path(self.tmp.name)
++        self.a, self.b = self.root / "profiles/a", self.root / "profiles/b"
++        self.runner = SimpleNamespace(_served_profile_homes={"a": self.a, "b": self.b})
++        self.handler = owner.OwnerVault(self.runner)
++        for patch in (mock.patch("hermes_constants.get_process_hermes_home", return_value=self.root),
++                      mock.patch.object(run, "_profile_runtime_scope", scoped),
++                      mock.patch.object(owner, "Browser", FakeBrowser)):
++            patch.start(); self.addCleanup(patch.stop)
++        for key, value in {"page": PAGE, "after_write": None, "fail_write": False, "fail_commit": False,
++                           "rollback_ok": True, "writes": 0, "rollbacks": 0, "registered_first": False}.items():
++            setattr(FakeBrowser, key, value)
++        self.meta = VaultStore(base_dir=self.a / "vault").add_item("login", "Example",
++            {"identifier": "person@example.com", "identifier_type": "email", "password": FAKE}, origin=PAGE.origin)
++        lease.acquire("taffy-app", profile_key=str(self.a))
++        self.addCleanup(self.clear_redaction)
++
++    def clear_redaction(self):
++        with scoped(self.a): redact.clear_vault_redaction_values()
++        with scoped(self.b): redact.clear_vault_redaction_values()
++
++    def call(self, action, **body):
++        return self.handler({"home": str(self.a), "action": action, **body})
++
++    def choice(self):
++        out = self.call("list")
++        self.assertTrue(out["ok"], out)
++        self.assertNotIn(FAKE, json.dumps(out))
++        return out["items"][0]["id"]
++
++    def test_no_lease_and_an_explicit_agent_lease_refuse_without_opening_browser(self):
++        (self.a / "bot-desktop/lease.json").unlink()
++        with mock.patch.object(owner, "Browser") as browser:
++            self.assertFalse(self.call("list")["ok"])
++            browser.assert_not_called()
++        lease.release(profile_key=str(self.a))
++        with mock.patch.object(owner, "Browser") as browser:
++            self.assertFalse(self.call("list")["ok"])
++            browser.assert_not_called()
++
++    def test_another_human_viewer_cannot_use_the_owner_verb(self):
++        lease.acquire("another-viewer", profile_key=str(self.a))
++        self.assertFalse(self.call("list")["ok"])
++        self.assertEqual(FakeBrowser.writes, 0)
++
++    def test_unknown_profile_refuses(self):
++        out = self.handler({"home": str(self.root / "unknown"), "action": "list"})
++        self.assertFalse(out["ok"])
++        self.assertEqual(FakeBrowser.writes, 0)
++
++    def test_redaction_precedes_write_and_a_later_browser_result_is_redacted(self):
++        from tools.browser_tool import _eval_ok_response
++        out = self.call("fill", choice=self.choice())
++        self.assertTrue(out["ok"], out)
++        self.assertTrue(FakeBrowser.registered_first)
++        self.assertNotIn(FAKE, json.dumps(out))
++        with scoped(self.a):
++            later = _eval_ok_response({"later_field_value": FAKE})
++            self.assertNotIn(FAKE, json.dumps(later))
++            self.assertIn("redacted-vault-secret", json.dumps(later))
++        with scoped(self.b):
++            self.assertEqual(_eval_ok_response(FAKE)["result"], FAKE)
++
++    def test_a_new_control_session_invalidates_an_existing_choice(self):
++        choice = self.choice()
++        lease.release(profile_key=str(self.a))
++        lease.acquire("taffy-app", profile_key=str(self.a))
++        out = self.call("fill", choice=choice)
++        self.assertFalse(out["ok"])
++        self.assertEqual(FakeBrowser.writes, 0)
++
++    def test_control_ending_during_fill_refuses_and_rolls_back(self):
++        choice = self.choice()
++        FakeBrowser.after_write = staticmethod(lambda: lease.release(profile_key=str(self.a)))
++        out = self.call("fill", choice=choice)
++        self.assertFalse(out["ok"])
++        self.assertFalse(out["may_have_filled"])
++        self.assertEqual(FakeBrowser.rollbacks, 1)
++        self.assertNotIn(FAKE, json.dumps(out))
++
++    def test_control_changing_during_final_confirmation_refuses(self):
++        choice = self.choice()
++        with mock.patch.object(FakeBrowser, "commit", side_effect=lambda _: lease.release(profile_key=str(self.a))):
++            out = self.call("fill", choice=choice)
++        self.assertFalse(out["ok"])
++        self.assertEqual(FakeBrowser.rollbacks, 1)
++        self.assertNotIn(FAKE, json.dumps(out))
++
++    def test_origin_tab_and_document_mismatch_never_resolve_or_write_password(self):
++        for page in (Page("tab-2", PAGE.frame, PAGE.loader, PAGE.origin),
++                     Page(PAGE.target, PAGE.frame, "document-2", PAGE.origin),
++                     Page(PAGE.target, PAGE.frame, PAGE.loader, "https://other.example")):
++            FakeBrowser.page = PAGE
++            choice = self.choice()
++            FakeBrowser.page = page
++            with mock.patch.object(VaultStore, "resolve_secret") as resolve:
++                self.assertFalse(self.call("fill", choice=choice)["ok"])
++                resolve.assert_not_called()
++            self.assertEqual(FakeBrowser.writes, 0)
++
++    def test_navigation_before_events_enable_never_resolves_or_writes_password(self):
++        from tools.browser_owner_fill import Browser
++        choice = self.choice()
++        browser = Browser()
++        frame = {"id": PAGE.frame, "loaderId": PAGE.loader}
++        def attach(_):
++            frame["loaderId"] = "document-2"
++            return "session"
++        browser.snapshot = mock.Mock(side_effect=[PAGE, Page(PAGE.target, PAGE.frame, "document-2", PAGE.origin)])
++        browser.attach = mock.Mock(side_effect=attach)
++        browser.call = mock.Mock(side_effect=lambda method, **_: {"frameTree": {"frame": frame}} if method == "Page.getFrameTree" else {})
++        browser.world = mock.Mock(return_value=42)
++        browser.evaluate = mock.Mock(return_value=[{"index": 0, "type": "password", "autocomplete": "current-password"}])
++        browser.write = mock.Mock(return_value=["password"])
++        browser.rollback = mock.Mock(return_value=True)
++        store = VaultStore(base_dir=self.a / "vault")
++        with mock.patch.object(owner, "Browser", return_value=contextlib.nullcontext(browser)), \
++                mock.patch.object(VaultStore, "resolve_secret", wraps=store.resolve_secret) as resolve:
++            out = self.call("fill", choice=choice)
++        self.assertFalse(out["ok"])
++        self.assertEqual(out["code"], "page_changed")
++        resolve.assert_not_called()
++        browser.write.assert_not_called()
++        browser.evaluate.assert_not_called()
++
++    def test_navigation_during_write_refuses_and_attempts_rollback(self):
++        choice = self.choice()
++        FakeBrowser.after_write = staticmethod(lambda: setattr(FakeBrowser, "page", Page(PAGE.target, PAGE.frame, "document-2", PAGE.origin)))
++        self.assertFalse(self.call("fill", choice=choice)["ok"])
++        self.assertEqual(FakeBrowser.rollbacks, 1)
++
++    def test_raw_exception_never_reaches_error_receipt_or_log(self):
++        choice = self.choice()
++        FakeBrowser.fail_write = True
++        captured = io.StringIO()
++        handler = logging.StreamHandler(captured)
++        logging.getLogger().addHandler(handler)
++        try:
++            out = self.call("fill", choice=choice)
++        finally:
++            logging.getLogger().removeHandler(handler)
++        self.assertFalse(out["ok"])
++        self.assertNotIn(FAKE, json.dumps(out))
++        self.assertNotIn(FAKE, captured.getvalue())
++
++    def test_lost_confirmation_does_not_claim_nothing_was_filled(self):
++        choice = self.choice()
++        FakeBrowser.fail_commit = True
++        FakeBrowser.rollback_ok = False
++        out = self.call("fill", choice=choice)
++        self.assertFalse(out["ok"])
++        self.assertTrue(out["may_have_filled"])
++        with scoped(self.a): self.assertNotIn(FAKE, redact.redact_registered_vault_values(FAKE))
++
++    def test_choice_cannot_be_replayed(self):
++        choice = self.choice()
++        self.assertTrue(self.call("fill", choice=choice)["ok"])
++        self.assertFalse(self.call("fill", choice=choice)["ok"])
++        self.assertEqual(FakeBrowser.writes, 1)
++
++    def test_picker_has_own_logins_first_and_does_not_resolve_secrets(self):
++        VaultStore(base_dir=self.b / "vault").add_item("login", "Other account",
++            {"identifier": "other@example.com", "identifier_type": "email", "password": "a-fake-other-password"}, origin=PAGE.origin)
++        with mock.patch.object(VaultStore, "resolve_secret") as resolve:
++            rows = self.call("list")["items"]
++            self.assertEqual([row["own"] for row in rows], [True, False])
++            resolve.assert_not_called()
++
++    def test_another_zips_login_is_used_once_without_copying_it_to_the_target(self):
++        other = "another-fake-password"
++        VaultStore(base_dir=self.b / "vault").add_item("login", "Other account",
++            {"identifier": "other@example.com", "identifier_type": "email", "password": other}, origin=PAGE.origin)
++        before = {item.id for item in VaultStore(base_dir=self.a / "vault").list_items()}
++        choice = next(item["id"] for item in self.call("list")["items"] if not item["own"])
++        out = self.call("fill", choice=choice)
++        self.assertTrue(out["ok"], out)
++        self.assertTrue(FakeBrowser.registered_first)
++        self.assertEqual({item.id for item in VaultStore(base_dir=self.a / "vault").list_items()}, before)
++        with scoped(self.a): self.assertNotIn(other, redact.redact_registered_vault_values(other))
++
++    def test_ordinary_zip_fill_still_refuses_under_human_control(self):
++        from tools import browser_vault_tool, browser_tool
++        with scoped(self.a), mock.patch.object(browser_tool, "_last_session_key", return_value="test-owner"), \
++                mock.patch.dict(browser_tool._active_sessions, {"test-owner": {"features": {"local": True}}}), \
++                mock.patch.object(browser_vault_tool, "browser_vault_fill") as fill:
++            out = json.loads(browser_vault_tool._handle_vault_fill({"handle": self.meta.id}, task_id="test-owner"))
++            self.assertFalse(out["success"])
++            self.assertEqual(out["code"], "human_has_control")
++            fill.assert_not_called()
++
++    def test_scope_setup_exception_cannot_escape_the_owner_boundary(self):
++        from gateway import run
++        with mock.patch.object(run, "_profile_runtime_scope", side_effect=RuntimeError(FAKE)):
++            out = self.call("list")
++        self.assertFalse(out["ok"])
++        self.assertNotIn(FAKE, json.dumps(out))
++
++    def test_unknown_refusal_text_cannot_echo_a_password(self):
++        self.assertNotIn(FAKE, str(Refused(FAKE)))
++
++    def test_transport_debug_logging_cannot_capture_the_fill_payload(self):
++        self.assertFalse(_TRANSPORT_LOG.isEnabledFor(logging.DEBUG))
++        self.assertFalse(_TRANSPORT_LOG.propagate)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/gateway/run.py b/gateway/run.py
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -5559,6 +5559,7 @@
+             unserve_profile_verb, serve_profile_verb,
+         )
+         from gateway.run_plugin_rewire import reload_plugins_verb
++        from gateway.owner_vault import owner_vault_verb
+         # pause-for-update: the updater asks us to drain + exit (freeing venv handles) vs. a tree-kill
+         # (same path as SIGUSR1). Handler runs on the socket executor thread, so marshal onto the loop.
+         # pause-for-update (#92091 step 2): the updater asks this gateway to drain in-flight turns and exit
+@@ -5607,6 +5608,7 @@
+         _control_server = GatewayControlServer(
+             verb_handlers={"pause-for-update": _pause_for_update_handler,
+                            "rescan-profiles": _rescan_profiles_handler,
++                           "owner-vault-autofill": owner_vault_verb(runner),
+                            "unserve-profile": unserve_profile_verb(runner),
+                            "serve-profile": serve_profile_verb(runner),
+                            "migrate-profile-identity": migrate_profile_identity_verb(runner),

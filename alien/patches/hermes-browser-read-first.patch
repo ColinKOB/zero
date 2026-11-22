@@ -1,0 +1,15 @@
+Hermes patch: the browser tool says to read with web_extract or web_search first.
+Base: 74943bb889 on Alien. Apply after the other Zero Hermes patches.
+Reaches new sessions only, because a long session keeps its old tool list (hub screen.py holds the card back on its own).
+
+--- a/tools/browser_tool.py
++++ b/tools/browser_tool.py
+@@ -474,7 +474,7 @@
+ BROWSER_TOOL_SCHEMAS = [
+     {
+         "name": "browser_navigate",
+-        "description": "Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. For simple information retrieval, prefer a lightweight retrieval tool when one is available (faster, cheaper). For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer an available text-extraction or terminal-fetch tool; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content). Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating.",
++        "description": "Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. Try web_extract or web_search first. Use the browser only for a page those can't read, or one you must click or type on. For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer an available text-extraction or terminal-fetch tool; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content). Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating.",
+         "parameters": {
+             "type": "object",
+             "properties": {

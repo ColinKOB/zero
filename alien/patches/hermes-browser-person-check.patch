@@ -1,0 +1,34 @@
+Hermes patch: local browser checks use Zero's existing person handoff.
+Base: 74943bb889 on Alien. Apply after the other Zero Hermes patches.
+No browser identity, webdriver, GPU, proxy, cookie or permission changes.
+
+--- a/tools/browser_tool.py
++++ b/tools/browser_tool.py
+@@ -797,15 +797,19 @@
+ def _add_navigate_warnings(response: Dict[str, Any], title: str, first_nav_session: Optional[Dict[str, Any]]) -> None:
+-    """Bot-detection hint from the page title; on first navigation, the session's stealth features."""
++    """A local browser's person-only checks go to its existing computer handoff."""
++    features = (first_nav_session or {}).get("features") or {}
++    local = features.get("local")
+     title_lower = title.lower()
+-    if any(pattern in title_lower for pattern in _BOT_DETECTION_TITLE_PATTERNS):
++    if any(pattern in title_lower for pattern in (*_BOT_DETECTION_TITLE_PATTERNS,
++                                                "verify you are human", "browser is a bit unusual")):
+         response["bot_detection_warning"] = (
+-            f"Page title '{title}' suggests bot detection. The site may have blocked this request. "
+-            "Options: 1) Try adding delays between actions, 2) Access different pages first, "
+-            "3) Enable advanced stealth (BROWSERBASE_ADVANCED_STEALTH=true, requires Scale plan), "
+-            "4) Some sites have very aggressive bot detection that may be unavoidable."
++            f"Page title '{title}' suggests a check or access block. Read the current page. "
++            "If it asks for a person, leave it open and call ask_to_sign_in with purpose='challenge' "
++            "and the current page URL. Do not solve a CAPTCHA, retry sign-in, add stealth, or use a proxy. "
++            "After the person finishes, read the current page before continuing."
+         )
+-    if first_nav_session is not None and "features" in first_nav_session:
+-        features = first_nav_session["features"]
++    if local:
++        response["browser_features"] = [k for k, v in features.items() if v]
++    elif first_nav_session is not None and "features" in first_nav_session:
+         if not features.get("proxies"):
+             response["stealth_warning"] = (
+                 "Running WITHOUT residential proxies. Bot detection may be more aggressive. "

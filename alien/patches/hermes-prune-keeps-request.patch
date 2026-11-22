@@ -1,0 +1,97 @@
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -1212,6 +1212,24 @@
+ # Hard floor of verbatim recent messages when the budget is exhausted; using the
+ # full protect_last_n would recreate the nothing-compactable large-tool-output case.
+ _MAX_TAIL_MESSAGE_FLOOR = 8
++# Oct 30 2026: Zero's weekend job read the course page, the course status and the board first, and 18 seconds before its
++# last tool batch this prune cut all three to one line ("[course_status] (16,822 chars result)"). It wrote its plan and
++# its reply without them. The trigger counts the whole request, so 48,000 is passed on the first call, and the prune fires
++# once a turn has more than protect_last_n messages. 39 of 167 tool turns of Oct 25 to 30 lost their own reads this way.
++# A request keeps what it read for itself unless that alone is this large; the 200k compaction still guards the window.
++_CURRENT_REQUEST_KEEP_CHARS = 240_000
++
++
++def _current_request_tail(messages: List[Dict[str, Any]]) -> int:
++    """How many messages the newest request and its work take up, or 0 when they pass the keep size. A hub note, such as
++    the reply check's, continues the request it follows."""
++    for i in range(len(messages) - 1, -1, -1):
++        message = messages[i]
++        if (message.get("role") == "user" and message.get("display_kind") != "steer"
++                and not str(message.get("content") or "").startswith("[Hub note")):
++            kept = sum(len(str(m.get("content") or "")) for m in messages[i:])
++            return len(messages) - i if kept <= _CURRENT_REQUEST_KEEP_CHARS else 0
++    return 0
+ 
+ # Under pressure, demote large tool outputs even inside the protected region but
+ # keep this many trailing messages verbatim.
+@@ -3574,7 +3592,8 @@
+             self._warn_reclamation_no_op("prune:store_cannot_persist", current_tokens)
+             return messages, 0
+         pruned_msgs, pruned_count = self._prune_old_tool_results(
+-            messages, protect_tail_count=self.protect_last_n, protect_tail_tokens=None, min_prune_chars=self.proactive_prune_min_result_chars,
++            messages, protect_tail_count=max(self.protect_last_n, _current_request_tail(messages)),
++            protect_tail_tokens=None, min_prune_chars=self.proactive_prune_min_result_chars,
+         )
+         if not pruned_count:
+             # No-op contract: return the INPUT object so callers can gate on `result is not input`.
+diff --git a/tests/agent/test_prune_keeps_request.py b/tests/agent/test_prune_keeps_request.py
+new file mode 100644
+--- /dev/null
++++ b/tests/agent/test_prune_keeps_request.py
+@@ -0,0 +1,54 @@
++"""A mid-turn prune keeps what the current request read (Zero's weekend job, Oct 30 2026), and still clears earlier ones."""
++
++from unittest.mock import patch
++
++from agent.context_compressor import ContextCompressor
++
++
++def _compressor() -> ContextCompressor:
++    with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000):
++        return ContextCompressor(model="m", threshold_percent=0.5, protect_first_n=1, protect_last_n=30,
++                                 proactive_prune_tokens=48000, proactive_prune_min_result_chars=8000,
++                                 proactive_prune_min_reclaim_tokens=4096, quiet_mode=True)
++
++
++def _read(call_id: str, size: int) -> list:
++    return [{"role": "assistant", "content": "", "tool_calls": [
++                {"id": call_id, "type": "function", "function": {"name": "course_status", "arguments": "{}"}}]},
++            {"role": "tool", "tool_call_id": call_id, "content": f"{call_id} " + "x" * size}]
++
++
++def _request(text: str, reads: int, size: int) -> list:
++    out = [{"role": "user", "content": text}]
++    for i in range(reads):
++        out += _read(f"{text[:1]}{i}", size)
++    return out
++
++
++def _kept(messages: list) -> dict:
++    out, _ = _compressor().prune_tool_results_only(messages, current_tokens=120_000)
++    return {m["tool_call_id"]: len(m["content"]) for m in out if m["role"] == "tool"}
++
++
++def test_the_current_request_keeps_its_first_reads_past_the_tail():
++    kept = _kept([{"role": "system", "content": "S"}] + _request("now", 20, 11_000))
++    assert min(kept.values()) > 11_000
++
++
++def test_an_earlier_request_is_still_cleared():
++    kept = _kept([{"role": "system", "content": "S"}] + _request("before", 20, 16_000)
++                 + [{"role": "assistant", "content": "done"}] + _request("now", 20, 1_000))
++    assert kept["b0"] < 1_000
++    assert kept["n0"] > 1_000
++
++
++def test_a_hub_note_continues_the_request():
++    kept = _kept([{"role": "system", "content": "S"}] + _request("now", 20, 8_500)
++                 + [{"role": "assistant", "content": "reply"}, {"role": "user", "content": "[Hub note: Reply check]\nx"}])
++    assert kept["n0"] > 8_500
++
++
++def test_a_request_past_the_keep_size_gives_way_to_the_old_tail():
++    kept = _kept([{"role": "system", "content": "S"}] + _request("now", 40, 16_000))
++    assert kept["n0"] < 16_000
++    assert kept["n39"] > 16_000

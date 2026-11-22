@@ -1,0 +1,23 @@
+diff --git a/hermes_cli/kanban_db_dispatch.py b/hermes_cli/kanban_db_dispatch.py
+index 87ce60d..19a919e 100644
+--- a/hermes_cli/kanban_db_dispatch.py
++++ b/hermes_cli/kanban_db_dispatch.py
+@@ -2080,9 +2080,17 @@ def _dispatch_lane_task(
+         # the operator's intent ("default") was perfectly clear (#27145). Mutating the row (not just the
+         # in-memory view) keeps diagnostics and the board state consistent: the task is now legitimately
+         # owned by ``kanban.default_assignee``, not "unassigned but secretly routed".
++        # Zero (Nov 18 2026): one task was refused 110,609 times in a week, one row per tick. The refusal is said once
++        # per reason; a new row comes only after something else happened on the card (the same rule as
++        # skipped_nonspawnable above). The hub stops a task refused for a day (hub/taffy_hub/stalls.py).
+         if not dry_run:
+             with _kb.write_txn(conn):
+-                _kb._append_event(conn, task_id, "respawn_guarded", {"reason": guard_reason})
++                last = conn.execute(
++                    "SELECT kind, payload FROM task_events WHERE task_id = ? AND kind != 'heartbeat' "
++                    "ORDER BY created_at DESC, id DESC LIMIT 1", (task_id,)).fetchone()
++                if (last is None or last["kind"] != "respawn_guarded"
++                        or last["payload"] != _kb._json_or_null({"reason": guard_reason})):
++                    _kb._append_event(conn, task_id, "respawn_guarded", {"reason": guard_reason})
+         return False
+ 
+     def _count_spawn(name: str) -> None:

@@ -1,0 +1,58 @@
+Hermes patch: share site sign-ins before navigation and after browser steps.
+Base: 74943bb889 with the existing Zero patches. The existing human-control fence remains outside the hook.
+
+--- a/tools/browser_tool_session.py
++++ b/tools/browser_tool_session.py
+@@ -862,6 +862,43 @@
+     return engine, result
+ 
+ 
++_browser_state_hook = None
++
++
++def register_browser_state_hook(callback):
++    global _browser_state_hook
++    _browser_state_hook = callback
++
++
++def _dispatch_with_shared_state(task_id, session_info, browser_cmd, command, args, timeout, engine_override):
++    features = session_info.get("features") or {}
++    shared = (_browser_state_hook is not None and features.get("local") and not features.get("real_profile")
++              and not features.get("lightpanda") and not session_info.get("cdp_url") and not _browser_in_sandbox())
++    if not shared:
++        return _dispatch_browser_command(task_id, session_info, browser_cmd, command, args, timeout, engine_override)
++    from tools.bot_desktop import browser as local_browser
++    if command != "close" and local_browser.running_instance_cdp_port(str(local_browser.profile_dir())) is None:
++        # Starts Chromium without touching a page. "open about:blank" here wiped the page Chromium had just restored, with
++        # its typed answers, after every restart (Oct 30, e4-run2; reproduced on alien through this code).
++        engine, started = _dispatch_browser_command(task_id, session_info, browser_cmd, "get", ["cdp-url"], timeout, engine_override)
++        if not started.get("success"):
++            return engine, started
++    url = args[0] if command == "open" and args else ""
++    try:
++        if _browser_state_hook("close" if command == "close" else "before", url) is not True:
++            raise RuntimeError("Sign-in access could not be checked.")
++    except Exception:
++        return engine_override or "local", {"success": False, "error": "Sign-in access could not be checked. Try again in a moment."}
++    result = _dispatch_browser_command(task_id, session_info, browser_cmd, command, args, timeout, engine_override)
++    if command != "close":
++        try:
++            if _browser_state_hook("after", url) is not True:
++                raise RuntimeError("Sign-in access could not be checked.")
++        except Exception:
++            return result[0], {"success": result[1].get("success", False), "warning": "This browser step may have completed. Do not repeat it. Check the page after sign-in access is available."}
++    return result
++
++
+ def _run_browser_command(
+     task_id: str,
+     command: str,
+@@ -887,7 +924,7 @@
+         except Exception as e:
+             _bt.logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
+             return {"success": False, "error": f"Failed to create browser session: {str(e)}"}
+-        engine, result = run_fenced_pair(session_info, lambda: _dispatch_browser_command(
++        engine, result = run_fenced_pair(session_info, lambda: _dispatch_with_shared_state(
+             task_id, session_info, browser_cmd, command, args, timeout, _engine_override))
+         if result.get("code") == "human_has_control":
+             return result

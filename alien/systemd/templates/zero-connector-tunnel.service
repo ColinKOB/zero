@@ -1,0 +1,14 @@
+# The Cloudflare tunnel that publishes Zero's connector (zero-connector.service) at its public address. The tunnel's
+# config, ~/.config/zero-connector/cloudflared.yml, names the tunnel, its credentials file and the hostname.
+[Unit]
+Description=Zero connector public tunnel
+After=network-online.target zero-connector.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel --config %h/.config/zero-connector/cloudflared.yml run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

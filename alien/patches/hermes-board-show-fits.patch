@@ -1,0 +1,225 @@
+diff --git a/tools/kanban_tools.py b/tools/kanban_tools.py
+index c8b64c09..11878bcc 100644
+--- a/tools/kanban_tools.py
++++ b/tools/kanban_tools.py
+@@ -659,9 +659,93 @@ def inject_new_comments_from_env(agent: Any) -> bool:
+ 
+ # --- Handlers ---
+ 
++# Zero (Nov 19 2026): a Zip stopped on its own task with "Task details are unreadable: kanban_show returns only a short
++# prefix of a 58,277-character result". The task held 13,557 characters of comments, but the answer carried the body and
++# every comment twice (again inside ``worker_context``), every run's summary twice, and 50 events with heartbeats. Once
++# the chat compacted, a result over 2,000 characters keeps only its first 300 (agent/context_compressor.py,
++# _SMALL_RESULT_KEEP_CHARS), and that head was all the Zip had. The answer is now compact: the body once, the person's
++# comments and the newest ones in full, older history one line each with ``page`` for the rest, under SHOW_MAX_CHARS.
++# The per-result limit it stays under is 100,000 characters (tools/budget_config.py DEFAULT_RESULT_SIZE_CHARS, 15% of
++# the context window for a small model, never under 8,000). Its first key says how to read more, so a pruned head
++# still tells the Zip what to do. A person's comment is never cut, anywhere. A Zip's long comment is cut at
++# SHOW_COMMENT_MAX in the first view and on the pages, with ``comment_id`` named to read all of it.
++SHOW_MAX_CHARS = 20_000
++SHOW_RECENT_COMMENTS = 6
++SHOW_COMMENT_MAX = 3_000
++SHOW_LINE_CHARS = 160
++SHOW_EVENTS = 12
++SHOW_PAGE_SIZE = 8
++SHOW_CONTEXT_MAX = 4_000
++# Sections of build_worker_context that this answer already carries in its own keys.
++_SHOW_CONTEXT_DUPLICATES = ("## Body", "## Prior attempts on this task", "## Comment thread")
++_SHOW_HOW = ("This is the task's current state. Older comments are one line each, or left out when there are many: call "
++             "kanban_show with page=1 (then 2, 3...) to read them. A long comment that is cut says so; call kanban_show "
++             "with comment_id=<its id> for all of it. Call kanban_show again any time you need this.")
++
++
++def _show_line(text: Any, limit: int = SHOW_LINE_CHARS) -> str:
++    flat = " ".join(str(text or "").split())
++    return flat if len(flat) <= limit else flat[:limit].rstrip() + "..."
++
++
++def _show_cap(text: Any, limit: int) -> Any:
++    if not isinstance(text, str) or len(text) <= limit:
++        return text
++    return text[:limit].rstrip() + f"... [{len(text) - limit} more characters]"
++
++
++def _show_assistants(conn) -> set[str]:
++    """Every profile that has had a task on the board. A comment by any other author is from a person."""
++    return {r[0] for r in conn.execute("SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL")}
++
++
++def _show_comment(c, full: bool, person: bool = False) -> dict[str, Any]:
++    """One comment: a person's in full always, a Zip's in full up to SHOW_COMMENT_MAX, or a Zip's older one as one line."""
++    body = c.body or ""
++    if person:
++        return {"id": c.id, "author": c.author, "created_at": c.created_at, "body": body}
++    if full:
++        if len(body) > SHOW_COMMENT_MAX:
++            body = (body[:SHOW_COMMENT_MAX].rstrip() + f"... [{len(body) - SHOW_COMMENT_MAX} more characters: call "
++                    f"kanban_show with comment_id={c.id} for all of it]")
++        return {"id": c.id, "author": c.author, "created_at": c.created_at, "body": body}
++    return {"id": c.id, "author": c.author, "created_at": c.created_at, "line": _show_line(c.body)}
++
++
++def _show_context(text: str) -> str:
++    """The dispatcher's worker context without the sections this answer already holds, capped."""
++    keep, skipping = [], False
++    for line in (text or "").splitlines():
++        if line.startswith("## "):
++            skipping = line.strip() in _SHOW_CONTEXT_DUPLICATES
++        if not skipping:
++            keep.append(line)
++    return _show_cap("\n".join(keep).strip(), SHOW_CONTEXT_MAX)
++
++
++def _show_one(kb, conn, tid: str, comment_id: int) -> str:
++    """One comment of this task, whole."""
++    found = next((c for c in kb.list_comments(conn, tid) if c.id == comment_id), None)
++    _check(found is not None, f"task {tid} has no comment {comment_id}. The ids are in kanban_show's comments.")
++    return json.dumps({"task_id": tid, "comment": {"id": found.id, "author": found.author,
++                                                   "created_at": found.created_at, "body": found.body or ""}})
++
++
++def _show_page(kb, conn, tid: str, page: int) -> str:
++    comments = kb.list_comments(conn, tid)
++    assistants = _show_assistants(conn)
++    older = comments[:-SHOW_RECENT_COMMENTS] if len(comments) > SHOW_RECENT_COMMENTS else []
++    end = len(older) - SHOW_PAGE_SIZE * (page - 1)
++    chunk = older[max(0, end - SHOW_PAGE_SIZE):max(0, end)]
++    more = end - SHOW_PAGE_SIZE > 0
++    return json.dumps({"task_id": tid, "page": page, "comments": [_show_comment(c, True, (c.author or "") not in assistants) for c in chunk],
++                       "next_page": page + 1 if more else None,
++                       "note": "Older comments in full, oldest first." if chunk else "No older comments on this page."})
++
++
+ @_kanban_handler("kanban_show")
+ def _handle_show(args: dict, **kw) -> str:
+-    """Full task state: row, parents, children, comments, runs, last 50 events."""
++    """The task's state, sized for a worker to read whole: row, parents, children, comments, runs, recent events."""
+     tid = _default_task_id(args.get("task_id"))
+     if not tid:
+         # No dispatcher task in scope and no explicit id: the caller asked "what
+@@ -674,22 +758,83 @@ def _handle_show(args: dict, **kw) -> str:
+                 "task to show by default. Call kanban_list to see task ids on "
+                 "the board, then kanban_show(task_id=<id>) for full state."),
+         })
++    page = args.get("page") or 0
++    try:
++        page = int(page)
++    except (TypeError, ValueError):
++        page = -1
++    _check(page >= 0, "page must be a whole number: 1 for the newest older comments, then 2, 3...")
++    comment_id = args.get("comment_id")
++    if comment_id is not None:
++        try:
++            comment_id = int(comment_id)
++        except (TypeError, ValueError):
++            comment_id = -1
++        _check(comment_id >= 0, "comment_id must be a comment's id from kanban_show's comments.")
+     with _board(args.get("board")) as (kb, conn):
+         task = _existing_task(kb, conn, tid)
+-        return json.dumps({
+-            "task": _fields(task, _TASK_FIELDS),
+-            "parents": kb.parent_ids(conn, tid),
+-            # Non-terminal parents; on a running card this means the dependency
+-            # gate is not holding it and kanban_complete will refuse.
+-            "unsatisfied_parents": [
+-                {"id": pid, "status": status} for pid, status in kb.unsatisfied_parents(conn, tid)],
+-            "children": kb.child_ids(conn, tid),
+-            "comments": [_fields(c, _COMMENT_FIELDS) for c in kb.list_comments(conn, tid)],
+-            # Capped; full log via CLI.
+-            "events": [_fields(e, _EVENT_FIELDS) for e in kb.list_events(conn, tid)[-50:]],
+-            "runs": [_fields(r, _RUN_FIELDS) for r in kb.list_runs(conn, tid)],
+-            # Same string build_worker_context hands the dispatcher at spawn time.
+-            "worker_context": kb.build_worker_context(conn, tid)})
++        if comment_id is not None:
++            return _show_one(kb, conn, tid, comment_id)
++        if page:
++            return _show_page(kb, conn, tid, page)
++        comments = kb.list_comments(conn, tid)
++        assistants = _show_assistants(conn)
++        recent = {c.id for c in comments[-SHOW_RECENT_COMMENTS:]}
++        # Kept whole: the newest comments and every one a person wrote (an answer the work waits on).
++        whole = {c.id for c in comments if c.id in recent or (c.author or "") not in assistants}
++        dropped: set[int] = set()
++        runs = kb.list_runs(conn, tid)
++        events = [e for e in kb.list_events(conn, tid) if e.kind != "heartbeat"][-SHOW_EVENTS:]
++        task_row = _fields(task, _TASK_FIELDS)
++        for key, limit in (("body", 8_000), ("result", 2_000), ("last_failure_error", 1_000)):
++            task_row[key] = _show_cap(task_row.get(key), limit)
++
++        def build() -> dict[str, Any]:
++            return {
++                "how_to_read": _SHOW_HOW,
++                "task": task_row,
++                "parents": kb.parent_ids(conn, tid),
++                # Non-terminal parents; on a running card this means the dependency
++                # gate is not holding it and kanban_complete will refuse.
++                "unsatisfied_parents": [
++                    {"id": pid, "status": status} for pid, status in kb.unsatisfied_parents(conn, tid)],
++                "children": kb.child_ids(conn, tid),
++                "comments": [_show_comment(c, c.id in whole, (c.author or "") not in assistants) for c in comments
++                             if c.id not in dropped],
++                "older_comments_left_out": len(dropped),
++                "older_comment_pages": -(-max(0, len(comments) - SHOW_RECENT_COMMENTS) // SHOW_PAGE_SIZE),
++                "events": [{"kind": e.kind, "created_at": e.created_at, "run_id": e.run_id,
++                            "payload": _show_line(json.dumps(e.payload, default=str), 200) if e.payload else None}
++                           for e in events],
++                "runs": [({**_fields(r, _RUN_FIELDS), "summary": _show_cap(r.summary, 2_000),
++                           "metadata": _show_line(json.dumps(r.metadata, default=str), 500) if r.metadata else None,
++                           "error": _show_cap(r.error, 500)} if i == len(runs) - 1 else
++                          {"id": r.id, "status": r.status, "outcome": r.outcome, "ended_at": r.ended_at,
++                           "summary": _show_line(r.summary)})
++                         for i, r in enumerate(runs)],
++                # Parent handoffs and the assignee's recent work, as the dispatcher wrote them at spawn time.
++                "worker_context": context}
++
++        context = _show_context(kb.build_worker_context(conn, tid))
++        out = json.dumps(build())
++        # Over budget, cheapest loss first: an assistant's older full comments become one line (oldest first), the
++        # oldest one-line comments leave (page=1... still has them), the context shrinks, then an assistant's newest
++        # comments become one line, never the last comment and never a person's.
++        steps = [c for c in comments if c.id in whole and c.id not in recent and (c.author or "") in assistants]
++        steps += [None] + [c for c in comments[:-1] if c.id in recent and (c.author or "") in assistants]
++        for c in steps:
++            if len(out) <= SHOW_MAX_CHARS:
++                break
++            if c is None:
++                while len(out) > SHOW_MAX_CHARS and any(x.id not in whole and x.id not in dropped for x in comments):
++                    dropped.add(next(x.id for x in comments if x.id not in whole and x.id not in dropped))
++                    out = json.dumps(build())
++                if len(out) > SHOW_MAX_CHARS:
++                    context = _show_cap(context, 1_000)
++            else:
++                whole.discard(c.id)
++            out = json.dumps(build())
++        return out
+ 
+ 
+ @_kanban_handler("kanban_list")
+diff --git a/tools/kanban_tools_schemas.py b/tools/kanban_tools_schemas.py
+index ec5a7261..39556885 100644
+--- a/tools/kanban_tools_schemas.py
++++ b/tools/kanban_tools_schemas.py
+@@ -47,17 +47,19 @@ def _schema(name: str, description: str, properties: dict[str, Any], required: l
+ KANBAN_SHOW_SCHEMA = _schema(
+     "kanban_show",
+     (
+-        "Read a task's full state — title, body, assignee, parent task "
++        "Read a task's state — title, body, assignee, parent task "
+         "handoffs, your prior attempts on this task if any, comments, "
+         "and recent events. Use this to (re)orient yourself before "
+-        "starting work, especially on retries. The response includes a "
+-        "pre-formatted ``worker_context`` string suitable for inclusion "
+-        "verbatim in your reasoning. Outside a dispatcher-spawned worker "
++        "starting work, especially on retries. The person's comments and "
++        "the newest ones are in full; older comments are one line each, "
++        "and page=1, 2... returns them; comment_id returns one comment whole. Outside a dispatcher-spawned worker "
+         "there is no default task: a bare call returns a pointer to "
+         "``kanban_list`` instead of task state."
+     ),
+     {
+         "task_id": _prop("string", _DESC_TASK_ID_DEFAULT),
++        "page": _prop("integer", "Older comments in full: 1 for the newest older ones, then 2, 3... Leave out for the task's state."),
++        "comment_id": _prop("integer", "One comment, whole: use it when a comment says it was cut. Leave out for the task's state."),
+     },
+     [],
+ )

@@ -1,0 +1,111 @@
+Hermes patch: text-only captures do not take an unused screenshot when the installed driver supports it.
+Base: Hermes 74943bb889, deployed on Alien Oct 20, 2026.
+Apply from the Hermes root with git apply. No permissions or desktop lease logic changes.
+
+diff --git a/tools/computer_use/cua_backend_capture.py b/tools/computer_use/cua_backend_capture.py
+--- a/tools/computer_use/cua_backend_capture.py
++++ b/tools/computer_use/cua_backend_capture.py
+@@ -283,9 +283,12 @@
+-    def _capture_window_state(self) -> Tuple[Optional[str], Optional[str], List[UIElement], str]:
+-        """AX tree + screenshot. Returns ``(png_b64, mime, elements, window_title)``."""
++    def _capture_window_state(self, mode: str = "som") -> Tuple[Optional[str], Optional[str], List[UIElement], str]:
++        """AX tree and optional pixels. Returns ``(png_b64, mime, elements, window_title)``."""
+         # A flaky bridge can return a degenerate result (no screenshot AND no parseable tree) WITHOUT raising
+         # — a silent 0x0 to the model. Distinct from the EAGAIN path handled in call_tool: here MCP "succeeded".
++        args = self._gws_args()
++        if mode == "ax" and self._session.supports_input_property("get_window_state", "include_screenshot"):
++            args["include_screenshot"] = False
+         gws_out = self._fetch_or_refetch(
+-            "get_window_state", self._gws_args(), 30.0, "get_window_state", _gws_is_empty,
++            "get_window_state", args, 30.0, "get_window_state", _gws_is_empty,
+             "cua-driver get_window_state returned an empty result over MCP (pid=%s window_id=%s); re-fetching via CLI "
+             "transport", self._active_pid, self._active_window_id)
+         tree, window_title = _tree_and_title(gws_out)
+@@ -324,7 +327,7 @@
+         if app or not self._last_app:
+             self._last_app = app_name or app or ""
+         png_b64, image_mime_type, elements, window_title = (
+-            self._capture_vision() if mode == "vision" else self._capture_window_state())
++            self._capture_vision() if mode == "vision" else self._capture_window_state(mode))
+         png_bytes_len, width, height = _png_metrics(png_b64, 0, 0) if png_b64 else (0, 0, 0)
+         return CaptureResult(mode=mode, width=width, height=height, png_b64=png_b64, elements=elements, app=app_name,
+                              window_title=window_title, png_bytes_len=png_bytes_len, image_mime_type=image_mime_type,
+diff --git a/tests/tools/test_computer_use_ax_no_screenshot.py b/tests/tools/test_computer_use_ax_no_screenshot.py
+new file mode 100644
+--- /dev/null
++++ b/tests/tools/test_computer_use_ax_no_screenshot.py
+@@ -0,0 +1,64 @@
++"""Text-only captures skip pixels only when the installed driver accepts that request."""
++
++from types import SimpleNamespace
++
++import pytest
++
++from tools.computer_use.cua_backend_capture import _CaptureMixin, _gws_is_empty
++
++
++PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0ioAAAAASUVORK5CYII="
++
++
++class Capture(_CaptureMixin):
++    def __init__(self, supported):
++        self._session = SimpleNamespace(supports_input_property=lambda tool, prop: supported)
++        self._session_id = "test"
++        self._last_app = ""
++        self._snapshot_tokens = {}
++        self.calls = []
++
++    def _gws_args(self):
++        return {"pid": 11, "window_id": 22, "session": "test", "max_elements": 200}
++
++    def _resolve_capture_windows(self, *a):
++        return [{"app_name": "Browser", "pid": 11, "window_id": 22, "z_index": 1, "off_screen": False}]
++
++    def _set_active_target(self, target):
++        self._active_pid, self._active_window_id = target["pid"], target["window_id"]
++
++    def _fetch_or_refetch(self, name, args, *a):
++        self.calls.append((name, args))
++        out = {"structuredContent": {"elements": [{"element_index": 1, "role": "AXTextField", "label": "Full name",
++                "frame": {"x": 10, "y": 20, "w": 100, "h": 30}, "element_token": "s1:1"}]}}
++        if args.get("include_screenshot", True):
++            out["images"] = [PNG]
++        assert not _gws_is_empty(out)
++        return out
++
++
++@pytest.mark.parametrize("supported", [False, True])
++def test_text_capture_preserves_elements_and_tokens(supported):
++    backend = Capture(supported)
++    result = backend.capture("ax", pid=11, window_id=22)
++    assert result.elements[0].label == "Full name"
++    assert result.elements[0].bounds == (10, 20, 100, 30)
++    assert backend._snapshot_tokens == {1: "s1:1"}
++    assert result.ax_max_elements == 200
++    args = backend.calls[0][1]
++    if supported:
++        assert args["include_screenshot"] is False
++        assert result.png_b64 is None
++        assert result.png_bytes_len == 0
++    else:
++        assert "include_screenshot" not in args
++        assert result.png_b64 == PNG
++
++
++@pytest.mark.parametrize("supported", [False, True])
++def test_visual_capture_keeps_its_image(supported):
++    backend = Capture(supported)
++    result = backend.capture("som", pid=11, window_id=22)
++    assert "include_screenshot" not in backend.calls[0][1]
++    assert result.png_b64 == PNG
++    assert result.png_bytes_len > 0
+diff --git a/tests/tools/test_computer_use_ax_walk_bound.py b/tests/tools/test_computer_use_ax_walk_bound.py
+--- a/tests/tools/test_computer_use_ax_walk_bound.py
++++ b/tests/tools/test_computer_use_ax_walk_bound.py
+@@ -49,5 +49,5 @@
+         stub = _StubCapture()
+         assert stub._gws_args()["max_elements"] == 350
+         # ... and capture() forwards the bound it actually sent onto the CaptureResult
+-        monkeypatch.setattr(stub, "_capture_window_state", lambda: (None, None, [], ""))
++        monkeypatch.setattr(stub, "_capture_window_state", lambda mode="som": (None, None, [], ""))
+         assert stub.capture("ax").ax_max_elements == 350

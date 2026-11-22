@@ -1,0 +1,44 @@
+diff --git a/hermes_cli/kanban_db.py b/hermes_cli/kanban_db.py
+index 2a448a81..52df99ab 100644
+--- a/hermes_cli/kanban_db.py
++++ b/hermes_cli/kanban_db.py
+@@ -4189,6 +4189,19 @@ def _ctx_prior_attempts(lines: list[str], conn: sqlite3.Connection, task_id: str
+         lines.append("")
+ 
+ 
++# Zero (Nov 19 2026): a Zip whose work stays its own (the hub's config.PRIVATE_ZIPS; ZERO_PRIVATE_ZIPS names them, comma
++# separated). Its task's result reaches a child task only when that Zip does the child or handed it over; any other
++# Zip's context names the parent by its title alone, which may cross (the hub's config.CROSSES). A parent such a Zip
++# handed to another Zip is still its work (Codex on #1090).
++PRIVATE_ZIPS = frozenset(z.strip() for z in os.environ.get("ZERO_PRIVATE_ZIPS", "connect").split(",") if z.strip())
++
++
++def _private_parent(pt, child) -> bool:
++    owners = {pt.assignee or "default", pt.created_by or ""}
++    private = owners & PRIVATE_ZIPS
++    return bool(private) and (child is None or not ((child.assignee or "default") in owners or child.created_by in private))
++
++
+ def _ctx_parent_results(lines: list[str], conn: sqlite3.Connection, task_id: str, now: int) -> None:
+     """Done-parent handoffs: newest ``completed`` run's summary+metadata,
+     falling back to ``task.result`` for pre-runs-table data. Stamped with a
+@@ -4196,11 +4209,19 @@ def _ctx_parent_results(lines: list[str], conn: sqlite3.Connection, task_id: str
+     parent_rows = conn.execute(
+         "SELECT parent_id FROM task_links WHERE child_id = ? ORDER BY parent_id", (task_id,),
+     ).fetchall()
++    child = get_task(conn, task_id)
+     wrote_header = False
+     for pid in (r["parent_id"] for r in parent_rows):
+         pt = get_task(conn, pid)
+         if not pt or pt.status != "done":
+             continue
++        if _private_parent(pt, child):
++            if not wrote_header:
++                lines.append("## Parent task results")
++                wrote_header = True
++            lines.append(f"### {pid}: {pt.title} (a task of a Zip whose work stays private: its result stays with it)")
++            lines.append("")
++            continue
+         runs = [r for r in list_runs(conn, pid) if r.outcome == "completed"]
+         runs.sort(key=lambda r: r.started_at, reverse=True)
+         run = runs[0] if runs else None

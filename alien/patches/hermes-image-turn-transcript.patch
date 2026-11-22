@@ -1,0 +1,515 @@
+--- a/agent/session_persistence.py
++++ b/agent/session_persistence.py
+@@ -122,13 +122,20 @@
+ def _durable_content(content: Any) -> Any:
+     """Text-only DB projection: multimodal envelopes → summary; part lists keep text, images → ``[screenshot]``."""
+     if _is_multimodal_tool_result(content):
+         return _multimodal_text_summary(content)
+     if not isinstance(content, list):
+         return content
++    # Zero already stores the attachment path in its text part. A second placeholder adds no transcript content.
++    has_attachment = any(
++        isinstance(p, dict) and p.get("type") == "text"
++        and re.search(r"(?m)^\[Image attached at: [^\n]+\][ \t]*$", str(p.get("text", "")))
++        for p in content
++    )
+     txt = [
+         str(p.get("text", "")) if p.get("type") == "text" else "[screenshot]"
+         for p in content
+-        if isinstance(p, dict) and (p.get("type") == "text" or p.get("type") in _IMAGE_PART_TYPES)
++        if isinstance(p, dict) and (p.get("type") == "text" or (
++            p.get("type") in _IMAGE_PART_TYPES and not has_attachment))
+     ]
+     return "\n".join(txt) if txt else None
+
+--- a/agent/turn_context.py
++++ b/agent/turn_context.py
+@@ -107,79 +107,90 @@
+ def compose_multimodal_context_part(
+     ext_prefetch_cache: str, plugin_user_context: str,
+ ) -> Optional[str]:
+     """The ephemeral context of one turn (memory prefetch + ``pre_llm_call``) as one text
+-    block; ``None`` when nothing is injected. The string sidecar appends it to ``content``;
+-    a multimodal (list) turn carries it as a durable text part (#71998)."""
++    block; ``None`` when nothing is injected. The string sidecar appends it to API content;
++    a multimodal turn adds it only to the outgoing copy (Oct 26 2026 image-turn leak)."""
+     fenced = build_memory_context_block(ext_prefetch_cache) if ext_prefetch_cache else ""
+     injections = [part for part in (fenced, plugin_user_context) if part]
+     return "\n\n".join(injections) if injections else None
+
+
+ def compose_user_api_content(
+     content: Any, ext_prefetch_cache: str, plugin_user_context: str
+ ) -> Optional[str]:
+     """Compose the API-bound content of the current turn's string user message.
+
+     Single source for the ``api_content`` sidecar and the wire bytes so they never drift
+     (what turn N sends is what turn N+1 replays). ``None`` when nothing is injected or the
+     content is not a string (list content takes the text-part path)."""
+     if not isinstance(content, str):
+         return None
+     injection = compose_multimodal_context_part(ext_prefetch_cache, plugin_user_context)
+     return None if injection is None else content + "\n\n" + injection
+
+
+ def substitute_api_content(api_msg: Dict[str, Any]) -> Optional[str]:
+     """Pop the ``api_content`` sidecar and substitute it into ``content`` (keeps the
+     prompt-cache prefix byte-stable). Returns the popped sidecar, or ``None``."""
+     sidecar = api_msg.pop("api_content", None)
+     if isinstance(sidecar, str) and sidecar and api_msg.get("role") in ("user", "assistant"):
+         api_msg["content"] = sidecar
+     return sidecar
+
+
+ def drop_stale_api_content(msg: Dict[str, Any]) -> None:
+     """Drop the ``api_content`` sidecar from a message whose content was rewritten
+     (replaying it would resend what the rewrite removed; cost is one cache miss)."""
+     msg.pop("api_content", None)
+
+
+ def extract_api_content_sidecar(msg: Mapping[str, Any]) -> Optional[str]:
+     """Extract the ``api_content`` sidecar; ``None`` when absent/non-string."""
+     v = msg.get("api_content")
+     return v if isinstance(v, str) else None
+
+
+ def _pop_turn_note(agent: Any, attr: str) -> str:
+     """One-shot per-turn note: read and clear, so the system prompt stays byte-stable and a
+     cached agent never replays a stale note."""
+     note = getattr(agent, attr, "") or ""
+     if hasattr(agent, attr):
+         with suppress(Exception):
+             setattr(agent, attr, "")
+     return note if isinstance(note, str) else ""
+
+
+ def consume_gateway_turn_context_notes(agent: Any) -> str:
+     """Pop the gateway's per-turn must-deliver notes."""
+     return _pop_turn_note(agent, "_gateway_turn_context_notes")
+
+
+ def consume_surface_switch_note(agent: Any) -> str:
+     """Pop the surface-switch note staged by the system-prompt restore (#104414); rides the same
+     user-message channel as the gateway notes, behind the cached prefix."""
+     return _pop_turn_note(agent, "_surface_switch_note")
+
+
+ def append_notes_to_multimodal_content(content: Any, notes: Optional[str]) -> bool:
+-    """Append must-deliver notes as a durable text part on a multimodal (list) user
++    """Append must-deliver notes to a multimodal API copy, never the live user
+     message (the sidecar path returns ``None`` for non-string content)."""
+     if not notes or not isinstance(content, list):
+         return False
+     with suppress(Exception):
+         content.append({"type": "text", "text": notes})
+         return True
+     return False
+
+
++def compose_multimodal_api_content(content: Any, ext_prefetch_cache: str, plugin_user_context: str) -> Any:
++    """Build an independent photo request for both the generic and Codex app-server transports."""
++    from copy import deepcopy
++
++    outgoing = deepcopy(content)
++    append_notes_to_multimodal_content(
++        outgoing, compose_multimodal_context_part(ext_prefetch_cache, plugin_user_context)
++    )
++    return outgoing
++
++
+ # Cron sessions are never auto-titled: cron names its own session and its opener is a delivery hint.
+@@ -839,25 +850,15 @@
+ def _merge_gateway_notes(
+     agent: Any, messages: List[Any], current_turn_user_idx: int, plugin_user_context: str
+ ) -> str:
+     """Must-deliver per-turn notes ride the user-message injection channel (one-shot) so the
+     ephemeral system prompt stays byte-stable: the gateway's staged notes, then the
+-    surface-switch correction. Multimodal (list) content can't take the string sidecar —
+-    append a durable text part instead."""
++    surface-switch correction. Image turns use the same context, appended to the API copy."""
+     _turn_notes = "\n\n".join(
+         part for part in (consume_gateway_turn_context_notes(agent),
+                           consume_surface_switch_note(agent)) if part
+     )
+     if not _turn_notes:
+         return plugin_user_context
+-    _gw_turn_content = (
+-        messages[current_turn_user_idx].get("content")
+-        if 0 <= current_turn_user_idx < len(messages)
+-        and isinstance(messages[current_turn_user_idx], dict)
+-        else None
+-    )
+-    if isinstance(_gw_turn_content, list):
+-        append_notes_to_multimodal_content(_gw_turn_content, _turn_notes)
+-        return plugin_user_context
+     return (
+         plugin_user_context + "\n\n" + _turn_notes if plugin_user_context else _turn_notes
+     )
+@@ -963,38 +964,6 @@
+                 _db.set_latest_user_api_content(agent.session_id, durable_content, _api_content)
+         except Exception:
+             logger.warning("api_content backfill failed for session=%s", agent.session_id or "none", exc_info=True)
+
+
+-def _append_multimodal_context(
+-    agent: Any, turn_user_msg: Dict[str, Any], ext_prefetch_cache: str, plugin_user_context: str,
+-    *, preflight_compressed: bool,
+-) -> None:
+-    """Multimodal (list) content takes no string sidecar: the turn's context becomes a durable
+-    text part on the current turn's live list (the gateway must-deliver-note channel, #71998),
+-    so wire, persisted row, compaction and replay all carry the same parts. Runs once per turn,
+-    before the first request; historical rows are never touched.
+-
+-    A user row another writer materialized BEFORE the prologue (in-place preflight compaction,
+-    a close/early flush that raced it) is updated in place: the crash persist marker-skips that
+-    message, so without this a resumed session replays a view the model never saw. Same
+-    ``_row_id``-under-lock protocol as the string sidecar backfill; the row keeps its writer's
+-    shape (compaction inserted the raw parts, a flush the text projection)."""
+-    _mm_ctx = compose_multimodal_context_part(ext_prefetch_cache, plugin_user_context)
+-    if not append_notes_to_multimodal_content(turn_user_msg.get("content"), _mm_ctx):
+-        return
+-    from agent.session_persistence import _durable_content, _persist_lock
+-
+-    with _persist_lock(agent):
+-        _row_id = turn_user_msg.get("_row_id")
+-        _db = getattr(agent, "_session_db", None)
+-        if _db is None or not isinstance(_row_id, int):
+-            return
+-        _in_place_compacted = preflight_compressed and bool(getattr(agent, "_last_compaction_in_place", False))
+-        content = turn_user_msg["content"] if _in_place_compacted else _durable_content(turn_user_msg["content"])
+-        try:
+-            _db.set_user_message_content(agent.session_id, _row_id, content)
+-        except Exception:
+-            logger.warning("multimodal context backfill failed for session=%s", agent.session_id or "none", exc_info=True)
+-
+-
+ def _persist_turn_start(
+@@ -1169,19 +1138,18 @@
+     _bind_interrupt_scope(agent, ra)
+     ext_prefetch_cache = _memory_turn_start_and_prefetch(agent, original_user_message, turn_author)
+
+-    # Title the session now: titling depends only on the user's ask (before any injected
+-    # context lands on list content), so it runs concurrently with the turn. Daemon thread,
++    # Title the session from the user's ask, without the API copy's injected context,
++    # so it runs concurrently with the turn. Daemon thread,
+     # no-op once titled; it ensures the session row itself.
+     _maybe_title_session_at_turn_start(agent, messages, title_user_message)
+
+-    # Sidecar skipped for codex_app_server/MoA; list content carries its context as a part in every mode.
++    # String sidecar skipped for codex_app_server/MoA. Image context is added only to the outgoing API copy.
+     if 0 <= current_turn_user_idx < len(messages) and messages[current_turn_user_idx].get("role") == "user":
+-        if isinstance(messages[current_turn_user_idx].get("content"), list):
+-            _append_multimodal_context(
+-                agent, messages[current_turn_user_idx], ext_prefetch_cache, plugin_user_context,
+-                preflight_compressed=compaction.compressed,
+-            )
+-        elif not moa_active and getattr(agent, "api_mode", None) != "codex_app_server":
++        if (
++            not isinstance(messages[current_turn_user_idx].get("content"), list)
++            and not moa_active
++            and getattr(agent, "api_mode", None) != "codex_app_server"
++        ):
+             _stamp_api_content_sidecar(
+                 agent, messages, current_turn_user_idx, ext_prefetch_cache,
+                 plugin_user_context, preflight_compressed=compaction.compressed,
+@@ -1221,110 +1189,115 @@
+ def build_api_messages(
+     agent: Any, messages: List[Dict[str, Any]], *, current_turn_user_idx: Any,
+     ext_prefetch_cache: Any, plugin_user_context: Any, moa_config: Any, active_system_prompt: Any,
+ ) -> Tuple[List[Dict[str, Any]], str]:
+     """Build the wire copy of ``messages`` for one API call plus the effective system
+     message. Returns ``(api_messages, effective_system)``.
+
+-    Prompt-cache invariant: historical user/assistant rows replay their ``api_content``
+-    sidecar (the exact bytes sent live) so the prefix stays byte-stable; the current
++    String-sidecar prompt-cache invariant: historical user/assistant rows replay their ``api_content``
++    sidecar (the exact bytes sent live) so the prefix stays byte-stable. Image hook context
++    belongs only to the current request and is not replayed from history. The current
+     user turn reuses the prologue's stamp (or composes live when a caller bypassed the
+     prologue). Ephemeral context (prefetch, ``pre_llm_call`` hooks,
+     ``ephemeral_system_prompt``) is added at API time only — ``messages`` stays untouched
+     beyond the sidecar stamp, and the system prompt is built ONCE per session and
+     replayed verbatim."""
+     from agent.agent_runtime_helpers import fill_empty_non_final_wire_payload
+     from agent.conversation_loop import _clone_message_for_send
+     from agent.replay_cleanup import canonicalize_replay_history
+
+     has_current = isinstance(current_turn_user_idx, int) and 0 <= current_turn_user_idx < len(messages)
+     current_turn_message = messages[current_turn_user_idx] if has_current else None
+
+     # Replay consumers canonicalize the persisted prefix on read; the request copy must
+     # carry the same bytes or a resume diverges mid-prefix. Only the rows BEFORE this
+     # turn's user message are the replayed prefix — rows this turn appended (its tool
+     # calls/results) are live and must never be rewritten between iterations. The
+     # expiry clock is the turn's admission time, frozen in _reset_per_turn_agent_state.
+     # Without an anchor (compaction found no surviving user row) there is no provable
+     # persisted prefix, so nothing is canonicalized. The clock is stamped once per turn in
+     # _reset_per_turn_agent_state; a caller that skipped the prologue fails loudly here
+     # rather than silently un-freezing it.
+     turn_now = agent._current_turn_timestamp
+     split = current_turn_user_idx if has_current else 0
+     canonical_messages = canonicalize_replay_history(messages[:split], now=turn_now) + messages[split:]
+
+     api_messages = []
+     for idx, msg in enumerate(canonical_messages):
+         # Structural clone, NOT msg.copy(): in-place transforms below must not reach
+         # persisted history via nested containers; see _clone_message_for_send.
+         api_msg = _clone_message_for_send(msg)
+         # api_content is bookkeeping (exact bytes sent), never a provider field — pop
+         # it from EVERY outgoing copy. Persistence/display fields (display_*, _row_id,
+         # timestamp) are local bookkeeping: strict OpenAI backends reject unknown keys
+         # and only chat-completions strips underscore keys. The token estimator drops
+         # the same set, so it never prices bytes the provider never receives.
+         _api_content = api_msg.pop("api_content", None)
+         for key in PERSISTENCE_ONLY_MESSAGE_FIELDS:
+             api_msg.pop(key, None)
+
+         # Inject ephemeral context (memory prefetch + pre_llm_call user hooks)
+         # at API time only; `messages` is untouched beyond the api_content stamp.
+         if msg is current_turn_message and msg.get("role") == "user":
+-            if isinstance(_api_content, str) and _api_content:
++            if isinstance(api_msg.get("content"), list):
++                api_msg["content"] = compose_multimodal_api_content(
++                    api_msg["content"], ext_prefetch_cache, plugin_user_context
++                )
++            elif isinstance(_api_content, str) and _api_content:
+                 # Reuse the prologue's stamp so sidecar and wire cannot drift
+                 # and every pass this turn sends identical bytes.
+                 api_msg["content"] = _api_content
+             else:
+                 # Callers that bypass the prologue stamping: compose live.
+                 _composed = compose_user_api_content(
+                     api_msg.get("content", ""), ext_prefetch_cache, plugin_user_context
+                 )
+                 if _composed is not None:
+                     api_msg["content"] = _composed
+         elif (
+             isinstance(_api_content, str) and _api_content
+             and msg.get("role") in ("user", "assistant")
+         ):
+             # Historical row: replay the exact bytes sent live so the prompt-cache
+-            # prefix stays byte-stable. User rows carry the injection sidecar; user
++            # prefix stays byte-stable. String user rows carry the injection sidecar; user
+             # and assistant rows may carry a sanitize-divergence sidecar.
+             api_msg["content"] = _api_content
+
+         # Pass reasoning back to the API for ALL assistant messages so multi-turn
+         # reasoning context is preserved.
+         agent._copy_reasoning_content_for_api(msg, api_msg)
+         # 'reasoning' is trajectory-only (copied to 'reasoning_content' above);
+         # finish_reason is rejected by strict APIs (e.g. Mistral).
+         api_msg.pop("reasoning", None)
+         api_msg.pop("finish_reason", None)
+         # Fill empty non-final user/assistant wire copies so the pre-call sanitizer
+         # stops re-healing and flooding errors.log; durable history is untouched.
+         # After the reasoning copy so thinking-only turns keep payload.
+         fill_empty_non_final_wire_payload(api_msg, is_final=(idx == len(canonical_messages) - 1))
+         # _thinking_prefill survives intentionally: the drop pass below needs it.
+         # Strip length-continuation marks; some transports keep underscore keys.
+         api_msg.pop("_length_continuation_fragment", None)
+         api_msg.pop("_length_continuation_nudge", None)
+         # Strip Codex Responses fields (call_id, response_item_id): strict providers
+         # reject unknown fields. New dicts keep the internal list intact for Codex.
+         if agent._should_sanitize_tool_calls():
+             agent._sanitize_tool_calls_for_strict_api(
+                 api_msg, model=_sanitize_model_for(agent, moa_config)
+             )
+         # 'reasoning_details' is kept here; the chat-completions transport drops it on the
+         # wire for every route that does not replay it (OpenRouter/Nous do).
+         api_messages.append(api_msg)
+
+     # A provider-rejected Anthropic signature is suppressed outside canonical history and
+     # survives fresh request construction / process resume via session model_config.
+     from agent.anthropic_thinking_replay import apply_rejected_thinking_suppression
+     apply_rejected_thinking_suppression(agent, api_messages)
+
+     # Final system message = cached prompt + ephemeral additions (API-time only).
+     # Plugin/recall context goes into the user message, never the system prompt: the
+     # prompt is built ONCE per session and replayed verbatim (stable cache prefix).
+     effective_system = active_system_prompt or ""
+     if agent.ephemeral_system_prompt:
+         effective_system = (effective_system + "\n\n" + agent.ephemeral_system_prompt).strip()
+     if effective_system:
+         api_messages = [{"role": "system", "content": effective_system}] + api_messages
+     return api_messages, effective_system
+--- a/agent/conversation_loop.py
++++ b/agent/conversation_loop.py
+@@ -1618,22 +1618,29 @@
+     agent._last_turn_usage = None
+
+     s = _LoopState(
+         system_message=system_message, moa_config=moa_config,
+         max_compression_attempts=getattr(agent, "max_compression_attempts", 3),
+         **{f.name: getattr(_ctx, f.name.lstrip("_")) for f in fields(_LoopState) if f.name in _CTX_FIELDS},
+     )
+     # Opt-in runtime: api_mode == codex_app_server hands the whole turn to the codex
+     # app-server subprocess (see agent/transports/codex_app_server_session.py).
+     if agent.api_mode == "codex_app_server":
++        from agent.turn_context import compose_multimodal_api_content
++
++        codex_user_message = s.user_message
++        if isinstance(codex_user_message, list):
++            codex_user_message = compose_multimodal_api_content(
++                codex_user_message, s._ext_prefetch_cache, s._plugin_user_context
++            )
+         codex_result = agent._run_codex_app_server_turn(
+-            user_message=s.user_message, original_user_message=s.original_user_message,
++            user_message=codex_user_message, original_user_message=s.original_user_message,
+             messages=s.messages, effective_task_id=s.effective_task_id,
+             should_review_memory=s._should_review_memory,
+         )
+         from agent.turn_recovery import activate_codex_app_server_fallback
+         if not activate_codex_app_server_fallback(agent, codex_result):
+             return codex_result
+         # Fallback activation rewrote provider/model/api_mode: retry this same user turn on the generic
+         # loop below, keeping codex's projected rows and its failed API call in the turn's accounting.
+         s.api_call_count = int(codex_result.get("api_calls") or 0)
+         s.active_system_prompt = _sync_failover_system_message(agent, None, s.active_system_prompt)
+--- a/tests/agent/test_api_content_sidecar.py
++++ b/tests/agent/test_api_content_sidecar.py
+@@ -289,13 +289,8 @@
+             ctx = _build(agent)
+         assert "api_content" not in ctx.messages[ctx.current_turn_user_idx]
+
+-    def test_appends_context_part_for_multimodal_turn(self):
+-        """#71998: pre_llm_call context must reach an image-only (multimodal)
+-        turn as a durable text part, not silently drop.
+-
+-        The string api_content sidecar can't ride on list content, so the
+-        context is appended to the content list (the gateway must-deliver-note
+-        channel) — durable, so wire == persisted == replay."""
++    def test_multimodal_prologue_keeps_hook_context_out_of_user_content(self):
++        """Oct 26 2026: the API copy receives context; the prologue must not change the person's parts."""
+         agent = _FakeAgent()
+         blocks = [{"type": "image_url", "image_url": {"url": "data:img"}}]
+         with patch(
+@@ -309,10 +304,9 @@
+             )
+         content = ctx.messages[ctx.current_turn_user_idx]["content"]
+         assert isinstance(content, list)
+-        # Original image part preserved; plugin context appended as a text part.
+-        assert content[0] == {"type": "image_url", "image_url": {"url": "data:img"}}
+-        assert content[-1] == {"type": "text", "text": "PLUGIN-CTX"}
+-        # Multimodal turns carry the context durably, not via the string sidecar.
++        assert content == [{"type": "image_url", "image_url": {"url": "data:img"}}]
++        assert blocks == content
++        assert ctx.plugin_user_context == "PLUGIN-CTX"
+         assert "api_content" not in ctx.messages[ctx.current_turn_user_idx]
+
+
+@@ -580,14 +574,15 @@
+         current = _user_messages(_chat_requests(handler)[0])[-1]
+         assert current["content"] == "second question\n\nPLUGIN-CTX"
+
+-    def test_multimodal_turn_sends_persists_and_replays_context_part(self, wire_env):
++    def test_multimodal_turn_sends_context_but_persists_only_the_persons_message(self, wire_env):
+         """#71998: on a list-content (image) turn the ``pre_llm_call`` context reaches the
+-        wire as a text part, the persisted row carries it, and a resumed turn N+1 replays
+-        the same view — same contract as the string sidecar path."""
++        wire as a text part. Oct 26 2026: that context is not the person's words, so
++        the transcript and next turn's historical content must exclude it."""
+         make_agent, handler, db, sid = wire_env
+         from run_agent import AIAgent
+         image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+-        turn = [{"type": "text", "text": "what is this"}, image]
++        words = "what is this\n\n[Image attached at: /work/Uploads/Photo.jpg]"
++        turn = [{"type": "text", "text": words}, image]
+
+         agent1 = make_agent()
+         with patch.object(AIAgent, "_model_supports_vision", return_value=True):  # keep native parts on the wire
+@@ -597,7 +592,8 @@
+         assert sent == [*turn, {"type": "text", "text": "PLUGIN-CTX"}]
+
+         history = db.get_messages_as_conversation(sid)
+-        assert "PLUGIN-CTX" in history[0]["content"]  # persisted with the turn, not dropped
++        assert history[0]["content"] == words
++        assert turn == [{"type": "text", "text": words}, image]
+
+         handler.captured_requests = []
+         agent2 = make_agent()
+@@ -1036,11 +1032,11 @@
+         finally:
+             db.close()
+
+-    def test_in_place_compaction_multimodal_context_part_survives_reload(self, tmp_path):
++    def test_in_place_compaction_multimodal_transcript_excludes_hook_context(self, tmp_path):
+         """#71998 persistence: in-place ``archive_and_compact`` writes the current-turn user
+-        row BEFORE the prologue appends the ``pre_llm_call`` text part, and the crash persist
+-        identity-skips compacted dicts — the part must be pushed into that row, or a
+-        resumed session replays a view the model never saw."""
++        row before the request, and the crash persist identity-skips compacted dicts.
++        Oct 26 2026: compaction retains the original parts; only the outgoing copy
++        receives hook context, so no backfill attributes the hook's notes to the person."""
+         db = SessionDB(db_path=tmp_path / "state.db")
+         sid = "sess-inplace-mm"
+         image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+@@ -1054,10 +1050,10 @@
+                 )
+             assert agent._last_compaction_in_place is True
+             live = ctx.messages[ctx.current_turn_user_idx]["content"]
+-            assert live == [*turn, {"type": "text", "text": "PLUGIN-CTX"}]
+-            # Reload: the durable row carries the same parts the model saw.
++            assert live == turn
++            # Reload keeps native image parts without presenting hook notes as the person's message.
+             reloaded = [m for m in db.get_messages_as_conversation(sid) if m["role"] == "user"]
+-            assert reloaded[-1]["content"] == live
++            assert reloaded[-1]["content"] == turn
+         finally:
+             db.close()
+
+--- a/tests/agent/test_gateway_turn_sidecar.py
++++ b/tests/agent/test_gateway_turn_sidecar.py
+@@ -182,10 +182,8 @@
+
+
+ class TestMultimodalFallback:
+-    def test_notes_appended_as_text_part_on_list_content(self):
+-        """Multimodal turns can't take the string sidecar
+-        (compose_user_api_content returns None for lists) — the must-deliver
+-        fact is appended as a durable text part instead of dropping."""
++    def test_multimodal_notes_wait_for_the_api_copy(self):
++        """Oct 26 2026: retain gateway notes for the request without adding them to the person's parts."""
+         agent = _FakeAgent()
+         agent._gateway_turn_context_notes = RESET_NOTE
+         content = [
+@@ -195,7 +193,9 @@
+         with patch("hermes_cli.plugins.invoke_hook", return_value=[]):
+             ctx = _build(agent, user_message=content)
+         msg = ctx.messages[ctx.current_turn_user_idx]
+-        assert msg["content"][-1] == {"type": "text", "text": RESET_NOTE}
++        assert msg["content"] == content
++        assert len(content) == 2
++        assert ctx.plugin_user_context == RESET_NOTE
+         # No string sidecar for list content.
+         assert "api_content" not in msg
+
+--- a/tests/agent/test_codex_app_server_integration.py
++++ b/tests/agent/test_codex_app_server_integration.py
+@@ -69,6 +69,27 @@
+
+
+ class TestRunConversationCodexPath:
++    def test_photo_context_reaches_codex_without_changing_the_transcript(self, monkeypatch):
++        captured = {}
++
++        def fake_run_turn(self, user_input, **kwargs):
++            captured["input"] = user_input
++            return TurnResult(final_text="done", projected_messages=[{"role": "assistant", "content": "done"}])
++
++        monkeypatch.setattr(CodexAppServerSession, "run_turn", fake_run_turn)
++        monkeypatch.setattr(CodexAppServerSession, "ensure_started", lambda self: "thread-photo-1")
++        agent = _make_codex_agent()
++        agent._gateway_turn_context_notes = "GATEWAY-NOTE"
++        parts = [{"type": "text", "text": "Look\n\n[Image attached at: /work/Uploads/Photo.jpg]"},
++                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]
++        with patch("hermes_cli.plugins.invoke_hook", return_value=[{"context": "PLUGIN-CTX"}]), \
++             patch.object(agent, "_spawn_background_review", return_value=None):
++            result = agent.run_conversation(parts)
++        assert captured["input"] == [*parts, {"type": "text", "text": "PLUGIN-CTX\n\nGATEWAY-NOTE"}]
++        users = [m for m in result["messages"] if m.get("role") == "user"]
++        assert users[0]["content"] == parts
++        assert len(parts) == 2
++
+     @pytest.mark.parametrize(
+         "reasoning_config,service_tier,expected_effort,expected_tier",
+         [

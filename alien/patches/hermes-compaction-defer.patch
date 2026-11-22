@@ -1,0 +1,213 @@
+diff --git a/agent/conversation_compression.py b/agent/conversation_compression.py
+index da122423..e58d1524 100644
+--- a/agent/conversation_compression.py
++++ b/agent/conversation_compression.py
+@@ -925,6 +925,39 @@ def _prior_timeout_failures(agent: Any) -> int:
+     return count if isinstance(count, int) and not isinstance(count, bool) else 0
+ 
+ 
++def compaction_can_wait_for_idle(agent: Any, request_tokens: Any) -> bool:
++    """Whether an automatic compaction in a chat turn can wait for the gateway's idle job (Zero, Oct 25 2026).
++
++    Between the trigger and the model's window there is headroom: 172k on a 872k window with a 700k trigger, 300k
++    on the 1M fallback window, 800k on a 1M window with a 200k trigger, 30k on a 200k window. A request under the
++    trigger plus half that headroom (and no more than a quarter of the trigger) goes out uncompacted; the other half
++    is the turn's own room to grow, for tool results and the reply. ``False`` whenever a number is unknown."""
++    compressor = getattr(agent, "context_compressor", None)
++    window = getattr(compressor, "context_length", None)
++    trigger = getattr(compressor, "threshold_tokens", None)
++    for value in (window, trigger, request_tokens):
++        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
++            return False
++    room = window - trigger
++    if room <= 0:
++        return False
++    return request_tokens < trigger + min(room // 2, trigger // 4)
++
++
++def compaction_deferred_to_idle(agent: Any, request_tokens: Any) -> bool:
++    """A chat turn on the API gateway skips an automatic compaction its request can wait for: the gateway's idle job
++    compacts after the reply (gateway/platforms/api_server_idle_compaction.py). Oct 25 2026 trials on a Zip like
++    Zero: "Do we need a park pass?" waited 148 s and a packing-list turn stalled 80 s behind a summary. Only the
++    turn-start, pre-API and post-tool decisions ask; provider overflow, error recovery and /compress never do."""
++    if getattr(agent, "_defer_compaction_to_idle", False) is not True:
++        return False
++    if not compaction_can_wait_for_idle(agent, request_tokens):
++        return False
++    logger.info("Compaction deferred to idle time: ~%s request tokens fit under the %s window (session %s)",
++                f"{request_tokens:,}", f"{agent.context_compressor.context_length:,}", agent.session_id or "none")
++    return True
++
++
+ def request_exceeds_model_window(agent: Any, request_tokens: Any) -> Optional[bool]:
+     """Whether a ~``request_tokens`` request cannot be sent at all (above the model's context window).
+     ``None`` when either side is unknown (no compressor / unresolvable window / no estimate), so callers
+diff --git a/agent/turn_context_compaction.py b/agent/turn_context_compaction.py
+index 54678deb..0e9d33fa 100644
+--- a/agent/turn_context_compaction.py
++++ b/agent/turn_context_compaction.py
+@@ -306,6 +306,10 @@ def _preflight_compression(
+         _should_compress_now = _compressor.should_compress(_preflight_tokens)
+         if not _should_compress_now:
+             _compress_block_reason = _blocked_compress_reason(_compressor, _preflight_tokens)
++        else:
++            from agent.conversation_compression import compaction_deferred_to_idle
++            if compaction_deferred_to_idle(agent, _preflight_tokens):
++                return
+     if _should_compress_now:
+         # Managed local runtime: growing the window beats compressing (ladder order;
+         # same seam as _maybe_grow_local_window in the loop).
+diff --git a/agent/turn_preflight.py b/agent/turn_preflight.py
+index 9ef8127d..6495b4c3 100644
+--- a/agent/turn_preflight.py
++++ b/agent/turn_preflight.py
+@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
+ from agent.context_engine import automatic_compaction_status_message
+ from agent.conversation_compression import (
+     PRE_API_COMPRESSION_STATUS_TEMPLATE, _reset_read_dedup_caches, compression_blocked_transiently,
+-    compression_skipped_due_to_lock, context_compression_timed_out,
++    compaction_deferred_to_idle, compression_skipped_due_to_lock, context_compression_timed_out,
+     conversation_history_after_compression, ensure_compression_feasibility_checked,
+ )
+ from agent.turn_context import _review_fork_first_request_pending
+@@ -100,6 +100,7 @@ def run_preflight_compression(
+         and (not defer_preflight(request_pressure_tokens) or provider_overflow_preflight)
+         and not _compression_cooldown
+         and compressor.should_compress(request_pressure_tokens)
++        and (provider_overflow_preflight or not compaction_deferred_to_idle(agent, request_pressure_tokens))
+     ):
+         # Managed local runtime: grow the context window before compressing (last
+         # resort). Only for a llamacpp provider at the supervised base_url.
+@@ -310,6 +311,7 @@ def compress_after_tool_results(
+             getattr(_compressor, "awaiting_real_usage_after_compression", False)
+         )
+         and _compressor.should_compress(_real_tokens)
++        and not compaction_deferred_to_idle(agent, _real_tokens)
+     ):
+         compression_attempts += 1
+         # Compression is running: reset blocked-overflow warning dedup so a
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 9e8c412f..3d7817f5 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -4321,6 +4321,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+                         requested_provider=requested_provider, model_options=model_options, route=route,
+                         session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock)
+                     created_agent[0] = agent
++                    # Its idle job compacts after the reply, so this turn never waits on a summary that can wait.
++                    agent._defer_compaction_to_idle = bool(idle_generation is not None)
+                     if agent_ref is not None:
+                         agent_ref[0] = agent
+                     if keep_warm:
+diff --git a/gateway/platforms/api_server_idle_compaction.py b/gateway/platforms/api_server_idle_compaction.py
+index 35c32ad2..718b9a5e 100644
+--- a/gateway/platforms/api_server_idle_compaction.py
++++ b/gateway/platforms/api_server_idle_compaction.py
+@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
+ 
+ logger = logging.getLogger("gateway.platforms.api_server")
+ IDLE_SECONDS = 5.0
+-TRIGGER_RATIO = 0.85
++TRIGGER_RATIO = 0.6   # Oct 25 2026: at 0.85 a chat reached the trigger before a quiet gap let the job finish
+ 
+ 
+ @dataclass
+diff --git a/tests/agent/test_compaction_defer_to_idle.py b/tests/agent/test_compaction_defer_to_idle.py
+new file mode 100644
+index 00000000..35d3eea0
+--- /dev/null
++++ b/tests/agent/test_compaction_defer_to_idle.py
+@@ -0,0 +1,80 @@
++"""API gateway chat turns leave a compaction that can wait to the idle job (Zero, Oct 25 2026).
++
++On a Zip like Zero (Sol, 872k window, 700k trigger), "Do we need a park pass?" waited 148 s behind a summary at turn
++start and a packing-list turn stalled 80 s mid-turn. The gateway's idle job compacts after the reply instead."""
++
++from types import SimpleNamespace
++
++import pytest
++
++from agent.conversation_compression import compaction_can_wait_for_idle, compaction_deferred_to_idle
++from agent.turn_preflight import compress_after_tool_results
++
++
++def zip_agent(window, trigger, defer=True):
++    return SimpleNamespace(context_compressor=SimpleNamespace(context_length=window, threshold_tokens=trigger),
++                           _defer_compaction_to_idle=defer, session_id="owned")
++
++
++@pytest.mark.parametrize("window,trigger,fits,over", [
++    (872_000, 700_000, 785_999, 786_000),     # Sol: half its 172k headroom
++    (1_000_000, 700_000, 849_999, 850_000),   # the Opus fallback's 1M window under Sol's trigger
++    (1_000_000, 200_000, 249_999, 250_000),   # a Claude Zip summarized by Haiku: a quarter of its trigger, not 400k
++    (200_000, 170_000, 184_999, 185_000),     # a 200k window
++])
++def test_each_zip_window_minus_its_trigger_decides(window, trigger, fits, over):
++    assert compaction_can_wait_for_idle(zip_agent(window, trigger), fits) is True
++    assert compaction_can_wait_for_idle(zip_agent(window, trigger), over) is False
++
++
++@pytest.mark.parametrize("window,trigger,tokens", [
++    (None, 700_000, 750_000), (872_000, None, 750_000), (872_000, 700_000, None),
++    (700_000, 700_000, 690_000), (True, 700_000, 750_000)])
++def test_unknown_or_no_headroom_never_waits(window, trigger, tokens):
++    assert compaction_can_wait_for_idle(zip_agent(window, trigger), tokens) is False
++
++
++def test_only_a_gateway_chat_turn_defers():
++    assert compaction_deferred_to_idle(zip_agent(872_000, 700_000), 750_000) is True
++    assert compaction_deferred_to_idle(zip_agent(872_000, 700_000, defer=False), 750_000) is False
++    plain = SimpleNamespace(context_compressor=SimpleNamespace(context_length=872_000, threshold_tokens=700_000))
++    assert compaction_deferred_to_idle(plain, 750_000) is False
++
++
++def _after_tools(agent):
++    return compress_after_tool_results(
++        agent, messages=[{"role": "user", "content": "current ask"}], system_message="system",
++        user_message="current ask", active_system_prompt="system", conversation_history=[],
++        compression_attempts=0, max_compression_attempts=1, effective_task_id="task", final_response="",
++        turn_exit_reason=None, current_turn_user_idx=0)
++
++
++@pytest.mark.parametrize("prompt_tokens,defer,compacts", [
++    (750_000, True, False),    # past the trigger, still fits: the reply goes first
++    (800_000, True, True),     # past the deferral line: compact now, as before
++    (750_000, False, True),    # not a gateway chat turn: unchanged
++])
++def test_post_tool_compaction_waits_while_the_request_fits(monkeypatch, prompt_tokens, defer, compacts):
++    calls = []
++
++    class Compressor:
++        last_prompt_tokens = prompt_tokens
++        threshold_tokens = 700_000
++        context_length = 872_000
++
++        @staticmethod
++        def should_compress(tokens):
++            return tokens >= 700_000
++
++    def compress(messages, *a, **kw):
++        calls.append(kw.get("approx_tokens"))
++        return [{"role": "user", "content": "compressed"}, {"role": "user", "content": "current ask"}], "system"
++
++    agent = SimpleNamespace(context_compressor=Compressor(), compression_enabled=True, session_id="owned",
++                            _defer_compaction_to_idle=defer, _clear_context_overflow_warn=lambda: None,
++                            _safe_print=lambda *_a: None, _compress_context=compress, _persist_user_message_idx=0)
++    monkeypatch.setattr("agent.turn_preflight.conversation_history_after_compression", lambda *_a: [])
++    monkeypatch.setattr("agent.conversation_loop._should_skip_model_call_for_reference_handoff", lambda *_a: False)
++    verdict = _after_tools(agent)
++    assert bool(calls) is compacts
++    assert (verdict.compression_attempts == 1) is compacts
+diff --git a/tests/gateway/test_api_idle_compaction.py b/tests/gateway/test_api_idle_compaction.py
+index 2bb45dc6..477ecf1c 100644
+--- a/tests/gateway/test_api_idle_compaction.py
++++ b/tests/gateway/test_api_idle_compaction.py
+@@ -25,7 +25,7 @@ def owner():
+     return SimpleNamespace(_run_shutdown_requested_at=None)
+ 
+ 
+-@pytest.mark.parametrize("tokens,expected", [(169_999, None), (170_000, 170_000), (199_999, 199_999)])
++@pytest.mark.parametrize("tokens,expected", [(119_999, None), (120_000, 120_000), (199_999, 199_999)])
+ def test_near_threshold_uses_same_pressure_estimator(monkeypatch, tokens, expected):
+     monkeypatch.setattr("agent.turn_context._preflight_request_tokens", lambda *a: tokens)
+     assert idle.eligible(agent(), []) == expected

@@ -1,0 +1,201 @@
+diff --git a/tools/environments/docker.py b/tools/environments/docker.py
+index aec68cd..ac43d39 100644
+--- a/tools/environments/docker.py
++++ b/tools/environments/docker.py
+@@ -117,6 +117,69 @@ def _get_active_profile_name() -> str:
+         return "default"
+ 
+ 
++# Zero, Nov 3 2026: a Zip's preview ports are published on one small holder container per profile
++# ("zip-ports-<profile>"), and every work container of that profile joins the holder's network. Before, the ports
++# went to whichever of the profile's containers started first, and a later one ran without them, so a preview it
++# served never reached the browser (Clients' Thanksgiving preview, problem report 64: the 6-day-old container that
++# held 18210-18219 was idle, and the one serving the page had no published ports).
++_PORT_HOLDER_LABEL = "taffy.port-holder"
++_PUBLISH_FLAGS = ("-p", "--publish")
++# Docker refuses these next to --network container:<name>; a profile that sets one keeps publishing directly.
++_OWN_NETWORK_FLAGS = ("--add-host", "--dns", "--dns-search", "--dns-option", "-h", "--hostname", "--mac-address",
++                      "--network-alias", "--ip", "--ip6", "--expose", "--link")
++_port_holder_lock = threading.Lock()
++
++
++def _port_conflict(text: str) -> bool:
++    """docker run refused because a published host port is already taken."""
++    text = (text or "").lower()
++    return "port is already allocated" in text or "address already in use" in text
++
++
++def _without_published_ports(argv: list[str]) -> list[str]:
++    """``argv`` with every ``-p``/``--publish`` option removed."""
++    out, skip = [], False
++    for arg in argv:
++        if skip:
++            skip = False
++            continue
++        if arg in _PUBLISH_FLAGS:
++            skip = True
++            continue
++        if arg.startswith("--publish="):
++            continue
++        out.append(arg)
++    return out
++
++
++def _port_holder_split(argv: list[str]) -> tuple[list[str], Optional[str], list[str]]:
++    """``(publish_args, network, rest)``: the run args' ``-p`` options, their named network, and the args without
++    either. ``([], None, argv)`` when nothing is published or the container cannot share another's network."""
++    publish, network, rest, i = [], None, [], 0
++    while i < len(argv):
++        arg = argv[i]
++        if arg in _PUBLISH_FLAGS and i + 1 < len(argv):
++            publish += argv[i:i + 2]
++            i += 2
++            continue
++        if arg.startswith("--publish="):
++            publish.append(arg)
++        elif arg in ("--network", "--net") and i + 1 < len(argv):
++            network = argv[i + 1]
++            i += 2
++            continue
++        elif arg.startswith(("--network=", "--net=")):
++            network = arg.split("=", 1)[1]
++        elif arg in _OWN_NETWORK_FLAGS or arg.startswith(tuple(f"{f}=" for f in _OWN_NETWORK_FLAGS)):
++            return [], None, argv
++        else:
++            rest.append(arg)
++        i += 1
++    if not publish or not network or network in ("none", "host") or network.startswith("container:"):
++        return [], None, argv
++    return publish, network, rest
++
++
+ def _container_identity(shared_key: str = "") -> str:
+     """Profile label used for container reuse and orphan reaping. Profiles are isolated by default; an
+     explicit shared key lets trusted profiles share one Docker identity. Label sanitization is lossy
+@@ -733,11 +796,23 @@ class DockerEnvironment(BaseEnvironment):
+             "hermes-task-id": task_label,
+             "hermes-profile": profile_name,
+             _EGRESS_LABEL_KEY: egress_label}
++        # Zero: published ports go on the profile's port holder, and this container joins its network.
++        self._portless_run_args = _without_published_ports(all_run_args)
++        self._holder = None
++        holder_mark: list[str] = []
++        publish, holder_network, joined = _port_holder_split(all_run_args)
++        if publish:
++            holder = "zip-ports-" + re.sub(r"[^A-Za-z0-9_.-]", "-", profile_name)
++            spec = hashlib.sha256(json.dumps([publish, holder_network]).encode()).hexdigest()[:12]
++            self._holder = (holder, spec, publish, holder_network)
++            all_run_args = [*joined, "--network", f"container:{holder}"]
++            # In the reuse identity, so a container that published the ports itself is never reused.
++            holder_mark = [f"<port-holder>:{holder}:{spec}"]
+         # Explicit sharing opts into the first creator's settings. Otherwise,
+         # changed image/mount/home configuration must start a fresh container.
+         if not shared_container_key:
+             self._labels[_ENVIRONMENT_LABEL_KEY] = _reuse_environment_fingerprint(
+-                image=image, mount_args=[*writable_args, *volume_args],
++                image=image, mount_args=[*writable_args, *volume_args, *holder_mark],
+                 hermes_home=str(get_hermes_home()))
+         # Saved for container recreation on "No such container" recovery.
+         self._image = image
+@@ -984,13 +1059,63 @@ class DockerEnvironment(BaseEnvironment):
+ 
+     def _start_container(self, container_id: str) -> Exception | None:
+         """``docker start`` a stopped container; returns the failure instead of raising."""
++        if getattr(self, "_holder", None) is not None and not self._ensure_port_holder():
++            return RuntimeError(f"the port holder {self._holder[0]} is not running")
+         try:
+             run_capture([self._docker_exe, "start", container_id], timeout=30, check=True)
+             return None
+         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+             return e
+ 
+-    def _run_command(self, name: str, workdir: str) -> list[str]:
++    def _ensure_port_holder(self) -> bool:
++        """Start this profile's port holder, making it when it is missing or was made for other ports. True once
++        it runs."""
++        name, spec, publish, network = self._holder
++        exe = self._docker_exe
++        with _port_holder_lock:
++            probe = run_capture([exe, "inspect", "-f", "{{.State.Running}} {{index .Config.Labels \"%s\"}}"
++                                 % _PORT_HOLDER_LABEL, name], timeout=10)
++            if probe.returncode == 0:
++                running, _, made_for = probe.stdout.strip().partition(" ")
++                if made_for == spec and (running == "true" or run_capture(
++                        [exe, "start", name], timeout=30).returncode == 0):
++                    return True
++                logger.warning("Replacing port holder %s: it was made for other ports or would not start.", name)
++                run_capture([exe, "rm", "-f", name], timeout=30)
++            for attempt in (1, 2):
++                made = run_capture(
++                    [exe, "run", "-d", "--name", name, "--label", f"{_PORT_HOLDER_LABEL}={spec}",
++                     "--restart", "unless-stopped", "--init", "--cap-drop", "ALL",
++                     "--security-opt", "no-new-privileges", *publish, "--network", network,
++                     "--entrypoint", "sleep", self._image, "infinity"], timeout=120)
++                if made.returncode == 0:
++                    logger.info("Started port holder %s (%s on %s)", name, " ".join(publish[1::2]), network)
++                    return True
++                run_capture([exe, "rm", "-f", name], timeout=30)
++                if attempt == 1 and _port_conflict(made.stderr) and self._remove_port_publishers():
++                    continue
++                logger.warning("Could not start port holder %s: %s", name, made.stderr.strip()[-300:])
++                return False
++        return False
++
++    def _remove_port_publishers(self) -> bool:
++        """Remove this profile's containers that publish ports themselves, as every one made before the port
++        holder did. Their home and workspace are host mounts, so only the writable layer and any process left
++        running in them go. True if any went."""
++        exe, profile = self._docker_exe, self._labels.get("hermes-profile", "")
++        listed = run_capture([exe, "ps", "-aq", "--filter", "label=hermes-agent=1",
++                              "--filter", f"label=hermes-profile={profile}"], timeout=10)
++        removed = False
++        for cid in listed.stdout.split() if listed.returncode == 0 else []:
++            bound = run_capture([exe, "inspect", "-f", "{{json .HostConfig.PortBindings}}", cid], timeout=10)
++            if bound.returncode != 0 or bound.stdout.strip() in ("", "null", "{}"):
++                continue
++            logger.warning("Removing container %s of profile %s: it holds the preview ports its port holder needs.",
++                           cid[:12], profile)
++            removed = run_capture([exe, "rm", "-f", cid], timeout=30).returncode == 0 or removed
++        return removed
++
++    def _run_command(self, name: str, workdir: str, run_args: list[str] | None = None) -> list[str]:
+         """``docker run -d`` argv for a fresh ``sleep infinity`` container (idle reaper handles
+         lifetime). s6-overlay images already provide PID 1, so ``--init`` is skipped for them."""
+         label_args = [arg for k, v in self._labels.items() for arg in ("--label", f"{k}={v}")]
+@@ -1003,16 +1128,31 @@ class DockerEnvironment(BaseEnvironment):
+             "--name", name,
+             *label_args,
+             "-w", workdir,
+-            *self._all_run_args,
++            *(self._all_run_args if run_args is None else run_args),
+             self._image,
+             "sleep", "infinity"]
+ 
+     def _docker_run(self, cwd: str) -> str:
+-        """Start a fresh container and return its id. A failed ``docker run`` (exit 125, timeout
+-        mid-pull) can leave a "Created" orphan the exited-only reaper never catches, so it is
+-        removed by name before re-raising."""
++        """Start a fresh container and return its id. Without its port holder, or when another container holds
++        the ports, it starts without published ports rather than without a terminal (Taffy, Oct 10)."""
++        if getattr(self, "_holder", None) is not None and not self._ensure_port_holder():
++            logger.warning("Starting a container of profile %s without its preview ports.",
++                           self._labels.get("hermes-profile"))
++            return self._docker_run_once(cwd, self._portless_run_args)
++        try:
++            return self._docker_run_once(cwd)
++        except subprocess.CalledProcessError as e:
++            if not _port_conflict(f"{e.stderr or ''} {e.stdout or ''}"):
++                raise
++        logger.warning("Preview ports are in use by another container of this profile; starting "
++                       "this one without published ports (profile=%s).", self._labels.get("hermes-profile"))
++        return self._docker_run_once(cwd, getattr(self, "_portless_run_args", None))
++
++    def _docker_run_once(self, cwd: str, run_args: list[str] | None = None) -> str:
++        """One ``docker run``. A failed run (exit 125, timeout mid-pull) can leave a "Created" orphan the
++        exited-only reaper never catches, so it is removed by name before re-raising."""
+         container_name = f"hermes-{uuid.uuid4().hex[:8]}"
+-        run_cmd = self._run_command(container_name, cwd)
++        run_cmd = self._run_command(container_name, cwd, run_args)
+         logger.debug("Starting container: %s", ' '.join(run_cmd))
+         try:
+             result = run_capture(

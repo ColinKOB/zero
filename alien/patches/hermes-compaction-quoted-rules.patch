@@ -1,0 +1,89 @@
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+index b6c9623..c45d6cc 100644
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -2235,11 +2235,18 @@ cancelled task.
+ Example: "User asked to stop the prior task — earlier work is cancelled."
+ If no outstanding task exists, write "None."]""",
+         "goal": "[What the user is trying to accomplish overall]",
++        # Nov 1 2026 (Zero): the line above asked for "what to always or never do", so the summarizer wrote its own
++        # rules here. Two of Zero's summaries turned Colin's "Feel free to use my computer whenever you need to for
++        # stuff" into a Mac scope list that it said was not standing permission, and one declined sign-in into "never
++        # log in as Colin". Each update carried them forward, and the handoff says this section still applies. Now a
++        # rule here is the user's own words, quoted with a date, and anything else is marked as a note.
+         "constraints": (
+-            "[Every decision the user made and every standing preference about how to work (tone, format, tools, "
+-            "people, money, what to always or never do), one short line each with the date when known. These stay "
+-            "in force after compaction, so carry each one forward on every update until the user reverses it; a "
+-            "newer statement replaces the older one. Any security or safety constraint "
++            "[Each decision, rule or permission the user stated, as the user's own words in quotes with the date, "
++            "one per line, for example: Oct 28: \"Use my laptop whenever you need to.\" These stay in force after "
++            "compaction, so carry each one forward on every update until the user reverses it; a newer statement "
++            "replaces the older one. Never write a rule, limit or scope the user did not say, and never narrow or "
++            "override a permission the user gave. Declining one request is not a standing rule. Any other line here "
++            "must start with \"Assistant's note:\" and is never a rule. Any security or safety constraint "
+             "the user stated (files/data to avoid, operations that must not be performed, credential-handling rules) "
+             "MUST be quoted VERBATIM here so it continues to apply after compaction — never paraphrase those.]"
+         ),
+@@ -4312,7 +4319,7 @@ PREVIOUS SUMMARY:
+ NEW TURNS TO INCORPORATE:
+ {content_to_summarize}{_memory_section}
+ 
+-Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. Carry every item under "{DECISIONS_HEADING}" forward unless the new turns show the user reversed it. Keep "Completed Actions" to the most recent work; older items are in session history. CRITICAL: Update "{HISTORICAL_TASK_HEADING}" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
++Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. Carry each quoted, dated line under "{DECISIONS_HEADING}" forward unless the new turns show the user reversed it. A line there that is not the user's quoted words came from an earlier summary, not from the user. Drop it if it is a rule, limit or scope; otherwise keep it as an "Assistant's note:" line. Keep "Completed Actions" to the most recent work; older items are in session history. CRITICAL: Update "{HISTORICAL_TASK_HEADING}" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
+ 
+ {_template_sections}"""
+         else:
+diff --git a/tests/agent/test_compaction_quoted_rules.py b/tests/agent/test_compaction_quoted_rules.py
+new file mode 100644
+index 0000000..d5e6adc
+--- /dev/null
++++ b/tests/agent/test_compaction_quoted_rules.py
+@@ -0,0 +1,47 @@
++"""A compaction summary keeps the person's rules in their own words and never writes rules of its own (Zero, Nov 1 2026).
++
++Two of Zero's summaries wrote rules Colin never said into "Decisions & Standing Preferences": a scope list for his Mac
++that called "Feel free to use my computer whenever you need to for stuff" not standing permission, and "never log in as
++Colin" from one declined sign-in. The handoff says that section still applies, and each update carried them forward.
++"""
++
++from unittest.mock import patch
++
++from agent.compaction_floor import DECISIONS_HEADING
++from agent.context_compressor import ContextCompressor
++
++
++def _compressor(previous_summary=None):
++    with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000):
++        compressor = ContextCompressor(model="claude-opus-5-5", protect_last_n=30, quiet_mode=True)
++    compressor.threshold_tokens = 200_000
++    compressor._previous_summary = previous_summary
++    return compressor
++
++
++def _decisions_instructions(prompt):
++    return prompt.split(DECISIONS_HEADING + "\n", 1)[1].split("\n\n## ", 1)[0]
++
++
++def test_a_rule_is_the_persons_quoted_dated_words_and_anything_else_is_a_note():
++    text = _decisions_instructions(_compressor()._build_summary_prompt("turns", 2000, None, "", True))
++    assert "as the user's own words in quotes with the date" in text
++    assert "Never write a rule, limit or scope the user did not say" in text
++    assert "never narrow or override a permission the user gave" in text
++    assert "Declining one request is not a standing rule." in text
++    assert "must start with \"Assistant's note:\" and is never a rule" in text
++    assert "what to always or never do" not in text
++    assert "VERBATIM" in text   # security constraints are still quoted word for word
++
++
++def test_an_update_drops_rules_an_earlier_summary_made_up():
++    previous = f"{DECISIONS_HEADING}\n- Mac opens only on a specific Mac request.\n"
++    prompt = _compressor(previous)._build_summary_prompt("turns", 2000, None, "", True)
++    assert f'Carry each quoted, dated line under "{DECISIONS_HEADING}" forward' in prompt
++    assert "came from an earlier summary, not from the user. Drop it if it is a rule, limit or scope" in prompt
++    assert "Carry every item under" not in prompt
++
++
++def test_a_chat_with_no_user_turns_still_invents_no_preferences():
++    text = _decisions_instructions(_compressor()._build_summary_prompt("turns", 2000, None, "", False))
++    assert "Do not invent user preferences." in text

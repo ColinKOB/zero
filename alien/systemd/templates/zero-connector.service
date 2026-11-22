@@ -1,0 +1,19 @@
+# Zero's connector: a remote MCP server for always-on agents (ChatGPT's dots, Grok Bot, Claude, Cursor), built
+# Nov 6 2026 (alien/connector). A user unit of the owner. Listens on loopback; zero-connector-tunnel.service publishes
+# it. Code: ~/taffy/connector (alien/connector/install.sh). State: ~/.local/share/zero-connector/connector.db.
+# ~/.config/zero-connector/env sets ZERO_CONNECTOR_URL, the public address agents use.
+[Unit]
+Description=Zero connector (MCP for outside agents)
+After=network-online.target taffy-hub.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/taffy/connector
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/zero-connector/env
+ExecStart=%h/taffy/connector/.venv/bin/python -m zero_connector serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,541 @@
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+index affc0a0..ce6f4b9 100644
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -39,6 +39,7 @@ from agent.micro_compaction import MicroCompactionMixin
+ from agent.prompt_builder import STEER_DISPLAY_KIND
+ from agent.model_metadata import (
+     CHARS_PER_TOKEN, MINIMUM_CONTEXT_LENGTH, get_model_context_length, estimate_messages_tokens_rough, estimate_tokens_rough,
++    scale_tokens,
+     strip_opaque_replay_items,
+ )
+ from agent.redact import redact_sensitive_text
+@@ -1347,7 +1348,8 @@ def _reasoning_details_text_chars(value: Any) -> int:
+ 
+ 
+ def _estimate_msg_budget_tokens(msg: dict, charge_stale_thinking: bool = True) -> int:
+-    """Token estimate for one message in the tail-protection budget walks.
++    """Token estimate for one message in the tail-protection budget walks, in the bound model's real tokens
++    (``agent.text_token_scale``), the units the trigger estimate uses.
+     Counts content, the full ``tool_call`` envelope (arguments-only undercounted parallel-call turns by 2-15x),
+     and always-replayed provider fields. Always-replayed fields are charged because the preflight estimator sees
+     the full shape; a mismatched size class protects blob-heavy rows as "small" and compaction re-fires.
+@@ -1362,7 +1364,7 @@ def _estimate_msg_budget_tokens(msg: dict, charge_stale_thinking: bool = True) -
+         # Opaque ciphertext is priced only by real usage (same rule as the preflight estimator).
+         tokens += _serialized_length_for_budget(strip_opaque_replay_items(msg.get(key))) // _CHARS_PER_TOKEN
+     if not charge_stale_thinking:
+-        return tokens
++        return scale_tokens(tokens)
+     # Wire ships at most ONE generic thinking key (reasoning_content wins);
+     # charging both double-counts on echo-back providers.
+     _rc = msg.get("reasoning_content")
+@@ -1378,7 +1380,7 @@ def _estimate_msg_budget_tokens(msg: dict, charge_stale_thinking: bool = True) -
+     # top of the envelope exclusion. See #73298.
+     if not (msg.get("reasoning") or msg.get("reasoning_content")):
+         tokens += _reasoning_details_text_chars(msg.get("reasoning_details")) // _CHARS_PER_TOKEN
+-    return tokens
++    return scale_tokens(tokens)
+ 
+ 
+ def _last_index_with_role(messages: "List[Dict[str, Any]]", role: str) -> int:
+diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
+index e6da185..8143302 100644
+--- a/agent/conversation_loop.py
++++ b/agent/conversation_loop.py
+@@ -19,7 +19,7 @@ from agent.codex_responses_adapter import _summarize_user_message_for_log
+ from agent.fast_mode import begin_turn as begin_fast_mode_turn
+ from agent.message_metadata import append_message, without_persistence_fields
+ from agent.message_sanitization import _repair_tool_call_arguments, _sanitize_surrogates
+-from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, _estimate_tools_tokens_rough
++from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, _estimate_tools_tokens_rough, scale_tokens
+ from agent.process_bootstrap import _install_safe_stdio
+ from agent.prompt_builder import RUNTIME_ENVIRONMENT_END, RUNTIME_ENVIRONMENT_HEADING
+ from agent.prompt_caching import (
+@@ -104,7 +104,7 @@ def _midturn_request_pressure_tokens(
+             "native Responses mid-turn estimate unavailable; using generic transcript estimate",
+             exc_info=True,
+         )
+-    return approx_tokens + (_estimate_tools_tokens_rough(agent.tools) if agent.tools else 0)
++    return approx_tokens + (scale_tokens(_estimate_tools_tokens_rough(agent.tools)) if agent.tools else 0)
+ 
+ 
+ def _review_input_budget_exhausted(agent: Any) -> bool:
+diff --git a/agent/model_metadata.py b/agent/model_metadata.py
+index 00c6193..0c9be2b 100644
+--- a/agent/model_metadata.py
++++ b/agent/model_metadata.py
+@@ -2367,6 +2367,10 @@ async def get_model_context_length_async(model: str, base_url: str = "", api_key
+         config_context_length=config_context_length, provider=provider, custom_providers=custom_providers)
+ 
+ 
++# Rough text tokens in the bound model's real tokens (learned from provider usage); imported once at load because the
++# per-message estimator below runs on every history row of every preflight walk.
++from agent.text_token_scale import scale_tokens  # noqa: E402
++
+ # CJK/Hangul/Kana codepoints (~1 token each), counted in one C-level regex pass: Hangul
+ # Jamo (+Ext-A), CJK radicals/ideographs (+compat), Hangul syllables, fullwidth/halfwidth.
+ # Rough chars-per-token ratio for ASCII text; the single source for every "N tokens ≈ N*4 chars"
+@@ -2491,8 +2495,9 @@ def _msg_fingerprint(value: Any, pins: list) -> Any:
+ 
+ 
+ def _estimate_message_tokens_cached(msg: Any, image_cost: int) -> int:
+-    """Text tokens + images x ``image_cost``; the memo holds text and image COUNT so a recalibrated
+-    per-image price re-prices cached rows without invalidating them."""
++    """Text tokens (in the bound model's real tokens, ``agent.text_token_scale``) + images x ``image_cost``; the
++    memo holds unscaled text and image COUNT so a recalibrated scale or per-image price re-prices cached rows
++    without invalidating them."""
+     def _compute() -> Tuple[int, int]:
+         return _estimate_message_tokens_without_images(msg), _count_image_tokens(msg, 1)
+     try:
+@@ -2504,12 +2509,12 @@ def _estimate_message_tokens_cached(msg: Any, image_cost: int) -> int:
+         hash(key)
+     except Exception:
+         text, images = _compute()
+-        return text + images * image_cost
++        return scale_tokens(text) + images * image_cost
+     cached = _MSG_TOKENS_CACHE.get(key)
+     if cached is not None:
+-        return cached[1] + cached[2] * image_cost
++        return scale_tokens(cached[1]) + cached[2] * image_cost
+     text, images = _compute()
+-    tokens = text + images * image_cost
++    tokens = scale_tokens(text) + images * image_cost
+     _MSG_TOKENS_CACHE[key] = (pins, text, images)
+     while len(_MSG_TOKENS_CACHE) > _MSG_TOKENS_CACHE_MAX:
+         try:
+@@ -2616,14 +2621,15 @@ def estimate_request_tokens_rough(
+     messages: List[Dict[str, Any]], *, system_prompt: str = "", tools: Optional[List[Dict[str, Any]]] = None, charge_stale_thinking: bool = True,
+ ) -> int:
+     """Rough token estimate for a full request: system prompt + messages + tool schemas (50+ tools
+-    add 20-30K on their own). ``charge_stale_thinking`` is forwarded — pass False when the route
+-    provably strips stale thinking (``message_sanitization.stale_thinking_reaches_wire``)."""
+-    total = estimate_tokens_rough(system_prompt) if system_prompt else 0
++    add 20-30K on their own), in the bound model's real tokens (``agent.text_token_scale``).
++    ``charge_stale_thinking`` is forwarded — pass False when the route provably strips stale thinking
++    (``message_sanitization.stale_thinking_reaches_wire``)."""
++    total = scale_tokens(estimate_tokens_rough(system_prompt)) if system_prompt else 0
+     if messages:
+         # Positional call: test seams and plugin engines monkeypatch estimate_messages_tokens_rough with (messages)-only signatures.
+         total += estimate_messages_tokens_rough(messages) if charge_stale_thinking else estimate_messages_tokens_rough(messages, charge_stale_thinking=False)
+     if tools:
+-        total += _estimate_tools_tokens_rough(tools)
++        total += scale_tokens(_estimate_tools_tokens_rough(tools))
+     return total
+ 
+ 
+diff --git a/agent/text_token_scale.py b/agent/text_token_scale.py
+new file mode 100644
+index 0000000..716b8a3
+--- /dev/null
++++ b/agent/text_token_scale.py
+@@ -0,0 +1,155 @@
++"""Real tokens per estimated text token, learned per model from the provider's own usage (Zero, Oct 28 2026).
++
++Every rough estimate counts text at ``CHARS_PER_TOKEN`` (4) bytes a token, which fits the GPT tokenizers it was
++calibrated on. Claude Opus 5.5 spends a token on about 2.8 characters of the same text, so Hermes counted Zero's
++real 149,745-token request as 101,341: 13.1k real for a system prompt it counted as 9.7k, 60k for 122 tool schemas it
++counted as 39.8k, and 76k for history it counted as 51.8k. The usage anchor kept the compaction trigger honest, but
++every figure without an anchor (the compactor's tail and reclaim budgets, the request after a compaction, gateway
++hygiene) was about a third too small, so a compaction planned to leave room left much less of it.
++
++The provider prices each request exactly, so the ratio is observable: on a turn's first response, real prompt
++tokens over the unscaled estimate of the request just sent. It is learned per ``model@host``, kept in
++``<home>/cache/text_token_scales.json`` so a new session starts calibrated, and bound per turn through a ContextVar
++(as ``agent.image_token_cost`` binds the image price) so the trigger, the anchored delta, the compactor's budget walk
++and gateway hygiene all count in the same, real units.
++"""
++
++from __future__ import annotations
++
++import contextlib
++import logging
++from contextvars import ContextVar
++from typing import Any, Dict, List, Optional
++
++logger = logging.getLogger(__name__)
++
++DEFAULT_TEXT_TOKEN_SCALE = 1.0
++# A ratio outside this band is a broken reading (a truncated usage block, a request the estimate never saw), not
++# a tokenizer.
++_MIN_PLAUSIBLE, _MAX_PLAUSIBLE = 0.5, 3.0
++# Tiny requests are mostly fixed wrapper text the estimate cannot see; they would teach a ratio that is too high.
++_MIN_CALIBRATION_TOKENS = 2_000
++_EMA_ALPHA = 0.3
++
++_scale_var: ContextVar[Optional[float]] = ContextVar("hermes_text_token_scale", default=None)
++_LEARNED: Dict[str, float] = {}
++_LOADED = False
++_LEARNED_BY_HOME: Dict[str, Dict[str, float]] = {}
++
++
++def _cache_path():
++    from agent.model_metadata import _cache_file
++
++    return _cache_file("text_token_scales.json")
++
++
++def _key(model: Any, base_url: Any) -> str:
++    from utils import base_url_hostname
++
++    return f"{model or ''}@{base_url_hostname(base_url or '') or ''}"
++
++
++def _read_cache() -> Dict[str, float]:
++    from agent.model_metadata import _load_json_dict
++
++    return {k: float(v) for k, v in _load_json_dict(_cache_path()).items()
++            if isinstance(v, (int, float)) and not isinstance(v, bool) and _MIN_PLAUSIBLE <= v <= _MAX_PLAUSIBLE}
++
++
++def _table() -> Dict[str, float]:
++    """The active profile's learned table, loaded lazily from its own cache file (a multiplexed gateway serves
++    several homes, as in ``agent.image_token_cost``)."""
++    global _LOADED
++    from hermes_constants import get_hermes_home_override, hermes_home_key
++
++    if get_hermes_home_override() is None:
++        if not _LOADED:
++            _LOADED = True
++            _LEARNED.update(_read_cache())
++        return _LEARNED
++    home_key = hermes_home_key()
++    table = _LEARNED_BY_HOME.get(home_key)
++    if table is None:
++        table = _LEARNED_BY_HOME[home_key] = _read_cache()
++    return table
++
++
++def learned_text_token_scale(model: Any, base_url: Any) -> float:
++    """Learned scale for ``model@host``, else 1.0 (the plain estimate)."""
++    return _table().get(_key(model, base_url), DEFAULT_TEXT_TOKEN_SCALE)
++
++
++def current_text_token_scale() -> float:
++    bound = _scale_var.get()
++    return bound if bound is not None else DEFAULT_TEXT_TOKEN_SCALE
++
++
++def scale_tokens(tokens: int) -> int:
++    """``tokens`` of rough text estimate in the bound model's real tokens."""
++    scale = current_text_token_scale()
++    return tokens if scale == 1.0 else int(tokens * scale + 0.5)
++
++
++@contextlib.contextmanager
++def text_scale_context(scale: Optional[float]):
++    token = _scale_var.set(scale)
++    try:
++        yield
++    finally:
++        _scale_var.reset(token)
++
++
++def bind_text_token_scale(agent: Any) -> None:
++    """Bind the agent's learned scale to the current context for the rest of the turn."""
++    _scale_var.set(learned_text_token_scale(getattr(agent, "model", None), getattr(agent, "base_url", None)))
++
++
++def calibrate_from_usage(agent: Any, messages: List[Dict[str, Any]], prompt_tokens: Any) -> Optional[float]:
++    """Learn the scale from the response that just priced ``messages`` with the agent's system prompt and tools.
++
++    Call it for a turn's first response only: later ones also carry that turn's own replayed thinking, which no
++    estimate sees. A request with images teaches nothing (their price is learned separately). The next turn's
++    binding picks the new value up. Returns the new learned scale, or None; never raises."""
++    try:
++        return _calibrate(agent, messages, prompt_tokens)
++    except Exception:
++        logger.debug("text token scale calibration failed", exc_info=True)
++        return None
++
++
++def _calibrate(agent: Any, messages: List[Dict[str, Any]], prompt_tokens: Any) -> Optional[float]:
++    from agent.image_token_cost import count_images
++    from agent.model_metadata import estimate_request_tokens_rough
++
++    system, tools = getattr(agent, "_cached_system_prompt", None) or "", getattr(agent, "tools", None) or None
++    model, base_url = getattr(agent, "model", None), getattr(agent, "base_url", None)
++    try:
++        real = int(prompt_tokens or 0)
++    except (TypeError, ValueError):
++        return None
++    if (real <= 0 or not isinstance(messages, list) or not messages or not isinstance(system, str)
++            or not isinstance(tools, (list, type(None))) or not isinstance(model, str) or not model
++            or not isinstance(base_url, (str, type(None))) or count_images(messages)):
++        return None
++    with text_scale_context(DEFAULT_TEXT_TOKEN_SCALE):
++        rough = estimate_request_tokens_rough(messages, system_prompt=system, tools=tools)
++    if rough < _MIN_CALIBRATION_TOKENS:
++        return None
++    observed = real / rough
++    if not _MIN_PLAUSIBLE <= observed <= _MAX_PLAUSIBLE:
++        return None
++    key = _key(model, base_url)
++    table = _table()
++    prior = table.get(key)
++    learned = round(observed if prior is None else prior + _EMA_ALPHA * (observed - prior), 4)
++    table[key] = learned
++    try:
++        from utils import atomic_json_write
++
++        atomic_json_write(_cache_path(), dict(table), indent=0, separators=(",", ":"))
++    except Exception:
++        logger.debug("text token scale persist failed", exc_info=True)
++    if prior is None or abs(learned - prior) >= 0.02:
++        logger.info("Text token scale calibrated from provider usage: %s real for %s estimated (learned %.3f for %s)",
++                    f"{real:,}", f"{rough:,}", learned, key)
++    return learned
+diff --git a/agent/turn_context.py b/agent/turn_context.py
+index 4c0b41b..85bb826 100644
+--- a/agent/turn_context.py
++++ b/agent/turn_context.py
+@@ -29,6 +29,7 @@ from agent.model_metadata import (
+     estimate_request_tokens_rough,
+ )
+ from agent.image_token_cost import bind_image_token_cost
++from agent.text_token_scale import bind_text_token_scale
+ from agent.usage_anchor import anchored_context_tokens, restore_usage_anchor
+ from agent.turn_author import parse_turn_author
+ 
+@@ -1065,8 +1066,10 @@ def build_turn_context(
+         persist_user_platform_id, persist_user_display_kind, persist_user_display_metadata,
+     )
+     _hydrate_from_history(agent, conversation_history)
+-    # Every estimator this turn prices images at the cost learned from this model's real usage.
++    # Every estimator this turn prices images at the cost learned from this model's real usage, and text at the
++    # model's learned real tokens per estimated token.
+     bind_image_token_cost(agent)
++    bind_text_token_scale(agent)
+     # Append the user message now that close persistence is safe.
+     append_message(messages, user_msg)
+     current_turn_user_idx = len(messages) - 1
+diff --git a/agent/turn_usage.py b/agent/turn_usage.py
+index 7c4fb53..c941c77 100644
+--- a/agent/turn_usage.py
++++ b/agent/turn_usage.py
+@@ -16,6 +16,7 @@ from dataclasses import dataclass
+ from typing import Any, Dict, List
+ 
+ from agent.image_token_cost import calibrate_from_usage
++from agent.text_token_scale import calibrate_from_usage as calibrate_text_scale_from_usage
+ from agent.usage_anchor import capture_usage_anchor, set_usage_anchor
+ from agent.usage_pricing import estimate_usage_cost, normalize_usage, with_served_service_tier
+ 
+@@ -131,6 +132,10 @@ def record_response_usage(
+     # The provider just priced this request exactly: if the delta since the previous anchor
+     # introduced images, the residual is their real per-image cost (learned before re-anchoring).
+     calibrate_from_usage(agent, messages, aggregator_usage.prompt_tokens)
++    if api_call_count == 1:
++        # Real tokens per estimated token for this model (agent.text_token_scale). Only a turn's first response:
++        # later ones also carry the turn's own replayed thinking.
++        calibrate_text_scale_from_usage(agent, messages, aggregator_usage.prompt_tokens)
+     _new_anchor = capture_usage_anchor(
+         aggregator_usage.prompt_tokens, aggregator_usage.output_tokens, messages
+     )
+diff --git a/gateway/platforms/api_server_idle_compaction.py b/gateway/platforms/api_server_idle_compaction.py
+index 3861322..2086cd7 100644
+--- a/gateway/platforms/api_server_idle_compaction.py
++++ b/gateway/platforms/api_server_idle_compaction.py
+@@ -69,22 +69,25 @@ async def foreground(owner, session_id):
+ 
+ 
+ def reclaimable_tokens(compressor, messages):
+-    """Rough tokens a compaction would take out of the request now: the summarizable middle, less the summary that
+-    replaces it at its hard cap (agent/compaction_floor.py). No model call; the tail's slimming is extra. ``None``
+-    for a context engine without the built-in compressor's window."""
++    """Tokens a compaction would take out of the request now: the summarizable middle, less the summary that
++    replaces it at its hard cap (agent/compaction_floor.py), both in the model's real tokens. No model call; the
++    tail's slimming is extra. ``None`` for a context engine without the built-in compressor's window."""
+     from agent.compaction_floor import CHARS_PER_TOKEN, summary_cap_chars
+-    from agent.model_metadata import estimate_messages_tokens_rough
++    from agent.model_metadata import estimate_messages_tokens_rough, scale_tokens
+     if not callable(getattr(compressor, "_compress_window", None)):
+         return None
+     start, end = compressor._compress_window(messages)
+     if start >= end:
+         return 0
+     middle = estimate_messages_tokens_rough(messages[start:end])
+-    return middle - summary_cap_chars(compressor.threshold_tokens) // CHARS_PER_TOKEN
++    return middle - scale_tokens(summary_cap_chars(compressor.threshold_tokens) // CHARS_PER_TOKEN)
+ 
+ 
+ def eligible(agent, messages):
++    from agent.text_token_scale import bind_text_token_scale
+     from agent.turn_context import _preflight_request_tokens
++    # Outside a turn nothing has bound the model's scale; _compact's compaction runs after this in the same context.
++    bind_text_token_scale(agent)
+     compressor = getattr(agent, "context_compressor", None)
+     if (not getattr(agent, "compression_enabled", False) or compressor is None
+             or getattr(agent, "_persist_disabled", False)
+diff --git a/gateway/run_turn.py b/gateway/run_turn.py
+index c8e6f03..68a233e 100644
+--- a/gateway/run_turn.py
++++ b/gateway/run_turn.py
+@@ -753,9 +753,12 @@ class GatewayTurnMixin:
+         # rough estimate (runs 30-50% high, which only fires hygiene early — safe). Do NOT compensate
+         # with a threshold multiplier.
+         from agent.image_token_cost import image_cost_context, learned_image_token_cost
++        from agent.text_token_scale import learned_text_token_scale, text_scale_context
+         _anchored = None
+-        # Images in any local delta/estimate are priced at the cost learned from this model's usage.
+-        with image_cost_context(learned_image_token_cost(hs.model, hs.base_url)):
++        # Images in any local delta/estimate are priced at the cost learned from this model's usage, and text at
++        # its learned real tokens per estimated token.
++        with image_cost_context(learned_image_token_cost(hs.model, hs.base_url)), \
++                text_scale_context(learned_text_token_scale(hs.model, hs.base_url)):
+             if session_entry.last_prompt_tokens <= 0:
+                 from agent.usage_anchor import persisted_anchor_tokens
+                 _session_db = getattr(self, "_session_db", None)
+diff --git a/tests/agent/test_text_token_scale.py b/tests/agent/test_text_token_scale.py
+new file mode 100644
+index 0000000..c2b2ca1
+--- /dev/null
++++ b/tests/agent/test_text_token_scale.py
+@@ -0,0 +1,123 @@
++"""Real tokens per estimated token, learned from provider usage (agent/text_token_scale.py, Zero, Oct 28 2026).
++
++Zero's chat on Oct 28 sent a request Claude Opus 5.5 priced at 149,745 tokens (10:47 a.m. request dump, sent again at
++11:42). Hermes estimated the same request at 101,341: system prompt 9,734 (real 13.1k), 122 tool schemas 39,801 (real
++about 60k), history 51,806 (real about 76k). Every part was short by the same factor because the estimate counts 4
++characters a token and this tokenizer spends one on about 2.8.
++"""
++
++from types import SimpleNamespace
++
++import pytest
++
++from agent import text_token_scale as tts
++from agent.context_compressor import _estimate_msg_budget_tokens
++from agent.model_metadata import estimate_messages_tokens_rough, estimate_request_tokens_rough
++
++REAL_PROMPT_TOKENS = 149_745
++OPUS = SimpleNamespace(model="opus", base_url="process://claude-subscription-directsdk-experimental")
++
++
++def _isolate(monkeypatch, tmp_path):
++    monkeypatch.setattr(tts, "_LEARNED", {})
++    monkeypatch.setattr(tts, "_LOADED", True)
++    monkeypatch.setattr(tts, "_LEARNED_BY_HOME", {})
++    monkeypatch.setattr(tts, "_cache_path", lambda: tmp_path / "text_token_scales.json")
++
++
++def _zero_request():
++    """A request with the estimated sizes of Zero's real one: 9,734 system, 39,801 tools, about 51.8k history."""
++    system = "s" * (9_734 * 4)
++    tools = [{"type": "function", "function": {"name": "t", "description": "d" * (39_801 * 4 - 3), "parameters": {}}}]
++    messages = [{"role": "user", "content": "summary " * 14_000},
++                {"role": "assistant", "content": "reply " * 4_000},
++                {"role": "user", "content": "turn " * 14_000}]
++    return system, tools, messages
++
++
++def _agent(system, tools, **extra):
++    return SimpleNamespace(**vars(OPUS), _cached_system_prompt=system, tools=tools, **extra)
++
++
++def test_zeros_real_request_is_counted_in_real_tokens_after_one_reading(monkeypatch, tmp_path):
++    _isolate(monkeypatch, tmp_path)
++    system, tools, messages = _zero_request()
++    with tts.text_scale_context(None):
++        rough = estimate_request_tokens_rough(messages, system_prompt=system, tools=tools)
++        assert rough == pytest.approx(101_341, rel=0.01)
++        learned = tts.calibrate_from_usage(_agent(system, tools), messages, REAL_PROMPT_TOKENS)
++        assert learned == pytest.approx(1.478, abs=0.01)
++        tts.bind_text_token_scale(OPUS)   # the next turn's binding
++        counted = estimate_request_tokens_rough(messages, system_prompt=system, tools=tools)
++    assert counted == pytest.approx(REAL_PROMPT_TOKENS, rel=0.005)
++
++
++def test_the_compactor_walk_counts_in_the_same_units_as_the_trigger(monkeypatch, tmp_path):
++    """A trigger in real tokens over a tail walk in rough ones would never see a compaction get under it."""
++    _isolate(monkeypatch, tmp_path)
++    row = {"role": "user", "content": "kept turn " * 2_000}
++    with tts.text_scale_context(None):
++        plain_walk, plain_estimate = _estimate_msg_budget_tokens(row), estimate_messages_tokens_rough([row])
++    with tts.text_scale_context(1.5):
++        assert _estimate_msg_budget_tokens(row) == pytest.approx(plain_walk * 1.5, abs=1)
++        assert estimate_messages_tokens_rough([row]) == pytest.approx(plain_estimate * 1.5, abs=1)
++
++
++def test_a_fresh_process_starts_calibrated_for_that_model_only(monkeypatch, tmp_path):
++    _isolate(monkeypatch, tmp_path)
++    system, tools, messages = _zero_request()
++    with tts.text_scale_context(None):
++        tts.calibrate_from_usage(_agent(system, tools), messages, REAL_PROMPT_TOKENS)
++    monkeypatch.setattr(tts, "_LEARNED", {})
++    monkeypatch.setattr(tts, "_LEARNED_BY_HOME", {})
++    monkeypatch.setattr(tts, "_LOADED", False)
++    assert tts.learned_text_token_scale(OPUS.model, OPUS.base_url) == pytest.approx(1.478, abs=0.01)
++    assert tts.learned_text_token_scale("gpt-6.1-sol", "https://chatgpt.com/backend-api/codex") == 1.0
++
++
++def test_later_readings_move_the_scale_part_way(monkeypatch, tmp_path):
++    _isolate(monkeypatch, tmp_path)
++    system, tools, messages = _zero_request()
++    agent = _agent(system, tools)
++    with tts.text_scale_context(None):
++        rough = estimate_request_tokens_rough(messages, system_prompt=system, tools=tools)
++        first = tts.calibrate_from_usage(agent, messages, int(rough * 1.4))
++        second = tts.calibrate_from_usage(agent, messages, int(rough * 1.6))
++    assert first == pytest.approx(1.4, abs=0.001)
++    assert second == pytest.approx(1.4 + 0.3 * 0.2, abs=0.002)
++
++
++def test_an_agent_double_teaches_nothing_and_never_raises(monkeypatch, tmp_path):
++    """Usage recording runs for every response; a test double's attributes are not a request."""
++    from unittest.mock import MagicMock
++
++    _isolate(monkeypatch, tmp_path)
++    _, _, messages = _zero_request()
++    with tts.text_scale_context(None):
++        assert tts.calibrate_from_usage(MagicMock(), messages, REAL_PROMPT_TOKENS) is None
++    assert not (tmp_path / "text_token_scales.json").exists()
++
++
++def test_images_tiny_requests_and_broken_readings_teach_nothing(monkeypatch, tmp_path):
++    _isolate(monkeypatch, tmp_path)
++    system, tools, messages = _zero_request()
++    agent = _agent(system, tools)
++    image = {"role": "user", "content": [{"type": "text", "text": "look"},
++             {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 4000}}]}
++    with tts.text_scale_context(None):
++        assert tts.calibrate_from_usage(agent, [*messages, image], REAL_PROMPT_TOKENS) is None
++        assert tts.calibrate_from_usage(_agent("", None), [{"role": "user", "content": "hi"}], 900) is None
++        assert tts.calibrate_from_usage(agent, messages, 1_000) is None
++        assert tts.calibrate_from_usage(agent, messages, 0) is None
++        assert tts.current_text_token_scale() == 1.0
++    assert not (tmp_path / "text_token_scales.json").exists()
++
++
++def test_an_unbound_context_counts_as_before(monkeypatch, tmp_path):
++    """Routes never calibrated, and code outside a turn, keep the plain estimate."""
++    _isolate(monkeypatch, tmp_path)
++    system, tools, messages = _zero_request()
++    with tts.text_scale_context(None):
++        plain = estimate_request_tokens_rough(messages, system_prompt=system, tools=tools)
++        tts.bind_text_token_scale(OPUS)
++        assert estimate_request_tokens_rough(messages, system_prompt=system, tools=tools) == plain
+diff --git a/tests/conftest.py b/tests/conftest.py
+index afbbeb2..4475e77 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -428,6 +428,20 @@ def _reset_foreground_exit_fence():
+         base._exit_fenced = False
+ 
+ 
++@pytest.fixture(autouse=True)
++def _fresh_text_token_scale(monkeypatch):
++    """Every test starts with no learned text scale (agent/text_token_scale.py): one test's made-up usage must not
++    rescale the next test's estimates, and a turn's binding must not outlive its test."""
++    from agent import text_token_scale
++
++    monkeypatch.setattr(text_token_scale, "_LEARNED", {})
++    monkeypatch.setattr(text_token_scale, "_LEARNED_BY_HOME", {})
++    monkeypatch.setattr(text_token_scale, "_LOADED", True)
++    token = text_token_scale._scale_var.set(None)
++    yield
++    text_token_scale._scale_var.reset(token)
++
++
+ @pytest.fixture(autouse=True)
+ def _neutralize_kanban_memory_guard(request, monkeypatch):
+     """Pin the kanban dispatcher's memory guard to "no data" for every test.

@@ -1,0 +1,61 @@
+--- a/agent/turn_api_call.py
++++ b/agent/turn_api_call.py
+@@ -44,17 +44,30 @@
+     interrupted: Any
+ 
+ 
++def _streams_chunks(provider: Any) -> bool:
++    """An external-process provider the operator names in HERMES_STREAMING_PROCESS_PROVIDERS
++    (comma-separated) returns chunk iterators for stream=True, so it streams like an HTTP provider.
++    Taffy, Oct 29 2026: the Claude plan plugin streams, and leaving it off held every chat reply
++    until the turn ended."""
++    import os
++
++    names = {n.strip().lower() for n in os.environ.get("HERMES_STREAMING_PROCESS_PROVIDERS", "").split(",")}
++    return str(provider or "").strip().lower() in names - {""}
++
++
+ def _should_stream(agent: Any) -> bool:
+     """Streaming is preferred even without consumers (stale-stream / read-timeout health
+     checks); disabled on provider signal, ACP providers (``acp://`` scheme or an
+-    external-process provider profile), MoA without a display consumer, or Mock clients in
+-    tests (SimpleNamespace, not stream iterators)."""
++    external-process provider profile not named in HERMES_STREAMING_PROCESS_PROVIDERS), MoA
++    without a display consumer, or Mock clients in tests (SimpleNamespace, not stream iterators)."""
+     if getattr(agent, "_disable_streaming", False):
+         return False
+     _base = str(agent.base_url or "").lower()
+     from hermes_cli.runtime_provider_backends import _is_external_process_provider
+ 
+-    if _base.startswith(("acp://", "acp+tcp://")) or _is_external_process_provider(agent.provider):
++    if _base.startswith(("acp://", "acp+tcp://")):
++        return False
++    if _is_external_process_provider(agent.provider) and not _streams_chunks(agent.provider):
+         return False
+     if not agent._has_stream_consumers():
+         if agent.provider == "moa":
+--- a/tests/agent/test_external_process_provider_init.py
++++ b/tests/agent/test_external_process_provider_init.py
+@@ -97,3 +97,22 @@
+ 
+     assert _should_stream(make("acme-acp")) is False
+     assert _should_stream(make("acme-http")) is True
++
++
++def test_a_named_external_process_provider_streams(monkeypatch):
++    """HERMES_STREAMING_PROCESS_PROVIDERS opts one external-process provider back into streaming;
++    the rest stay off, and an acp:// endpoint never streams."""
++    from agent.turn_api_call import _should_stream
++    from providers.base import ProviderProfile
++
++    profiles = {n: ProviderProfile(name=n, auth_type="external_process") for n in ("acme-acp", "claude-plan")}
++    monkeypatch.setattr("providers.get_provider_profile", lambda name: profiles.get(name))
++    make = lambda provider, base="process://x": SimpleNamespace(  # noqa: E731
++        provider=provider, base_url=base, _has_stream_consumers=lambda: True)
++
++    monkeypatch.delenv("HERMES_STREAMING_PROCESS_PROVIDERS", raising=False)
++    assert _should_stream(make("claude-plan")) is False
++    monkeypatch.setenv("HERMES_STREAMING_PROCESS_PROVIDERS", " Claude-Plan , other")
++    assert _should_stream(make("claude-plan")) is True
++    assert _should_stream(make("acme-acp")) is False
++    assert _should_stream(make("claude-plan", "acp://x")) is False

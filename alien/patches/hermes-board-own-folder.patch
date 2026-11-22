@@ -1,0 +1,50 @@
+diff --git a/hermes_cli/kanban_db_workspace.py b/hermes_cli/kanban_db_workspace.py
+index c7ee7d54..e8afcd9a 100644
+--- a/hermes_cli/kanban_db_workspace.py
++++ b/hermes_cli/kanban_db_workspace.py
+@@ -773,6 +773,14 @@ def _resolve_worktree_workspace(task: Task, *, board: Optional[str] = None) -> t
+     return requested, branch_name
+ 
+ 
++def _own_scratch_root(root: Path, assignee: Optional[str]) -> Path:
++    """Zero (report 82): a Zip's container mounts only ``<root>/<zip>``, never the folders of the other Zips, so its
++    board tasks work there. Anyone without that folder (the lead on the server itself) keeps using ``root``."""
++    name = assignee or ""
++    own = root / name
++    return own if name.replace("-", "").replace("_", "").isalnum() and own.is_dir() else root
++
++
+ def resolve_workspace(task: Task, *, board: Optional[str] = None) -> Path:
+     """Resolve (and create if needed) the workspace for a task.
+ 
+@@ -787,8 +795,12 @@ def resolve_workspace(task: Task, *, board: Optional[str] = None) -> Path:
+     kind = task.workspace_kind or "scratch"
+     if kind == "worktree":
+         return _resolve_worktree_workspace(task, board=board)[0]
+-    if kind == "scratch" and not task.workspace_path:
+-        p = _kb.workspaces_root(board=board) / task.id
++    root = _kb.workspaces_root(board=board)
++    own = _own_scratch_root(root, task.assignee)
++    # A folder picked before the Zip had its own was never visible in its container, so it holds nothing to keep.
++    if kind == "scratch" and (not task.workspace_path
++                              or (own != root and Path(task.workspace_path).expanduser().parent == root)):
++        p = own / task.id
+     elif kind == "scratch":
+         # Legacy explicit-path scratch tasks get the same absolute-path guard
+         # as dir: — same threat model.
+diff --git a/tools/environments/docker.py b/tools/environments/docker.py
+index ac43d392..1b38243d 100644
+--- a/tools/environments/docker.py
++++ b/tools/environments/docker.py
+@@ -1232,6 +1232,11 @@ class DockerEnvironment(BaseEnvironment):
+         elif self._profile_scoped_passthrough:
+             runtime_args, unset_names, env_values = self._build_runtime_env_args_with_unsets()
+             cmd.extend(runtime_args)
++        # Zero (report 82): a board worker is told to work in $HERMES_KANBAN_WORKSPACE, so every command needs it.
++        board_folder = os.environ.get("HERMES_KANBAN_WORKSPACE")
++        if board_folder:
++            cmd.extend(["-e", "HERMES_KANBAN_WORKSPACE"])
++            env_values = {**env_values, "HERMES_KANBAN_WORKSPACE": board_folder}
+         cmd += [self._container_id, *bash_argv(prepend_unset(cmd_string, unset_names), login)]
+ 
+         client_env = self._docker_client_env(env_values)

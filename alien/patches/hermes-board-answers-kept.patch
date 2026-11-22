@@ -1,0 +1,159 @@
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+index f0ef80b6..d5468bc9 100644
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -912,6 +912,7 @@ def _is_summary_stub(content: str) -> bool:
+     """True for a tool result already replaced by a 1-line ``[tool] ... (N chars)`` summary."""
+     return content.startswith("[") and (
+         (" chars)" in content and len(content) < 400)
++        or (content.startswith("[kanban_show]") and _ANSWERS_MARKER in content[:240])
+         or (_PRUNED_HEAD_MARKER in content[:240] and len(content) < 240 + _PRUNED_HEAD_CHARS + 20)
+     )
+ 
+@@ -926,6 +927,10 @@ _PRUNE_MIN_CHARS = 200
+ # results this small now stay whole through every prune, and a pruned one keeps the start of its text after the count.
+ # Tools with their own summarizer (terminal, read_file, clarify) keep upstream's 200-char floor.
+ _SMALL_RESULT_KEEP_CHARS = 2_000
++# Zero (Nov 19 2026, 5:25 p.m.): a Zip asked a fourth time for six details the person had answered. Its kanban_show
++# result was pruned to its first 300 characters, which held the view's reading note and none of the answers. An old
++# kanban_show keeps the person's answers whole (tools/kanban_tools.show_answers keeps them within its budget).
++_ANSWERS_MARKER = " answers_from_the_person (newest first): "
+ _PRUNED_HEAD_CHARS = 300
+ _PRUNED_HEAD_MARKER = " begins: "
+ 
+@@ -2139,9 +2144,23 @@ def _summarize_tool_result_unguarded(tool_name: str, tool_args: str, tool_conten
+     if summarizer is not None:
+         return summarizer(tool_name, args, content, content_len, line_count)
+     first_arg = "".join(f" {k}={str(v)[:40]}" for k, v in list(args.items())[:2])
++    if tool_name == "kanban_show" and (kept := _sum_kanban_show(first_arg, content, content_len)):
++        return kept
+     return _with_head(f"[{tool_name}]{first_arg} ({content_len:,} chars result)" + _result_failure_suffix(content), content)
+ 
+ 
++def _sum_kanban_show(first_arg: str, content: str, content_len: int) -> str:
++    """An old kanban_show as its task and the person's answers, whole; "" when it lists none."""
++    data = _json_dict(content)
++    answers = data.get("answers_from_the_person")
++    if not isinstance(answers, list) or not answers:
++        return ""
++    older = data.get("older_answers_comment_ids") or []
++    more = f" Older answers: comment_id {', '.join(str(i) for i in older)}." if older else ""
++    return (f"[kanban_show]{first_arg} ({content_len:,} chars result){_ANSWERS_MARKER}"
++            f"{json.dumps(answers, ensure_ascii=False)}{more}")
++
++
+ def _model_threshold_key_rank(key: str, model: str, provider: str) -> "tuple[int, int] | None":
+     """Match rank for one ``model_thresholds`` key, or None when it does not apply.
+     ``"<provider>:<substr>"`` keys apply only on that provider; bare keys apply on every route.
+diff --git a/hermes_cli/kanban_db.py b/hermes_cli/kanban_db.py
+index 2a448a81..3919387a 100644
+--- a/hermes_cli/kanban_db.py
++++ b/hermes_cli/kanban_db.py
+@@ -4261,13 +4261,22 @@ _APP_ANSWER = re.compile(r"\banswered in the app:\s*(.*)$", re.S)
+ _ANSWER_QUESTION = re.compile(r'^To the question "(.+?)", the answer is:\s*(.*)$', re.S)
+ 
+ 
++# Zero (Nov 19 2026, 5:25 p.m.): two long developer notes the hub sent through its wake reached the task signed as the
++# person ("<name> answered in the app: From the developer ..."), so they led the person's answers. A note from the hub
++# or the developer is never the person's answer, however it was signed.
++_NOT_THE_PERSON = re.compile(r"^(?:\[Hub note|From the developer\b)", re.I)
++_NOT_PEOPLE = {"Hub", "Mail check"}   # the hub's own comment authors (board.WAKE_AUTHOR, board.CHECK_AUTHOR)
++
++
+ def is_person_comment(comment: Comment, assistants: set[str]) -> bool:
+-    """A comment in the person's own words: by an author who is no assistant profile (and no hub note), or an answer
+-    the person gave on a card."""
++    """A comment in the person's own words: by an author who is no assistant profile and not the hub, or an answer the
++    person gave on a card. A hub or developer note is neither, whatever it was signed."""
+     body = (comment.body or "").lstrip()
+-    if _APP_ANSWER.search(body):
+-        return True
+-    return (comment.author or "") not in assistants and not body.startswith("[Hub note")
++    found = _APP_ANSWER.search(body)
++    if found:
++        return not _NOT_THE_PERSON.match(found.group(1).strip())
++    author = comment.author or ""
++    return author not in assistants and author not in _NOT_PEOPLE and not _NOT_THE_PERSON.match(body)
+ 
+ 
+ def assistant_profiles(conn: sqlite3.Connection) -> set[str]:
+@@ -4276,8 +4285,8 @@ def assistant_profiles(conn: sqlite3.Connection) -> set[str]:
+ 
+ 
+ def person_answers(conn: sqlite3.Connection, comments: list[Comment]) -> list[dict]:
+-    """The person's answers on a task, oldest first: comment_id, created_at, the question it answered (None when it
+-    named none) and the answer."""
++    """The person's answers on a task, newest first (Nov 19 2026: the newest was last, and the first thing a compaction
++    cut): comment_id, created_at, the question it answered (None when it named none) and the answer."""
+     assistants = assistant_profiles(conn)
+     out = []
+     for c in comments:
+@@ -4289,6 +4298,7 @@ def person_answers(conn: sqlite3.Connection, comments: list[Comment]) -> list[di
+         asked = _ANSWER_QUESTION.match(text)
+         out.append({"comment_id": c.id, "created_at": c.created_at, "question": asked.group(1) if asked else None,
+                     "answer": asked.group(2).strip() if asked else text})
++    out.reverse()
+     return out
+ 
+ 
+@@ -4296,8 +4306,8 @@ def _ctx_person_answers(lines: list[str], answers: list[dict], now: int) -> None
+     if not answers:
+         return
+     lines.append("## The person's answers on this task")
+-    lines.append("_The person's own words. They are the source of truth for this task: use them as given, never ask "
+-                 "for them again, and never set them aside as unverified, even where an earlier note doubted them._")
++    lines.append("_The person's own words, newest first. They are the source of truth for this task: use them as given, "
++                 "never ask for them again, and never set them aside as unverified, even where an earlier note doubted them._")
+     for a in answers:
+         asked = f' to "{a["question"]}"' if a["question"] else ""
+         lines.append(f"- {_ctx_stamp(a['created_at'], now)}, answer{asked}: {a['answer']}")
+diff --git a/tools/kanban_tools.py b/tools/kanban_tools.py
+index d635e563..1d31931b 100644
+--- a/tools/kanban_tools.py
++++ b/tools/kanban_tools.py
+@@ -679,7 +679,31 @@ SHOW_CONTEXT_MAX = 4_000
+ # Sections of build_worker_context that this answer already carries in its own keys.
+ _SHOW_CONTEXT_DUPLICATES = ("## Body", "## Prior attempts on this task", "## Comment thread",
+                             "## The person's answers on this task")
+-_SHOW_HOW = ("answers_from_the_person: the person's own answers on this task, each with its question. They are the "
++# The person's answers lead the view, newest first, each cut to fit, so the whole list fits in what a compaction keeps
++# of an old kanban_show (agent/context_compressor._sum_kanban_show, Nov 19 2026). A cut one names its comment_id.
++SHOW_ANSWER_CHARS = 240
++SHOW_QUESTION_CHARS = 120
++SHOW_ANSWERS_CHARS = 1_800
++
++
++def show_answers(answers: list[dict]) -> dict[str, Any]:
++    """{"answers": newest first, each short, within SHOW_ANSWERS_CHARS; "older": the comment ids left out}."""
++    shown, older, size = [], [], 0
++    for a in answers:
++        row = {"comment_id": a["comment_id"], "question": _show_cap(a["question"], SHOW_QUESTION_CHARS),
++               "answer": _show_cap(a["answer"], SHOW_ANSWER_CHARS)}
++        if len(str(a["answer"] or "")) > SHOW_ANSWER_CHARS:
++            row["answer"] += f" (comment_id={a['comment_id']} reads all of it)"
++        cost = len(json.dumps(row, ensure_ascii=False))
++        if shown and size + cost > SHOW_ANSWERS_CHARS:
++            older.append(a["comment_id"])
++            continue
++        shown.append(row)
++        size += cost
++    return {"answers": shown, "older": older}
++
++
++_SHOW_HOW = ("answers_from_the_person: the person's own answers on this task, newest first, each with its question. They are the "
+              "source of truth: use them as given, never ask for them again, never set them aside as unverified. Call "
+              "kanban_show again any time. Older comments are one line each or left out: page=1, 2... reads them. A "
+              "comment that says it was cut: comment_id=<its id> reads all of it.")
+@@ -800,9 +824,11 @@ def _handle_show(args: dict, **kw) -> str:
+             task_row[key] = _show_cap(task_row.get(key), limit)
+ 
+         def build() -> dict[str, Any]:
++            listed = show_answers(answers)
+             return {
++                "answers_from_the_person": listed["answers"],
++                **({"older_answers_comment_ids": listed["older"]} if listed["older"] else {}),
+                 "how_to_read": _SHOW_HOW,
+-                "answers_from_the_person": answers,
+                 "task": task_row,
+                 "parents": kb.parent_ids(conn, tid),
+                 # Non-terminal parents; on a running card this means the dependency

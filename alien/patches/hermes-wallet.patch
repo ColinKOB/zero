@@ -1,0 +1,1803 @@
+Hermes patch: Zero's Wallet. Cards and ID numbers fill only with a one-time approval the hub redeems for the exact page.
+Base: ~/taffy/hermes at 74943bb889 (Oct 9, 2026). Apply: cd ~/taffy/hermes && git apply ~/taffy/patches/hermes-wallet.patch
+Design: docs/plans/2026-10-19-wallet.md (Zero repo).
+
+What it changes:
+- agent/vault_store.py: a new `identity` kind (secret `value` plus `id_type` and an optional `issuer`, with an
+  origin); address items also hold name, phone and email; `redaction_values(kind, secret)` lists every secret
+  field of every kind plus the spaced and dashed groupings of a card or ID number, and the reformattings a
+  page gives a phone or a date of birth.
+- agent/vault_login_classifier.py: classify_identity_control / select_identity_fill find the one field an ID
+  belongs in (license, passport, SSN, date of birth); address fills also map name, tel and email. build_fill_js
+  takes top_origin and frame_origins for a fill inside an iframe.
+- tools/browser_vault_tool.py: payment and identity fills need `approval`. register_approval_redeemer(fn)
+  installs the check (Zero's taffy-tools plugin asks its hub); the fill reads the page's real origin and its
+  visible order total, redeems the approval for them, and only then registers redaction and writes the page.
+  With no redeemer, every card and ID fill is refused. _confirm_payment_fill (the "vault-payment" elicitation)
+  is gone. Address items saved without an origin fill the open address form on that tab's own origin; the
+  Zero plugin gate decides when. Every secret field of every kind is registered for redaction.
+  register_login_site(fn) installs how to name a host's site (the plugin registers consent.login_site, its Public
+  Suffix List rule); a login item then also fills on an https page of the same site as one of its saved origins
+  (OpenAI saves at platform.openai.com and asks for the password on auth.openai.com, Oct 20 2026). With no rule
+  registered, logins fill only on their exact origins. Cards, IDs and addresses never widen.
+  _focus_own_tab sends every fill, code entry and login save to the tab the agent's snapshots and clicks use, when
+  that tab holds the form. Before it, two tabs on one login page could put the password in the other tab, and the
+  fill said success while the agent's box stayed empty (Oct 30 2026, Bloomerang).
+  A checkout whose card fields are in a payment processor's iframe (Stripe Elements on js.stripe.com, the only
+  origin in _CARD_FRAME_ORIGINS) gets the card written into that frame. The frame must sit inside the page the
+  approval was redeemed for, with only that page's origin and processor origins between them, and its fill script
+  checks the same against location.ancestorOrigins: a third party's frame on the checkout can't host a Stripe
+  frame that gets the card. Frames are written before the page, and once a frame holds the card a later failed
+  write still reports a fill (with a warning), so the plugin keeps the screen lock and the spent approval.
+- tools/browser_supervisor.py: child_frames(top_origin, origins) lists the attached page's cross-origin iframes on
+  those origins (never another tab's) whose every ancestor frame is on top_origin or those origins, and
+  evaluate_in_frame(target, expression) evaluates in one of them.
+- hermes_cli/vault.py: `hermes vault add` prompts the identity fields.
+- agent/redact.py: registered vault values are scrubbed in any letter case, matched on casefolded text so a "straße"
+  the page shows as "STRASSE" goes too.
+- tests: the payment test now covers approvals; identity, address, order-total, same-site login and card-iframe tests
+  are new, and test_browser_supervisor.py has a real-Chrome test of child_frames and evaluate_in_frame.
+
+diff --git a/agent/redact.py b/agent/redact.py
+index 4822168a58..d1a7f81740 100644
+--- a/agent/redact.py
++++ b/agent/redact.py
+@@ -64,15 +64,34 @@ def clear_vault_redaction_values() -> None:
+ 
+ 
+ def redact_registered_vault_values(text: str) -> str:
+-    """Exact-substring scrub of every vault secret value registered for the current profile."""
++    """Substring scrub of every vault secret value registered for the current profile, in any letter case: a page
++    may upper-case a street or an ID number, or lower-case an email (Codex review of zero-private #109)."""
+     if not isinstance(text, str) or not text:
+         return text
+     with _VAULT_REDACTION_LOCK:
+         bucket = _VAULT_REDACTION_VALUES.get(_vault_scope())
+         values = sorted(bucket, key=len, reverse=True) if bucket else ()  # longest first: a substring never shadows its superstring
+     for value in values:
+-        if value in text:
+-            text = text.replace(value, "«redacted-vault-secret»")
++        needle = value.casefold()
++        if not needle or needle not in text.casefold():
++            continue
++        # Match on the casefolded text and cut the spans it maps back to: re.IGNORECASE alone misses a "straße" the page
++        # shows as "STRASSE", which casefolding matches (Codex review of zero-private #128).
++        folded, owner = [], []
++        for i, ch in enumerate(text):
++            for c in ch.casefold():
++                folded.append(c)
++                owner.append(i)
++        folded = "".join(folded)
++        spans, at = [], folded.find(needle)
++        while at != -1:
++            start, end = owner[at], owner[at + len(needle) - 1] + 1
++            if spans and start < spans[-1][1]:   # two matches inside one expanded character ("ß" folds to "ss")
++                start = spans.pop()[0]
++            spans.append((start, end))
++            at = folded.find(needle, at + len(needle))
++        for start, end in reversed(spans):
++            text = text[:start] + "«redacted-vault-secret»" + text[end:]
+     return text
+ 
+ # Sensitive query-string param names (case-insensitive): opaque tokens / OAuth
+diff --git a/agent/vault_login_classifier.py b/agent/vault_login_classifier.py
+index 684f113b45..c23d7b4632 100644
+--- a/agent/vault_login_classifier.py
++++ b/agent/vault_login_classifier.py
+@@ -22,7 +22,7 @@ import json
+ import re
+ import unicodedata
+ from dataclasses import dataclass
+-from typing import Any, Dict, List, Optional
++from typing import Any, Dict, List, Optional, Tuple
+ 
+ LOGIN_AUTOFILL_TOKENS = ("username", "email", "tel", "current-password")
+ 
+@@ -31,7 +31,7 @@ LOGIN_AUTOFILL_TOKENS = ("username", "email", "tel", "current-password")
+ # up sites that omit autocomplete attributes.
+ PAYMENT_AUTOFILL_TOKENS = ("cc-number", "cc-name", "cc-exp", "cc-exp-month", "cc-exp-year", "cc-csc")
+ ADDRESS_AUTOFILL_TOKENS = ("address-line1", "address-line2", "address-level2", "address-level1",
+-                           "postal-code", "country-name", "country")
++                           "postal-code", "country-name", "country", "name", "tel", "email")
+ _CHECKOUT_HEURISTICS = (
+     (re.compile(r"\b(?:card\s*number|cardnumber|ccnumber|cc\s*num|pan)\b"), "cc-number"),
+     (re.compile(r"\b(?:name\s*on\s*card|cardholder|cc\s*name|ccname)\b"), "cc-name"),
+@@ -195,6 +195,40 @@ def classify_checkout_control(control: LoginControl) -> Optional[ClassifiedLogin
+     return None
+ 
+ 
++# Identity values (agent/vault_store.py IDENTITY_TYPES) have no WHATWG token except a date of birth
++# (``bday``), so the field is found by its name or label. One control per fill; the best score wins.
++_IDENTITY_HEURISTICS = {
++    "drivers_license": re.compile(r"\b(?:driver\s*s?\s*licen[cs]e|licen[cs]e\s*(?:number|no|num|id)|dl\s*(?:number|no|num))\b"),
++    "passport": re.compile(r"\bpassport\b"),
++    "ssn": re.compile(r"\b(?:ssn|social\s*security(?:\s*number)?|social\s*insurance)\b"),
++    "dob": re.compile(r"\b(?:date\s*of\s*birth|dob|birth\s*date|birthdate|birthday)\b"),
++    "other": re.compile(r"\b(?:id\s*(?:number|no|num)|identification(?:\s*number)?|national\s*id)\b"),
++}
++
++
++def classify_identity_control(control: LoginControl, id_type: str) -> Optional[ClassifiedLoginControl]:
++    """Classify one control as the target for an identity value of ``id_type``, or None. Password, email
++    and checkbox-like inputs never are."""
++    if control.type in ("password", "email", "checkbox", "radio", "hidden", "submit", "button"):
++        return None
++    tokens = control.autocomplete.lower().split()
++    if id_type == "dob" and ("bday" in tokens):
++        return ClassifiedLoginControl(control, 100, "id-value")
++    pattern = _IDENTITY_HEURISTICS.get(id_type)
++    searchable = _normalize_text(" ".join(part for part in (control.name, control.label) if part))
++    if pattern is not None and pattern.search(searchable):
++        return ClassifiedLoginControl(control, 70, "id-value")
++    return None
++
++
++def select_identity_fill(classified: List[ClassifiedLoginControl], value: str) -> List[Dict[str, Any]]:
++    """The single best identity control, as ``[{"index", "token": "id-value", "value"}]``, or []."""
++    if not classified or not value:
++        return []
++    best = sorted(classified, key=lambda c: (-c.score, c.control.index))[0]
++    return [{"index": best.control.index, "token": "id-value", "value": value}]
++
++
+ def select_checkout_fills(classified: List[ClassifiedLoginControl], secret: Dict[str, str],
+                           field_tokens: Dict[str, str]) -> List[Dict[str, Any]]:
+     """Map a payment/address secret payload onto the best control per autocomplete token.
+@@ -281,7 +315,8 @@ _LOGIN_CONTROL_INSPECTION_JS_TEMPLATE = """(() => {
+ })()"""
+ 
+ 
+-def build_fill_js(fills: List[Dict[str, Any]], expected_origin: str, nonce: str = "") -> str:
++def build_fill_js(fills: List[Dict[str, Any]], expected_origin: str, nonce: str = "",
++                  top_origin: Optional[str] = None, frame_origins: Tuple[str, ...] = ()) -> str:
+     """Build a JS expression that fills the selected controls and reports only a count. The
+     returned expression never echoes the values back.
+ 
+@@ -292,11 +327,16 @@ def build_fill_js(fills: List[Dict[str, Any]], expected_origin: str, nonce: str
+     THIS inspection; a ``current-password`` fill additionally requires ``type=password``; ``<select>``
+     controls (country, state, expiry month) match an option by value or visible text. No marker is
+     left on filled controls so later model-driven DOM reads cannot address them deterministically.
++    ``top_origin`` is for a fill inside an iframe (a payment processor's card fields): the script also
++    refuses unless the outermost ancestor (``location.ancestorOrigins``) is that origin and every other
++    ancestor is on it or on ``frame_origins``, so a third party's frame between them can't take the card.
+     """
+     payload = json.dumps(
+         [{"index": f["index"], "token": f.get("token", "current-password"), "value": f["value"]} for f in fills]
+     )
+     return (_FILL_JS_TEMPLATE.replace("__EXPECTED_ORIGIN__", json.dumps(expected_origin))
++            .replace("__TOP_ORIGIN__", json.dumps(top_origin))
++            .replace("__FRAME_ORIGINS__", json.dumps(list(frame_origins)))
+             .replace("__FILLS__", payload).replace("__NONCE__", json.dumps(nonce)))
+ 
+ 
+@@ -305,6 +345,15 @@ _FILL_JS_TEMPLATE = """(() => {
+   if (window.location.origin !== expectedOrigin) {
+     return JSON.stringify({ refused: "origin_changed", found: window.location.origin });
+   }
++  const topOrigin = __TOP_ORIGIN__;
++  if (topOrigin !== null) {
++    const ancestors = Array.from(window.location.ancestorOrigins || []);
++    const frameOrigins = __FRAME_ORIGINS__;
++    const stranger = ancestors.find((o) => o !== topOrigin && !frameOrigins.includes(o));
++    if (ancestors[ancestors.length - 1] !== topOrigin || stranger !== undefined) {
++      return JSON.stringify({ refused: "origin_changed", found: stranger || ancestors[ancestors.length - 1] || "" });
++    }
++  }
+   const fills = __FILLS__;
+   const nonce = __NONCE__;
+   let filled = 0;
+diff --git a/agent/vault_store.py b/agent/vault_store.py
+index dc90d4fa68..ad95bf2df8 100644
+--- a/agent/vault_store.py
++++ b/agent/vault_store.py
+@@ -11,8 +11,10 @@ Design notes:
+   file and vault file are created 0600 under ``<HERMES_HOME>/vault/``.
+ - Ported design (opaque-handle vault fill) from Merit-Systems/OpenInstinct
+   (MIT): lib/manager/server/secret-store.ts + vault services.
+-- Three item kinds: ``login`` (password-only secret), ``payment`` (card fields) and
+-  ``address``; ``PAYMENT_FIELDS`` / ``ADDRESS_FIELDS`` are the canonical payload names.
++- Four item kinds: ``login`` (password-only secret), ``payment`` (card fields), ``address`` and
++  ``identity`` (one ID number or date of birth); ``PAYMENT_FIELDS`` / ``ADDRESS_FIELDS`` /
++  ``IDENTITY_FIELDS`` are the canonical payload names. Payment and identity items need no bound
++  origin: each fill is approved once for one exact origin (browser_vault_fill's ``approval``).
+ """
+ 
+ from __future__ import annotations
+@@ -32,7 +34,7 @@ from urllib.parse import urlsplit
+ from hermes_constants import get_hermes_home
+ from utils import atomic_write_bytes
+ 
+-VAULT_KINDS = ("login", "payment", "address")
++VAULT_KINDS = ("login", "payment", "address", "identity")
+ 
+ LOGIN_IDENTIFIER_TYPES = ("email", "phone", "username")
+ 
+@@ -46,9 +48,20 @@ PAYMENT_FIELDS = {
+ ADDRESS_FIELDS = {
+     "address_line1": "address-line1", "address_line2": "address-line2", "city": "address-level2",
+     "state": "address-level1", "postal_code": "postal-code", "country": "country-name",
++    "name": "name", "phone": "tel", "email": "email",
+ }
++# An identity item holds one value (an ID number or a date of birth); id_type picks the page field
++# (agent/vault_login_classifier.py classify_identity_control). Only ``value`` is secret.
++IDENTITY_TYPES = ("drivers_license", "passport", "ssn", "dob", "other")
++IDENTITY_FIELDS = {"value": "id-value", "id_type": "", "issuer": ""}
+ REQUIRED_FIELDS = {"payment": ("card_number", "exp_month", "exp_year", "cvc"),
+-                   "address": ("address_line1", "city", "postal_code", "country")}
++                   "address": ("address_line1", "city", "postal_code", "country"),
++                   "identity": ("value", "id_type")}
++_FIELDS = {"payment": PAYMENT_FIELDS, "address": ADDRESS_FIELDS, "identity": IDENTITY_FIELDS}
++# Fields the model may see as item metadata elsewhere (the card's expiry, the address's city), so they are not
++# registered for redaction: an exact-substring scrub of "NY" or "08" would blank unrelated page text.
++_NOT_REDACTED = {"exp_month", "exp_year", "cardholder_name", "city", "state", "country", "name", "id_type",
++                 "issuer"}
+ 
+ _DEFAULT_PORTS = {"http": 80, "https": 443}
+ 
+@@ -168,8 +181,8 @@ class VaultItemMeta:
+     identifier: Optional[str] = None
+     has_otp: bool = False  # a TOTP seed is stored: 2FA codes can be minted without asking the user
+     # Every origin the password manager bound to this item (manager backends only;
+-    # ``origin`` is the first/primary one). Fill matching stays exact-origin against
+-    # this list — no wildcard or subdomain inference is ever derived from it.
++    # ``origin`` is the first/primary one). Fills match this list exactly, except that a
++    # login also fills on an https page of the same site (browser_vault_tool._same_login_site).
+     allowed_origins: tuple = ()
+ 
+     def to_dict(self) -> Dict[str, Any]:
+@@ -344,11 +357,13 @@ class VaultStore:
+             otp_secret = normalize_otp_secret(str(secret.get("otp_secret") or ""))
+             secret = {"password": secret["password"], **({"otp_secret": otp_secret} if otp_secret else {})}
+         else:
+-            allowed = PAYMENT_FIELDS if kind == "payment" else ADDRESS_FIELDS
++            allowed = _FIELDS[kind]
+             secret = {k: str(v) for k, v in secret.items() if k in allowed and str(v or "").strip()}
+             missing = [f for f in REQUIRED_FIELDS[kind] if f not in secret]
+             if missing:
+                 raise VaultError(f"{kind} items require {', '.join(missing)}")
++            if kind == "identity" and secret["id_type"] not in IDENTITY_TYPES:
++                raise VaultError(f"id_type must be one of {IDENTITY_TYPES}")
+             if origin:
+                 norm_origin = normalize_origin(origin)
+ 
+@@ -429,6 +444,92 @@ def get_vault_store() -> VaultStore:
+     return VaultStore()
+ 
+ 
++def _digit_groupings(digits: str) -> List[str]:
++    """The ways a page or a person writes a number: as typed, in groups of four (cards), 3-2-4 (US Social
++    Security) and 4-6-5 (American Express), each with spaces or dashes."""
++    groups = [[4] * (len(digits) // 4) + ([len(digits) % 4] if len(digits) % 4 else [])]
++    if len(digits) == 9:
++        groups.append([3, 2, 4])
++    if len(digits) == 15:
++        groups.append([4, 6, 5])
++    out = [digits]
++    for sizes in groups:
++        parts, i = [], 0
++        for n in sizes:
++            parts.append(digits[i:i + n])
++            i += n
++        for sep in (" ", "-"):
++            out.append(sep.join(parts))
++    return out
++
++
++def _phone_formats(value: str) -> List[str]:
++    """The ways a checkout reformats a US phone number it was given: 5035550100 may come back as (503) 555-0100,
++    503-555-0100, 503.555.0100 or +1 503-555-0100."""
++    digits = re.sub(r"\D", "", value)
++    if len(digits) == 11 and digits.startswith("1"):
++        digits = digits[1:]
++    if len(digits) != 10:
++        return [digits] if len(digits) >= 7 else []
++    a, b, c = digits[:3], digits[3:6], digits[6:]
++    local = [f"{a}{b}{c}", f"{a}-{b}-{c}", f"{a} {b} {c}", f"{a}.{b}.{c}", f"({a}) {b}-{c}", f"({a}){b}-{c}",
++             f"({a}) {b} {c}"]
++    return local + [f"1{local[0]}", f"+1{local[0]}", f"1-{local[1]}"] + [f"+1 {n}" for n in local[1:]]
++
++
++_DATE_INPUTS = ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%m.%d.%Y", "%Y/%m/%d", "%m%d%Y", "%Y%m%d")
++
++
++def _date_formats(value: str) -> List[str]:
++    """The ways a form reformats a date of birth it was given: 01/02/1990 may come back as 1990-01-02, 1/2/1990,
++    Jan 2, 1990 or 2 January 1990 (Codex review of zero-private #109). Month first, as US forms read it; the
++    day-first spellings are listed too, since some pages show them."""
++    for fmt in _DATE_INPUTS:
++        try:
++            d = datetime.strptime(value.strip(), fmt)
++            break
++        except ValueError:
++            continue
++    else:
++        return []
++    y, m, dd = d.year, d.month, d.day
++    full, short = d.strftime("%B"), d.strftime("%b")
++    out = [f"{y}-{m:02d}-{dd:02d}", f"{y}/{m:02d}/{dd:02d}", f"{y}{m:02d}{dd:02d}", f"{m:02d}{dd:02d}{y}"]
++    for mm, day in ((f"{m:02d}", f"{dd:02d}"), (str(m), str(dd))):
++        for sep in ("/", "-", "."):
++            out += [f"{mm}{sep}{day}{sep}{y}", f"{mm}{sep}{day}{sep}{y % 100:02d}", f"{day}{sep}{mm}{sep}{y}"]
++    for name in (full, short, short + "."):
++        for day in (str(dd), f"{dd:02d}"):
++            out += [f"{name} {day}, {y}", f"{name} {day} {y}", f"{day} {name} {y}", f"{day} {name}, {y}"]
++            out += [o.upper() for o in out[-4:]]
++    return out
++
++
++def redaction_values(kind: str, secret: Dict[str, Any]) -> List[str]:
++    """Every value of a vault item the model must never read back, in the forms a page shows it.
++
++    Exact values of every secret field, plus the common reformattings of a card number and an ID number
++    (digits only, groups of four, 3-2-4, with spaces or dashes), of a phone and of a date of birth. Fields seen as metadata
++    and values under three characters are left out (see ``_NOT_REDACTED``)."""
++    out: List[str] = []
++    for field, value in (secret or {}).items():
++        value = str(value or "")
++        if field in _NOT_REDACTED or len(value.strip()) < 3:
++            continue
++        out.append(value)
++        if field == "phone":
++            out.extend(_phone_formats(value))
++        if field == "value":   # a form may drop the dashes in a license or passport number (Codex review of zero-private #109)
++            out.append(re.sub(r"[\s-]", "", value))
++        if field == "value" and str((secret or {}).get("id_type") or "") == "dob":
++            out.extend(_date_formats(value))
++        if field in ("card_number", "value"):
++            digits = re.sub(r"\D", "", value)
++            if len(digits) >= 6 and len(digits) >= len(re.sub(r"[\s-]", "", value)):
++                out.extend(_digit_groupings(digits))
++    return list(dict.fromkeys(out))
++
++
+ def scrub_secret_from_text(text: str, secret: Dict[str, Any]) -> str:
+     """Defensively strip any secret values from a string (e.g. an exception
+     message) before it can be surfaced. Case-sensitive exact substring scrub."""
+diff --git a/hermes_cli/vault.py b/hermes_cli/vault.py
+index 05bb7c23ab..eee07f7ccf 100644
+--- a/hermes_cli/vault.py
++++ b/hermes_cli/vault.py
+@@ -84,9 +84,9 @@ def _cmd_add(args) -> None:
+                 kind="login", label=label, secret=secret, origin=origin
+             )
+         else:
+-            from agent.vault_store import ADDRESS_FIELDS, PAYMENT_FIELDS, REQUIRED_FIELDS
++            from agent.vault_store import ADDRESS_FIELDS, IDENTITY_FIELDS, PAYMENT_FIELDS, REQUIRED_FIELDS
+ 
+-            fields = PAYMENT_FIELDS if kind == "payment" else ADDRESS_FIELDS
++            fields = {"payment": PAYMENT_FIELDS, "identity": IDENTITY_FIELDS}.get(kind, ADDRESS_FIELDS)
+             origin = ""
+             while not origin:
+                 origin = input("Site origin the item may be filled on (e.g. https://shop.example.com): ").strip()
+@@ -95,7 +95,7 @@ def _cmd_add(args) -> None:
+             for field in fields:
+                 required = field in REQUIRED_FIELDS[kind]
+                 prompt = f"{field.replace('_', ' ')}{'' if required else ' (optional)'}: "
+-                read = getpass.getpass if kind == "payment" else input
++                read = getpass.getpass if kind in ("payment", "identity") and field != "id_type" else input
+                 value = read(prompt).strip()
+                 while required and not value:
+                     value = read(prompt).strip()
+diff --git a/tests/agent/test_vault_store.py b/tests/agent/test_vault_store.py
+index 3e5ce69779..ba9c630ba5 100644
+--- a/tests/agent/test_vault_store.py
++++ b/tests/agent/test_vault_store.py
+@@ -47,3 +47,79 @@ def test_corrupt_vault_raises_vault_error_on_every_reader(tmp_path, op):
+     }[op]
+     with pytest.raises(VaultError):
+         call()
++
++
++def test_identity_items_need_a_value_and_a_known_type(tmp_path):
++    store = VaultStore(base_dir=tmp_path / "vault")
++    meta = store.add_item(kind="identity", label="License", origin="https://dmv.test",
++                          secret={"value": "D1234567", "id_type": "drivers_license", "issuer": "OR"})
++    assert meta.kind == "identity" and store.resolve_secret(meta.id)["value"] == "D1234567"
++    with pytest.raises(VaultError):
++        store.add_item(kind="identity", label="X", secret={"value": "1", "id_type": "library_card"})
++    with pytest.raises(VaultError):
++        store.add_item(kind="identity", label="X", secret={"id_type": "ssn"})
++
++
++def test_redaction_values_cover_card_and_id_reformattings():
++    from agent.vault_store import redaction_values
++
++    card = redaction_values("payment", {"card_number": "4242424242424242", "cvc": "123", "exp_month": "7",
++                                        "exp_year": "2029", "cardholder_name": "A User",
++                                        "billing_postal_code": "97201"})
++    assert {"4242424242424242", "4242 4242 4242 4242", "4242-4242-4242-4242", "123", "97201"} <= set(card)
++    assert "A User" not in card and "2029" not in card
++    ssn = redaction_values("identity", {"value": "123-45-6789", "id_type": "ssn"})
++    assert {"123-45-6789", "123456789", "123 45 6789"} <= set(ssn)
++    address = redaction_values("address", {"address_line1": "1 Main St", "city": "Springfield",
++                                           "phone": "5035550100", "email": "a@b.test"})
++    assert {"1 Main St", "5035550100", "a@b.test"} <= set(address) and "Springfield" not in address
++    # A checkout formats the phone it was given (Codex review of zero-private #109).
++    assert {"(503) 555-0100", "503-555-0100", "503.555.0100", "+1 503-555-0100"} <= set(address)
++    formatted = redaction_values("address", {"phone": "+1 (503) 555-0100"})
++    assert {"5035550100", "(503) 555-0100"} <= set(formatted)
++    # A form normalizes the date of birth it was given (Codex review of zero-private #109).
++    dob = redaction_values("identity", {"value": "01/02/1990", "id_type": "dob"})
++    assert {"01/02/1990", "1990-01-02", "1/2/1990", "01-02-1990", "January 2, 1990", "Jan 2, 1990",
++            "2 January 1990", "01/02/90", "02/01/1990", "JANUARY 2, 1990"} <= set(dob)
++    assert "1990-01-02" in redaction_values("identity", {"value": "19900102", "id_type": "dob"})
++    assert "1990-01-02" not in redaction_values("identity", {"value": "01/02/1990", "id_type": "passport"})
++
++
++def test_redaction_covers_a_license_number_the_form_upper_cases():
++    from agent.vault_store import redaction_values
++    from agent import redact
++    for value in redaction_values("identity", {"value": "ab12-3456", "id_type": "drivers_license"}):
++        redact.register_vault_redaction_value(value)
++    try:
++        for shown in ("AB12-3456", "AB123456", "ab12-3456"):
++            assert shown not in redact.redact_registered_vault_values(f"license {shown}")
++    finally:
++        redact.clear_vault_redaction_values()
++
++
++def test_redaction_covers_an_address_the_checkout_changes_the_case_of():
++    from agent.vault_store import redaction_values
++    from agent import redact
++    for value in redaction_values("address", {"email": "Jane.Doe@Example.com", "address_line1": "123 Main Street"}):
++        redact.register_vault_redaction_value(value)
++    try:
++        out = redact.redact_registered_vault_values("ship to 123 MAIN STREET, jane.doe@example.com")
++        assert "MAIN" not in out and "jane.doe" not in out and out.count("«redacted-vault-secret»") == 2
++    finally:
++        redact.clear_vault_redaction_values()
++
++
++def test_redaction_covers_a_value_whose_case_change_changes_its_length():
++    """"straße" upper-cases to "STRASSE": a regex with IGNORECASE misses it, casefolding catches it."""
++    from agent import redact
++    redact.register_vault_redaction_value("12 Hauptstraße")
++    try:
++        for page in ("ship to 12 HAUPTSTRASSE, Berlin", "ship to 12 hauptstrasse, Berlin", "ship to 12 Hauptstraße, Berlin"):
++            assert redact.redact_registered_vault_values(page) == "ship to «redacted-vault-secret», Berlin"
++    finally:
++        redact.clear_vault_redaction_values()
++    redact.register_vault_redaction_value("strasse")
++    try:
++        assert redact.redact_registered_vault_values("STRAßE and Straße") == "«redacted-vault-secret» and «redacted-vault-secret»"
++    finally:
++        redact.clear_vault_redaction_values()
+diff --git a/tests/tools/test_browser_supervisor.py b/tests/tools/test_browser_supervisor.py
+index 7a785b050b..9747d6f85c 100644
+--- a/tests/tools/test_browser_supervisor.py
++++ b/tests/tools/test_browser_supervisor.py
+@@ -322,3 +322,78 @@ def test_evaluate_runtime_unserializable_value(chrome_cdp, supervisor_registry):
+     out = supervisor.evaluate_runtime("Infinity")
+     assert out["ok"] is True
+     assert out["result"] == "Infinity"
++
++
++@pytest.fixture
++def two_origin_checkout(tmp_path):
++    """A checkout page on 127.0.0.1 whose card fields are in an iframe served from localhost: two sites, so the
++    iframe is an OOPIF, the way Stripe Elements serve js.stripe.com on a merchant's page. The page also embeds a
++    third party's widget from widget.localhost (a third site) that holds a card iframe of its own. Yields (top, card
++    frame, third party)."""
++    import functools
++    import http.server
++    import threading
++
++    (tmp_path / "card.html").write_text('<input name="cardnumber" autocomplete="cc-number">')
++    servers = []
++    for _ in range(3):
++        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(tmp_path))
++        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
++        threading.Thread(target=server.serve_forever, daemon=True).start()
++        servers.append(server)
++    top = f"http://127.0.0.1:{servers[0].server_address[1]}"
++    frame = f"http://localhost:{servers[1].server_address[1]}"
++    third = f"http://widget.localhost:{servers[2].server_address[1]}"
++    (tmp_path / "widget.html").write_text(f'<iframe src="{frame}/card.html"></iframe>')
++    (tmp_path / "checkout.html").write_text(f'<h1>Order total $20.00</h1><iframe src="{frame}/card.html"></iframe>'
++                                            f'<iframe src="{third}/widget.html"></iframe>')
++    yield top, frame, third
++    for server in servers:
++        server.shutdown()
++
++
++def _open_tab(port: int, url: str) -> None:
++    import urllib.request
++    urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{url}", method="PUT"), timeout=5)
++
++
++def test_child_frames_and_evaluate_in_frame_reach_a_cross_origin_card_iframe(chrome_cdp, supervisor_registry,
++                                                                            two_origin_checkout):
++    from agent.vault_login_classifier import build_fill_js
++
++    cdp_url, port = chrome_cdp
++    top, frame_origin, third_party = two_origin_checkout
++    _open_tab(port, f"{top}/checkout.html")
++    _open_tab(port, f"{top}/checkout.html")   # a second tab on the same site must not lend its iframe
++    time.sleep(2.0)
++    supervisor = supervisor_registry.get_or_start(task_id="pytest-frames", cdp_url=cdp_url)
++    assert supervisor.focus_page(top)["ok"]
++
++    listed = supervisor.child_frames(top, (frame_origin,))
++    assert listed["ok"] is True and len(listed["frames"]) == 1   # the card frame inside the third party's is left out
++    assert listed["frames"][0]["origin"] == frame_origin
++    assert supervisor.child_frames(top, ("https://js.stripe.com",))["frames"] == []
++    assert supervisor.child_frames("https://evil.test", (frame_origin,))["frames"] == []
++    target = listed["frames"][0]["target_id"]
++    assert supervisor.evaluate_in_frame(target, "location.origin")["result"] == frame_origin
++
++    supervisor.evaluate_in_frame(target, "document.querySelector('input').setAttribute('data-hermes-vault-slot', 'n:0')")
++    fill = [{"index": 0, "token": "cc-number", "value": "4242424242424242"}]
++    refused = supervisor.evaluate_in_frame(target, build_fill_js(fill, frame_origin, "n", top_origin="https://evil.test"))
++    assert json.loads(refused["result"]) == {"refused": "origin_changed", "found": top}
++
++    # The card frame inside the third party's widget: listed only when the third party is trusted too, and even then
++    # a fill that trusts only the processor refuses it.
++    everything = supervisor.child_frames(top, (frame_origin, third_party))["frames"]
++    nested = [f["target_id"] for f in everything if f["origin"] == frame_origin and f["target_id"] != target]
++    assert len(everything) == 3 and len(nested) == 1
++    supervisor.evaluate_in_frame(nested[0], "document.querySelector('input').setAttribute('data-hermes-vault-slot', 'n:0')")
++    refused = supervisor.evaluate_in_frame(nested[0], build_fill_js(fill, frame_origin, "n", top_origin=top,
++                                                                    frame_origins=(frame_origin,)))
++    assert json.loads(refused["result"]) == {"refused": "origin_changed", "found": third_party}
++    assert supervisor.evaluate_in_frame(nested[0], "document.querySelector('input').value")["result"] == ""
++    assert supervisor.evaluate_in_frame(target, "document.querySelector('input').value")["result"] == ""
++    done = supervisor.evaluate_in_frame(target, build_fill_js(fill, frame_origin, "n", top_origin=top,
++                                                              frame_origins=(frame_origin,)))
++    assert json.loads(done["result"]) == {"filled": 1}
++    assert supervisor.evaluate_in_frame(target, "document.querySelector('input').value")["result"] == "4242424242424242"
+diff --git a/tests/tools/test_browser_vault.py b/tests/tools/test_browser_vault.py
+index 1cefdf7d84..34077a1e83 100644
+--- a/tests/tools/test_browser_vault.py
++++ b/tests/tools/test_browser_vault.py
+@@ -250,6 +250,14 @@ class TestClassifier:
+         assert js.index("origin_changed") < js.index("querySelectorAll")
+ 
+ 
++    def test_build_fill_js_in_a_frame_pins_the_top_page_before_any_write(self):
++        js = build_fill_js([{"index": 0, "token": "cc-number", "value": "x"}],
++                           expected_origin="https://js.stripe.com", top_origin="https://shop.example")
++        assert 'const topOrigin = "https://shop.example"' in js and "location.ancestorOrigins" in js
++        assert js.index("ancestorOrigins") < js.index("querySelectorAll")
++        assert "const topOrigin = null" in build_fill_js([], expected_origin="https://shop.example")
++        assert "const frameOrigins = []" in js
++
+ # ---------------------------------------------------------------------------
+ # Browser tool: origin binding + gating
+ # ---------------------------------------------------------------------------
+@@ -335,7 +343,7 @@ class TestBrowserVaultTools:
+         def fake_eval(task_id, expression):
+             return {"success": True, "result": json.dumps(controls)}
+ 
+-        def fake_eval_secret(task_id, expression):
++        def fake_eval_secret(task_id, expression, frame=None):
+             secret_exprs.append(expression)
+             return {"success": True, "result": json.dumps({"filled": 1})}
+ 
+@@ -378,6 +386,96 @@ class TestBrowserVaultTools:
+         assert out["error_type"] == "origin_mismatch"
+         assert "s3cret-pw" not in json.dumps(out)
+ 
++    @staticmethod
++    def _sites(host):
++        """Registrable domains by the Public Suffix List, as Zero's plugin registers them."""
++        return {"platform.openai.com": "openai.com", "auth.openai.com": "openai.com",
++                "auth.openai.com.evil.io": "evil.io", "shop.test": "shop.test",
++                "checkout.shop.test": "shop.test"}.get(host, "")
++
++    def _login_fill_on(self, store, monkeypatch, saved, page, site_rule=True):
++        from tools import browser_vault_tool
++
++        monkeypatch.setattr(browser_vault_tool, "_LOGIN_SITE", None)
++        if site_rule:
++            browser_vault_tool.register_login_site(self._sites)
++        meta = _add_login(store, origin=saved)
++        controls = [{"autocomplete": "current-password", "formIndex": 0, "index": 0, "label": "", "name": "pw",
++                     "type": "password"}]
++        secret_exprs = []
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": page + "/log-in/password"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        def fake_eval_secret(task_id, expression, frame=None):
++            secret_exprs.append(expression)
++            return {"success": True, "result": json.dumps({"filled": 1})}
++
++        with patch("agent.vault_store.get_vault_store", return_value=store), \
++             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++             patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret), \
++             patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None):
++            raw = browser_vault_tool.browser_vault_fill(meta.id)
++        assert "s3cret-pw" not in raw
++        return json.loads(raw), secret_exprs
++
++    def test_login_fills_on_another_https_page_of_its_site(self, store, monkeypatch):
++        """OpenAI's login is saved for platform.openai.com and its password form is on auth.openai.com."""
++        out, secret_exprs = self._login_fill_on(store, monkeypatch, "https://platform.openai.com",
++                                                "https://auth.openai.com")
++        assert out["success"] is True and out["origin"] == "https://auth.openai.com"
++        assert len(secret_exprs) == 1 and "https://auth.openai.com" in secret_exprs[0]
++
++    @pytest.mark.parametrize("saved,page,site_rule", [
++        ("https://platform.openai.com", "https://auth.openai.com.evil.io", True),
++        ("https://platform.openai.com", "http://auth.openai.com", True),
++        ("https://platform.openai.com", "https://auth.openai.com", False),
++    ])
++    def test_login_refused_off_its_site(self, store, monkeypatch, saved, page, site_rule):
++        """Another company, plain http, or no site rule registered."""
++        out, secret_exprs = self._login_fill_on(store, monkeypatch, saved, page, site_rule)
++        assert out["success"] is False and out["error_type"] == "origin_mismatch"
++        assert secret_exprs == []
++
++    def test_cards_and_addresses_stay_exact_origin_with_a_site_rule(self, store, monkeypatch):
++        from tools import browser_vault_tool
++        from agent import redact
++
++        monkeypatch.setattr(browser_vault_tool, "_LOGIN_SITE", None)
++        browser_vault_tool.register_login_site(self._sites)
++        address = store.add_item(kind="address", label="Home", origin="https://shop.test", secret=_ADDRESS)
++        card = store.add_item(kind="payment", label="Visa", origin="https://shop.test", secret=_CARD)
++        controls = [{"autocomplete": "address-line1", "index": 0, "type": "text"},
++                    {"autocomplete": "cc-number", "index": 1, "type": "text"}]
++        redeemed = []
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://checkout.shop.test/pay"}
++            if "innerText" in expression:
++                return {"success": True, "result": "Order total: $20.00"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        def redeemer(**kw):
++            redeemed.append(kw["origin"])
++            return {"ok": True, "purchase_id": "p_1"}
++
++        try:
++            with patch("agent.vault_store.get_vault_store", return_value=store), \
++                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++                 patch.object(browser_vault_tool, "_eval_js_secret",
++                              return_value={"success": True, "result": json.dumps({"filled": 1})}), \
++                 patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None), \
++                 patch.object(browser_vault_tool, "_APPROVAL_REDEEMER", redeemer):
++                refused = json.loads(browser_vault_tool.browser_vault_fill(address.id))
++                paid = json.loads(browser_vault_tool.browser_vault_fill(card.id, approval="good"))
++            assert refused["success"] is False and refused["error_type"] == "origin_mismatch"
++            assert paid["success"] is True and redeemed == ["https://checkout.shop.test"]
++        finally:
++            redact.clear_vault_redaction_values()
++
+     def test_fill_unknown_handle(self, store):
+         from tools import browser_vault_tool
+ 
+@@ -401,7 +499,7 @@ class TestBrowserVaultTools:
+ 
+         secret_exprs = []
+ 
+-        def fake_eval_secret(task_id, expression):
++        def fake_eval_secret(task_id, expression, frame=None):
+             secret_exprs.append(expression)
+             return {"success": True, "result": json.dumps({"filled": 1})}
+ 
+@@ -444,7 +542,7 @@ class TestBrowserVaultTools:
+                 return {"success": True, "result": "https://example.com/login"}
+             return {"success": True, "result": json.dumps(controls)}
+ 
+-        def fake_eval_secret(task_id, expression):
++        def fake_eval_secret(task_id, expression, frame=None):
+             # The evaluated script itself must carry the origin assert.
+             assert "window.location.origin" in expression
+             assert '"https://example.com"' in expression
+@@ -516,7 +614,7 @@ class TestBrowserVaultTools:
+                 return {"success": True, "result": "https://example.com/login"}
+             return {"success": True, "result": json.dumps(controls)}
+ 
+-        def fake_eval_secret(task_id, expression):
++        def fake_eval_secret(task_id, expression, frame=None):
+             return {"success": True, "result": json.dumps({"filled": 1})}
+ 
+         try:
+@@ -542,10 +640,11 @@ class TestBrowserVaultTools:
+         finally:
+             redact.clear_vault_redaction_values()
+ 
+-    def test_payment_fill_requires_confirmation_then_fills_card_fields(self, store):
+-        """A card is written only after the user confirms (a prompt injection reaching a checkout must not be
+-        able to spend); the secret eval then targets the classified card controls and the result carries
+-        the field tokens but never a value."""
++    def test_payment_fill_requires_a_redeemed_approval_then_fills_card_fields(self, store):
++        """A card is written only with a one-time approval that the registered redeemer accepts for the exact
++        page origin and the page's order total (a prompt injection reaching a checkout must not be able to
++        spend); the secret eval then targets the classified card controls and the result carries the field
++        tokens but never a value."""
+         from tools import browser_vault_tool
+         from agent import redact
+ 
+@@ -559,38 +658,364 @@ class TestBrowserVaultTools:
+ 
+         def fake_eval(task_id, expression):
+             if "location.href" in expression:
+-                return {"success": True, "result": "https://shop.test/checkout"}
++                return {"success": True, "result": "https://other-shop.test/checkout"}
++            if "innerText" in expression:
++                return {"success": True, "result": "Subtotal\n$40.00\nOrder total:\n$42.18"}
+             return {"success": True, "result": json.dumps(controls)}
+ 
+-        secret_exprs = []
++        secret_exprs, redeemed, broken = [], [], []
+ 
+-        def fake_eval_secret(task_id, expression):
++        def fake_eval_secret(task_id, expression, frame=None):
+             secret_exprs.append(expression)
++            if broken:
++                return {"success": False, "error": "target closed"}
+             return {"success": True, "result": json.dumps({"filled": 3})}
+ 
+-        try:
++        def redeemer(**kw):
++            redeemed.append(kw)
++            return {"ok": kw["approval"] == "good", "purchase_id": "p_1"}
++
++        def fill(**kw):
+             with patch("agent.vault_store.get_vault_store", return_value=store), \
+                  patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+                  patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret), \
+-                 patch("tools.approval_prompt.request_elicitation_consent", return_value="decline"):
+-                declined = json.loads(browser_vault_tool.browser_vault_fill(meta.id))
+-            assert declined["success"] is False and declined["error_type"] == "payment_declined"
++                 patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None), \
++                 patch.object(browser_vault_tool, "_APPROVAL_REDEEMER", redeemer):
++                return browser_vault_tool.browser_vault_fill(meta.id, **kw)
++
++        try:
++            missing = json.loads(fill())
++            assert missing["success"] is False and missing["error_type"] == "needs_approval"
++            refused = json.loads(fill(approval="stale"))
++            assert refused["success"] is False and refused["error_type"] == "approval_refused"
+             assert secret_exprs == []
+ 
+-            with patch("agent.vault_store.get_vault_store", return_value=store), \
+-                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+-                 patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret), \
+-                 patch("tools.approval_prompt.request_elicitation_consent", return_value="accept"):
+-                raw = browser_vault_tool.browser_vault_fill(meta.id)
++            raw = fill(approval="good")
+             out = json.loads(raw)
++            # The approval, not the item's saved origin, decides where the card goes.
++            assert redeemed[-1] == {"approval": "good", "handle": meta.id, "origin": "https://other-shop.test",
++                                    "total_cents": 4218}
+             assert out["success"] is True and out["fields"] == ["cc-csc", "cc-exp", "cc-number"]
++            assert out["purchase"] == "p_1"
+             assert _CARD["card_number"] not in raw and _CARD["cvc"] not in raw
+             assert len(secret_exprs) == 1 and _CARD["card_number"] in secret_exprs[0] and "07/29" in secret_exprs[0]
++            assert "https://other-shop.test" in secret_exprs[0]  # the in-page origin check binds to that page
+             assert '"index": 3' not in secret_exprs[0]  # the email box is never a card target
+-            assert _CARD["card_number"] not in redact.redact_sensitive_text(f"dom says {_CARD['card_number']}")
++            spaced = " ".join(_CARD["card_number"][i:i + 4] for i in range(0, 16, 4))
++            for leaked in (_CARD["card_number"], spaced, _CARD["cvc"]):
++                assert leaked not in redact.redact_sensitive_text(f"dom says {leaked}")
++            # A fill that fails after spending its approval names that purchase, so it can be given back.
++            broken.append(True)
++            failed = json.loads(fill(approval="good"))
++            assert failed["success"] is False and failed["purchase"] == "p_1"
++            assert "purchase" not in json.loads(fill(approval="stale"))
++        finally:
++            redact.clear_vault_redaction_values()
++
++    @staticmethod
++    def _stripe_checkout(store, frame_controls, page_controls=(), page_write=None):
++        """A checkout whose card fields are in a js.stripe.com iframe (Stripe Elements); the page itself has an email
++        box, the order total and ``page_controls``. ``page_write`` is what the write to the page itself returns."""
++        from tools import browser_vault_tool
++
++        meta = store.add_item(kind="payment", label="Visa", origin="https://shop.test", secret=_CARD)
++        writes, redeemed, listed = [], [], []
++
++        class Supervisor:
++            def child_frames(self, top_origin, origins):
++                listed.append((top_origin, origins))
++                return {"ok": True, "frames": [{"target_id": "T1", "origin": "https://js.stripe.com"}]}
++
++            def evaluate_in_frame(self, target_id, expression):
++                return {"ok": True, "result": json.dumps(frame_controls)}
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://platform.openai.com/settings/billing"}
++            if "innerText" in expression:
++                return {"success": True, "result": "Order total\n$20.00"}
++            return {"success": True, "result": json.dumps([{"autocomplete": "email", "index": 0, "type": "email"},
++                                                           *page_controls])}
++
++        def fake_eval_secret(task_id, expression, frame=None):
++            writes.append((frame, expression))
++            if frame is None and page_write is not None:
++                return page_write
++            return {"success": True, "result": json.dumps({"filled": 3})}
++
++        def redeemer(**kw):
++            redeemed.append((kw["origin"], kw["total_cents"]))
++            return {"ok": True, "purchase_id": "p_1"}
++
++        with patch("agent.vault_store.get_vault_store", return_value=store), \
++             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++             patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret), \
++             patch.object(browser_vault_tool, "_ensure_supervisor", return_value=Supervisor()), \
++             patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None), \
++             patch.object(browser_vault_tool, "_APPROVAL_REDEEMER", redeemer):
++            raw = browser_vault_tool.browser_vault_fill(meta.id, approval="good")
++        return raw, writes, redeemed, listed
++
++    def test_payment_fill_reaches_card_fields_in_a_stripe_frame(self, store):
++        """OpenAI's billing page (Stripe Elements) holds the card number, expiry and CVC in a js.stripe.com iframe. The
++        approval is still redeemed for the page's own origin and total, and the frame fill pins both origins."""
++        from agent import redact
++
++        try:
++            raw, writes, redeemed, listed = self._stripe_checkout(store, [
++                {"autocomplete": "cc-number", "index": 0, "type": "text"},
++                {"autocomplete": "cc-exp", "index": 1, "type": "text"},
++                {"autocomplete": "cc-csc", "index": 2, "type": "text"}])
++            out = json.loads(raw)
++            assert listed == [("https://platform.openai.com", ("https://js.stripe.com",))]
++            assert redeemed == [("https://platform.openai.com", 2000)]
++            assert out["success"] is True and out["origin"] == "https://platform.openai.com"
++            assert out["fields"] == ["cc-csc", "cc-exp", "cc-number"]
++            assert _CARD["card_number"] not in raw
++            assert len(writes) == 1 and writes[0][0] == "T1"
++            frame_js = writes[0][1]
++            assert _CARD["card_number"] in frame_js
++            assert 'const expectedOrigin = "https://js.stripe.com"' in frame_js
++            assert 'const topOrigin = "https://platform.openai.com"' in frame_js
++            assert 'const frameOrigins = ["https://js.stripe.com"]' in frame_js
+         finally:
+             redact.clear_vault_redaction_values()
+ 
++    def test_a_failed_page_write_after_a_frame_write_still_counts_as_a_fill(self, store):
++        """The card number is in the Stripe frame and the ZIP on the page. If the page write fails after the frame
++        write landed, the card is on screen: the result must say success, or the plugin gives the approval back and
++        drops the screen lock (Claude review of zero-private #128)."""
++        from agent import redact
++
++        zip_box = [{"autocomplete": "postal-code", "index": 1, "type": "text"}]
++        for page_write in ({"success": False, "error": "browser went away"},
++                           {"success": True, "result": json.dumps({"refused": "origin_changed", "found": "https://x.test"})}):
++            try:
++                raw, writes, redeemed, _ = self._stripe_checkout(
++                    store, [{"autocomplete": "cc-number", "index": 0, "type": "text"}], zip_box, page_write)
++                out = json.loads(raw)
++                assert [frame for frame, _ in writes] == ["T1", None]
++                assert out["success"] is True and out["filled_fields"] == 3 and out["purchase"] == "p_1"
++                assert out["warning"].startswith("Filled 3 field(s), then stopped: ")
++                assert "Nothing was written" not in raw and _CARD["card_number"] not in raw
++            finally:
++                redact.clear_vault_redaction_values()
++
++    def test_payment_frame_without_card_fields_spends_nothing(self, store):
++        raw, writes, redeemed, _ = self._stripe_checkout(store, [])
++        out = json.loads(raw)
++        assert out["success"] is False and writes == [] and redeemed == []
++
++    def test_payment_fill_without_a_redeemer_is_refused(self, store):
++        from tools import browser_vault_tool
++
++        meta = store.add_item(kind="payment", label="Visa", origin="https://shop.test", secret=_CARD)
++        controls = [{"autocomplete": "cc-number", "index": 0, "type": "text"}]
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://shop.test/checkout"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        with patch("agent.vault_store.get_vault_store", return_value=store), \
++             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++             patch.object(browser_vault_tool, "_eval_js_secret") as secret_eval, \
++             patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None), \
++             patch.object(browser_vault_tool, "_APPROVAL_REDEEMER", None):
++            out = json.loads(browser_vault_tool.browser_vault_fill(meta.id, approval="anything"))
++        assert out["success"] is False and out["error_type"] == "approval_refused"
++        secret_eval.assert_not_called()
++
++    def test_identity_fill_targets_the_id_field_and_redacts_reformattings(self, store):
++        from tools import browser_vault_tool
++        from agent import redact
++
++        meta = store.add_item(kind="identity", label="SSN", origin="https://tax.test",
++                              secret={"value": "123-45-6789", "id_type": "ssn"})
++        controls = [
++            {"label": "Full name", "index": 0, "type": "text"},
++            {"label": "Social Security number", "index": 1, "type": "text"},
++        ]
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://tax.test/form"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        secret_exprs = []
++
++        def fake_eval_secret(task_id, expression, frame=None):
++            secret_exprs.append(expression)
++            return {"success": True, "result": json.dumps({"filled": 1})}
++
++        try:
++            with patch("agent.vault_store.get_vault_store", return_value=store), \
++                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++                 patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret), \
++                 patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None), \
++                 patch.object(browser_vault_tool, "_APPROVAL_REDEEMER", lambda **kw: {"ok": True}):
++                out = json.loads(browser_vault_tool.browser_vault_fill(meta.id, approval="good"))
++            assert out["success"] is True and out["fields"] == ["id-value"]
++            assert '"index": 1' in secret_exprs[0] and '"index": 0' not in secret_exprs[0]
++            for leaked in ("123-45-6789", "123456789", "123 45 6789"):
++                assert leaked not in redact.redact_sensitive_text(f"page shows {leaked}")
++        finally:
++            redact.clear_vault_redaction_values()
++
++    def test_address_without_origin_fills_the_open_page_and_is_redacted(self, store):
++        from tools import browser_vault_tool
++        from agent import redact
++
++        meta = store.add_item(kind="address", label="Home", secret=_ADDRESS)
++        controls = [{"autocomplete": "address-line1", "index": 0, "type": "text"},
++                    {"autocomplete": "postal-code", "index": 1, "type": "text"}]
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://shop.test/ship"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        try:
++            with patch("agent.vault_store.get_vault_store", return_value=store), \
++                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++                 patch.object(browser_vault_tool, "_eval_js_secret",
++                              return_value={"success": True, "result": json.dumps({"filled": 2})}), \
++                 patch.object(browser_vault_tool, "_focus_bound_origin", return_value=None):
++                out = json.loads(browser_vault_tool.browser_vault_fill(meta.id))
++            assert out["success"] is True and out["origin"] == "https://shop.test"
++            assert _ADDRESS["address_line1"] not in redact.redact_sensitive_text(f"ship to {_ADDRESS['address_line1']}")
++        finally:
++            redact.clear_vault_redaction_values()
++
++    def test_address_without_origin_never_moves_to_another_sites_tab(self, store):
++        """The gate checked and locked the open page's site, so the fill looks for its form only among that site's tabs."""
++        from tools import browser_vault_tool
++        from agent import redact
++
++        meta = store.add_item(kind="address", label="Home", secret=_ADDRESS)
++        controls = [{"autocomplete": "address-line1", "index": 0, "type": "text"}]
++        focused = []
++
++        def fake_eval(task_id, expression):
++            if "location.href" in expression:
++                return {"success": True, "result": "https://shop.test/ship"}
++            return {"success": True, "result": json.dumps(controls)}
++
++        def fake_focus(task_id, origin, kind):
++            focused.append(origin)
++            return origin or "https://other.test"
++
++        try:
++            with patch("agent.vault_store.get_vault_store", return_value=store), \
++                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
++                 patch.object(browser_vault_tool, "_eval_js_secret",
++                              return_value={"success": True, "result": json.dumps({"filled": 1})}), \
++                 patch.object(browser_vault_tool, "_focus_bound_origin", side_effect=fake_focus):
++                out = json.loads(browser_vault_tool.browser_vault_fill(meta.id))
++            assert focused == ["https://shop.test"]
++            assert out["success"] is True and out["origin"] == "https://shop.test"
++        finally:
++            redact.clear_vault_redaction_values()
++
++    def _own_tab(self, *, sessions=("default",), own="https://site.test", own_has_form=True):
++        """Patches for an agent-browser tab on ``own``, plus the focus_page calls and evals they record."""
++        from tools import browser_vault_tool
++
++        calls, evals = [], []
++
++        class Supervisor:
++            def focus_page(self, origin, accept=None):
++                calls.append((origin, accept))
++                marked = "__hermesOwnTab" in (accept or "")
++                return {"ok": own_has_form if marked else origin == "https://site.test", "url": origin}
++
++        def run(key, command, args):
++            evals.append((command, args[0]))
++            return {"success": True, "data": {"result": own}}
++
++        return calls, evals, (patch("tools.browser_tool._active_sessions", dict.fromkeys(sessions, {})),
++                              patch("tools.browser_tool._last_session_key", side_effect=lambda t: t),
++                              patch("tools.browser_tool_session._run_browser_command", side_effect=run),
++                              patch.object(browser_vault_tool, "_ensure_supervisor", return_value=Supervisor()))
++
++    def test_focus_takes_the_agents_own_tab_by_a_mark_only_it_holds(self):
++        from tools import browser_vault_tool
++
++        calls, evals, patches = self._own_tab()
++        with patches[0], patches[1], patches[2], patches[3]:
++            assert browser_vault_tool._focus_bound_origin("default", "https://site.test", "login") == "https://site.test"
++        mark = re.search(r"__hermesOwnTab=(\"\w+\")", evals[0][1]).group(1)
++        assert len(calls) == 1 and calls[0][0] == "https://site.test"
++        assert f"__hermesOwnTab==={mark}" in calls[0][1] and "input[type=password]" in calls[0][1]
++
++    def test_focus_falls_back_when_the_agents_tab_has_no_form(self):
++        from tools import browser_vault_tool
++
++        calls, _, patches = self._own_tab(own_has_form=False)
++        with patches[0], patches[1], patches[2], patches[3]:
++            assert browser_vault_tool._focus_bound_origin("default", "https://site.test", "login") == "https://site.test"
++        assert calls[-1] == ("https://site.test", browser_vault_tool._TAB_PROBES["login"])
++
++    def test_focus_without_an_agent_browser_tab_never_starts_one(self):
++        """browser_exec sessions drive their own tabs: an eval here would open a browser nobody asked for."""
++        from tools import browser_vault_tool
++
++        calls, evals, patches = self._own_tab(sessions=())
++        with patches[0], patches[1], patches[2], patches[3]:
++            assert browser_vault_tool._focus_bound_origin("default", "https://site.test", "login") == "https://site.test"
++        assert evals == [] and calls == [("https://site.test", browser_vault_tool._TAB_PROBES["login"])]
++
++    def test_a_blank_own_tab_is_no_tab(self):
++        from tools import browser_vault_tool
++
++        calls, _, patches = self._own_tab(own="null")
++        with patches[0], patches[1], patches[2], patches[3]:
++            assert browser_vault_tool._focus_own_tab("default", "login") is None
++        assert calls == []
++
++    def test_fill_stays_on_the_agents_tab_on_another_page_of_the_site(self, store):
++        """Saved at crm, asked for on identity, with a form open on crm too: the agent's tab takes it (Bloomerang)."""
++        from tools import browser_vault_tool
++        from agent import redact
++
++        meta = _add_login(store, origin="https://crm.site.test")
++        controls = [{"autocomplete": "current-password", "index": 0, "type": "password", "visible": True}]
++        try:
++            with patch("agent.vault_store.get_vault_store", return_value=store), \
++                 patch.object(browser_vault_tool, "_focus_own_tab", return_value="https://identity.site.test"), \
++                 patch.object(browser_vault_tool, "_same_login_site", return_value=True), \
++                 patch.object(browser_vault_tool, "_focus_bound_origin") as other_tab, \
++                 patch.object(browser_vault_tool, "_eval_js", return_value={"success": True, "result": json.dumps(controls)}), \
++                 patch.object(browser_vault_tool, "_eval_js_secret",
++                              return_value={"success": True, "result": json.dumps({"filled": 1})}):
++                out = json.loads(browser_vault_tool.browser_vault_fill(meta.id))
++            other_tab.assert_not_called()
++            assert out["success"] is True and out["origin"] == "https://identity.site.test"
++        finally:
++            redact.clear_vault_redaction_values()
++
++    @pytest.mark.parametrize("text,cents", [
++        ("Subtotal\n$40.00\nShipping\n$5.99\nOrder total:\n$49.09", 4909),
++        ("Items (3): $40.00\nTotal $1,234.50", 123450),
++        ("Subtotal: $10.00\nTotal: $12.00\nGrand Total: $13.00", 1300),
++        ("Total savings $5\nTotal\nUSD 42.18", 4218),
++        ("No prices on this page", None),
++        ("Order total (2 items): $500.00", 50000),
++        ("Order total (2 items)\n$500.00", 50000),
++        ("Order total:\n1.234,50 \u20ac", None),
++        ("Total 500,00 \u20ac", None),
++        ("Total: $1.234,50", None),
++        ("Total: $5.00\nOrder total: $1.234,50", None),
++        ("Total: CA$50.00", None),
++        ("Total EUR 50.00", None),
++        ("Total: 50.00", None),
++        ("Total: US$50.00", 5000),
++    ])
++    def test_parse_order_total(self, text, cents):
++        from tools.browser_vault_tool import parse_order_total
++
++        assert parse_order_total(text) == cents
++
+ 
+ class TestVaultHardening:
+     """Read-deny, backup perms-tightening, canonical dir securing.
+diff --git a/tools/browser_supervisor.py b/tools/browser_supervisor.py
+index 917ad1999b..7f3d85305f 100644
+--- a/tools/browser_supervisor.py
++++ b/tools/browser_supervisor.py
+@@ -76,6 +76,28 @@ def _err(exc: BaseException) -> Dict[str, Any]:
+     return _fail(f"{type(exc).__name__}: {exc}")
+ 
+ 
++def _runtime_value(response: Any) -> Dict[str, Any]:
++    """A Runtime.evaluate reply as ``{"ok": True, "result", "result_type"}`` or ``{"ok": False, "error"}``."""
++    # Response: {"result": {"result": {"type", "value", ...}, "exceptionDetails"?}}
++    result_payload = response.get("result", {}) if isinstance(response, dict) else {}
++    exception_details = result_payload.get("exceptionDetails")
++    if exception_details:
++        exc_text = exception_details.get("text") or "JavaScript exception"
++        description = (exception_details.get("exception") or {}).get("description")
++        return _fail(f"{exc_text}: {description}" if description else exc_text)
++
++    result_obj = result_payload.get("result", {})
++    result_type = result_obj.get("type", "undefined")
++    if "value" in result_obj:
++        value = result_obj["value"]
++    elif result_type == "undefined":
++        value = None
++    else:
++        # Non-serializable (functions, DOM nodes…) — give the model the browser's description.
++        value = result_obj.get("description") or result_obj.get("unserializableValue")
++    return {"ok": True, "result": value, "result_type": result_type}
++
++
+ @dataclass(frozen=True)
+ class SupervisorSnapshot:
+     """Read-only snapshot of supervisor state for tool handlers."""
+@@ -246,24 +268,89 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
+             except Exception as exc2:
+                 return _err(exc2)
+ 
+-        # Response: {"result": {"result": {"type", "value", ...}, "exceptionDetails"?}}
+-        result_payload = response.get("result", {}) if isinstance(response, dict) else {}
+-        exception_details = result_payload.get("exceptionDetails")
+-        if exception_details:
+-            exc_text = exception_details.get("text") or "JavaScript exception"
+-            description = (exception_details.get("exception") or {}).get("description")
+-            return _fail(f"{exc_text}: {description}" if description else exc_text)
+-
+-        result_obj = result_payload.get("result", {})
+-        result_type = result_obj.get("type", "undefined")
+-        if "value" in result_obj:
+-            value = result_obj["value"]
+-        elif result_type == "undefined":
+-            value = None
+-        else:
+-            # Non-serializable (functions, DOM nodes…) — give the model the browser's description.
+-            value = result_obj.get("description") or result_obj.get("unserializableValue")
+-        return {"ok": True, "result": value, "result_type": result_type}
++        return _runtime_value(response)
++
++    def child_frames(self, top_origin: str, origins: Tuple[str, ...], *, timeout: float = 10.0) -> Dict[str, Any]:
++        """Cross-origin iframes (OOPIF targets) inside the attached page whose address is on one of ``origins``,
++        at any depth: ``{"ok": True, "frames": [{"target_id", "origin"}]}``. Every frame from the iframe up to the
++        page's main frame must be on ``top_origin`` or one of ``origins``, and the main frame on ``top_origin``. So
++        another tab on the same site never lends its iframes, and a third party's frame on the page can't host a
++        processor iframe of its own that gets the card (Codex review of zero-private #128)."""
++        loop = self._loop
++        if loop is None or not loop.is_running():
++            return _fail("supervisor loop is not running")
++        with self._state_lock:
++            session_id = self._page_session_id
++        if not session_id:
++            return _fail("supervisor has no attached page session")
++
++        async def _list() -> Dict[str, Any]:
++            from agent.vault_store import normalize_origin
++
++            def _origin(url: Any) -> str:
++                try:
++                    return normalize_origin(str(url or ""))
++                except Exception:
++                    return ""
++
++            tree = (await self._cdp("Page.getFrameTree", session_id=session_id, timeout=timeout))["result"]["frameTree"]
++            root = tree["frame"]["id"]
++            # frame id -> (parent frame id, origin), for the page's own frames and then every iframe target.
++            frames_by_id, stack = {}, [tree]
++            while stack:
++                node = stack.pop()
++                frame = node["frame"]
++                frames_by_id[frame["id"]] = (frame.get("parentId"), _origin(frame.get("securityOrigin") or frame.get("url")))
++                stack.extend(node.get("childFrames") or [])
++            infos = (await self._cdp("Target.getTargets", timeout=timeout)).get("result", {}).get("targetInfos", [])
++            iframes = [t for t in infos if t.get("type") == "iframe"]
++            for t in iframes:
++                frames_by_id[t["targetId"]] = (t.get("parentFrameId") or t.get("parentId"), _origin(t.get("url")))
++            trusted = {top_origin, *origins}
++
++            def _chain_ok(frame_id: Any) -> bool:
++                seen = set()
++                while frame_id in frames_by_id and frame_id not in seen:
++                    seen.add(frame_id)
++                    parent, origin = frames_by_id[frame_id]
++                    if origin not in trusted:
++                        return False
++                    if frame_id == root:
++                        return origin == top_origin
++                    frame_id = parent
++                return False
++
++            return {"ok": True, "frames": [{"target_id": t["targetId"], "origin": frames_by_id[t["targetId"]][1]}
++                                           for t in iframes
++                                           if frames_by_id[t["targetId"]][1] in origins and _chain_ok(t["targetId"])]}
++
++        try:
++            return _schedule(_list(), loop, timeout=timeout + 1)
++        except Exception as exc:
++            return _err(exc)
++
++    def evaluate_in_frame(self, target_id: str, expression: str, *, timeout: float = 10.0) -> Dict[str, Any]:
++        """``evaluate_runtime`` inside one iframe target (see ``child_frames``), on a session of its own that is
++        detached afterwards."""
++        loop = self._loop
++        if loop is None or not loop.is_running():
++            return _fail("supervisor loop is not running")
++
++        async def _run() -> Dict[str, Any]:
++            attach = await self._cdp("Target.attachToTarget", {"targetId": target_id, "flatten": True}, timeout=timeout)
++            sid = attach["result"]["sessionId"]
++            try:
++                return await self._cdp("Runtime.evaluate", {"expression": expression, "returnByValue": True,
++                                                            "awaitPromise": True, "userGesture": True},
++                                       session_id=sid, timeout=timeout)
++            finally:
++                with contextlib.suppress(Exception):
++                    await self._cdp("Target.detachFromTarget", {"sessionId": sid}, timeout=timeout)
++
++        try:
++            return _runtime_value(_schedule(_run(), loop, timeout=timeout * 3 + 1))
++        except Exception as exc:
++            return _err(exc)
+ 
+     def focus_page(self, origin: str, *, accept: Optional[str] = None, timeout: float = 10.0) -> Dict[str, Any]:
+         """Re-attach the supervisor's page session to an open page target on ``origin``
+diff --git a/tools/browser_vault_tool.py b/tools/browser_vault_tool.py
+index 4aebc673e0..a61f642223 100644
+--- a/tools/browser_vault_tool.py
++++ b/tools/browser_vault_tool.py
+@@ -9,10 +9,14 @@ tools):
+   identifier — it is NOT a secret; the agent types it itself). Passwords are
+   never returned.
+ - ``browser_vault_fill``  → server-side fill of the CURRENT page from a vault
+-  handle: the password field for logins, card fields for payment items (after
+-  the user confirms), address fields for address items. The secret is
++  handle: the password field for logins, card fields for payment items and the
++  ID field for identity items (each only with a one-time ``approval`` that the
++  registered redeemer accepts for this exact page origin), address fields for
++  address items. The secret is
+   resolved locally, the page origin must EXACTLY match the item's bound
+-  origin (pre-checked AND re-asserted synchronously inside the fill script),
++  origin, or for a login be an https page of the same site once the embedding
++  app registers how to name sites (pre-checked; the page origin is then
++  re-asserted synchronously inside the fill script),
+   the field is chosen by the ported login-control classifier, injection runs
+   exclusively over the supervisor CDP WebSocket (never argv), and the tool
+   result reports only ``{filled_fields, kind, origin, success}`` — the
+@@ -27,9 +31,11 @@ autofill (kernel-login-autofill.ts / fill_from_vault.ts).
+ from __future__ import annotations
+ 
+ import json
++import re
+ import secrets
+ import logging
+ from typing import Any, Dict, Optional
++from urllib.parse import urlsplit
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -116,8 +122,9 @@ def _ensure_supervisor(task_id: str):
+         return None
+ 
+ 
+-def _eval_js_secret(task_id: str, expression: str) -> Dict[str, Any]:
+-    """Evaluate a SECRET-BEARING JS expression. Supervisor CDP-WS only.
++def _eval_js_secret(task_id: str, expression: str, frame: Optional[str] = None) -> Dict[str, Any]:
++    """Evaluate a SECRET-BEARING JS expression. Supervisor CDP-WS only. ``frame`` is an iframe target
++    (``supervisor.child_frames``) to run it in instead of the page.
+ 
+     Fails closed: there is deliberately NO fallback to the agent-browser CLI
+     ``eval`` path, because that places the expression — and therefore the
+@@ -155,7 +162,7 @@ def _eval_js_secret(task_id: str, expression: str) -> Dict[str, Any]:
+         except _bd_lease.HumanHasControl as exc:
+             return {"success": False, "error_type": "human_has_control", "error": str(exc)}
+ 
+-    sup = supervisor.evaluate_runtime(expression)
++    sup = supervisor.evaluate_in_frame(frame, expression) if frame else supervisor.evaluate_runtime(expression)
+     if sup.get("ok"):
+         return {"success": True, "result": sup.get("result")}
+     return {
+@@ -194,15 +201,189 @@ def _current_page_origin(task_id: str) -> Optional[str]:
+ # Per kind: a JS probe that is truthy on a tab holding the form this kind fills.
+ _TAB_PROBES = {
+     "login": "!!document.querySelector('input[type=password]')",
+-    "payment": "!!document.querySelector('input[autocomplete^=cc-], [name*=card i], [placeholder*=card i], [name*=cvc i], [name*=cvv i]')",
++    "payment": "!!document.querySelector('input[autocomplete^=cc-], [name*=card i], [placeholder*=card i], [name*=cvc i], [name*=cvv i], iframe[src^=\"https://js.stripe.com/\"]')",
+     "address": "!!document.querySelector('input[autocomplete^=address-], [autocomplete=postal-code], [name*=address i], [name*=zip i], [name*=postal i]')",
++    "identity": "!!document.querySelector('input[autocomplete=bday], [name*=license i], [name*=licence i], [name*=passport i], [name*=ssn i], [name*=birth i], [name*=dob i], [id*=license i], [id*=ssn i]')",
+ }
+ 
++# ---------------------------------------------------------------------------
++# One-time approvals for card and ID fills
++# ---------------------------------------------------------------------------
++# A payment or identity item fills only with an approval issued for that one use. The embedding app
++# registers the function that redeems it (Zero's taffy-tools plugin asks its hub, which checks the
++# approval, the profile, the item, the exact page origin, the expiry and the order total, and says yes
++# once). The fill then targets the origin the approval was redeemed for, whatever origin the item was
++# saved with. With no redeemer registered, every payment and identity fill is refused.
++_NEEDS_APPROVAL = ("payment", "identity")
++_APPROVAL_REDEEMER = None
++
++
++def register_approval_redeemer(fn) -> None:
++    """``fn(approval=, handle=, origin=, total_cents=) -> {"ok": bool, "error": str}``."""
++    global _APPROVAL_REDEEMER
++    _APPROVAL_REDEEMER = fn
++
++
++def _redeem_approval(approval: str, handle: str, origin: str, total_cents: Optional[int]) -> Dict[str, Any]:
++    if _APPROVAL_REDEEMER is None:
++        return {"ok": False, "error": "Card and ID fills are not set up on this computer."}
++    try:
++        verdict = _APPROVAL_REDEEMER(approval=approval, handle=handle, origin=origin, total_cents=total_cents)
++    except Exception as exc:
++        logger.warning("vault fill: approval check failed (%s)", type(exc).__name__)
++        return {"ok": False, "error": "The approval could not be checked. Nothing was filled."}
++    return verdict if isinstance(verdict, dict) else {"ok": False, "error": "The approval was not accepted."}
++
++
++# ---------------------------------------------------------------------------
++# Logins on another page of the same site
++# ---------------------------------------------------------------------------
++# A site often asks for the password on a sibling host: OpenAI's login is saved for platform.openai.com and its
++# password form is on auth.openai.com (Zero, Oct 20 2026). The embedding app registers how to name a host's site
++# (Zero's taffy-tools plugin uses the Public Suffix List, so a.sharepoint.com and b.sharepoint.com stay apart);
++# with none registered, logins fill only on their exact origins. Cards, IDs and addresses never widen.
++_LOGIN_SITE = None
++
++
++def register_login_site(fn) -> None:
++    """``fn(host) -> str``: the registrable domain of ``host`` (auth.openai.com is openai.com), or "" when it
++    can't be told safely (an IP address, a public suffix)."""
++    global _LOGIN_SITE
++    _LOGIN_SITE = fn
++
++
++def _same_login_site(page_origin: str, allowed: list) -> bool:
++    if _LOGIN_SITE is None or not page_origin.startswith("https://"):
++        return False
++    try:
++        site = _LOGIN_SITE(urlsplit(page_origin).hostname or "")
++        return bool(site) and any(_LOGIN_SITE(urlsplit(o).hostname or "") == site for o in allowed)
++    except Exception as exc:
++        logger.warning("vault fill: login site check failed (%s)", type(exc).__name__)
++        return False
++
++
++_TOTAL_LABEL = re.compile(r"\b(order\s*total|grand\s*total|total\s*(?:due|to\s*pay|charged)|amount\s*due|"
++                          r"estimated\s*total|total)\b", re.I)
++_NOT_TOTAL = re.compile(r"sub\s*-?\s*total|before\s*tax|savings|you\s*save|items?\s*\(|per\s*month", re.I)
++_AMOUNT = re.compile(r"(?:\$|\bUSD)\s?(\d[\d.,]*)|(\d[\d.,]*)\s?USD\b")
++_US_FORMAT = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{2}))?")
++_FOREIGN = re.compile(r"[\u20ac\u00a3\u00a5\u20b9\u20a9\u20bd]|\b(?!US\$)[A-Z]{1,2}\$|\b(?!USD)[A-Z]{3}\s?\d|\d\s?(?!USD)[A-Z]{3}\b")
++
++
++def parse_order_total(text: str) -> Optional[int]:
++    """The order total a checkout page shows, in cents, or None when no line reads as one. "Order total",
++    "Grand total" and "Amount due" win over a bare "Total"; subtotals and savings are skipped; the last match
++    of the strongest label counts (summaries end with the total). A label whose amount sits on the next line
++    (how innerText lays out most summaries) is read with that line. Only a dollar amount counts; a total in
++    another currency or written another way ("1.234,50 \u20ac") makes the whole page None, since misreading it
++    could pass a total the approval doesn't cover."""
++    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
++    best: Optional[int] = None
++    best_rank = 0
++    for i, line in enumerate(lines):
++        label = _TOTAL_LABEL.search(line)
++        if not label or _NOT_TOTAL.search(line):
++            continue
++        rest = line[label.end():]
++        if not _AMOUNT.search(rest) and not _FOREIGN.search(rest) and i + 1 < len(lines):
++            rest = lines[i + 1]
++        if _FOREIGN.search(rest):
++            return None
++        money = _AMOUNT.search(rest)
++        if not money:
++            continue
++        us = _US_FORMAT.fullmatch((money.group(1) or money.group(2)).rstrip(".,"))
++        if not us:
++            return None
++        rank = 1 if label.group(1).lower().replace(" ", "") == "total" else 2
++        cents = int(us.group(1).replace(",", "")) * 100 + int(us.group(2) or 0)
++        if rank >= best_rank:
++            best, best_rank = cents, rank
++    return best
++
++
++def _read_order_total(task_id: str) -> Optional[int]:
++    """The visible order total of the current page (non-secret read), or None."""
++    res = _eval_js(task_id, "(document.body && document.body.innerText || '').slice(0, 60000)")
++    if not res.get("success"):
++        return None
++    raw = res.get("result")
++    return parse_order_total(raw if isinstance(raw, str) else str(raw or ""))
++
++
++# Payment processors that serve a checkout's card fields from their own iframe. Stripe Elements put the card number,
++# expiry and CVC in js.stripe.com frames on the merchant's page (OpenAI's billing is one, Oct 20 2026). A card fills
++# into a frame only on these origins, and only inside the page the approval was redeemed for.
++_CARD_FRAME_ORIGINS = ("https://js.stripe.com",)
++
++
++def _card_frame_fills(task_id: str, page_origin: str, secret: Dict[str, Any]) -> list:
++    """``[(frame target, frame origin, inspection nonce, fills)]`` for the card fields in the current page's payment
++    processor iframes (non-secret inspection; the values ride only in the fills)."""
++    from agent.vault_login_classifier import (LoginControl, build_inspection_js, classify_checkout_control,
++                                              select_checkout_fills)
++    from agent.vault_store import PAYMENT_FIELDS
++
++    try:
++        supervisor = _ensure_supervisor(task_id)
++    except Exception:
++        supervisor = None
++    listed = supervisor.child_frames(page_origin, _CARD_FRAME_ORIGINS) if supervisor is not None else {}
++    out = []
++    for frame in listed.get("frames") or []:
++        nonce = secrets.token_hex(8)
++        inspect = supervisor.evaluate_in_frame(frame["target_id"], build_inspection_js(nonce))
++        raw = _parse_json_result(inspect.get("result")) if inspect.get("ok") else None
++        controls = [c for c in (classify_checkout_control(LoginControl.from_dict(r))
++                                for r in (raw if isinstance(raw, list) else []) if isinstance(r, dict)) if c]
++        fills = select_checkout_fills(controls, secret, PAYMENT_FIELDS) if controls else []
++        if fills:
++            out.append((frame["target_id"], frame["origin"], nonce, fills))
++    return out
++
++
++def _focus_own_tab(task_id: str, kind: str) -> Optional[str]:
++    """Point the supervisor's page session at the tab the agent's snapshots and clicks use, when that tab holds a
++    ``kind`` form, and return its origin. Else None, with the page session left where it was. focus_page alone takes
++    the first matching tab, so with two tabs on one login page the password could land in the other one: the fill said
++    success and the agent's box stayed empty (Oct 30, Bloomerang). agent-browser's eval runs in the agent's tab, so it
++    sets a random mark there that only that tab answers to. The mark is not secret, and a page that copies it to
++    another tab stays on its own origin, which the fill script checks anyway. browser_exec sessions have no such tab."""
++    from agent.vault_store import normalize_origin
++    from tools.browser_tool import _active_sessions, _last_session_key
++    from tools.browser_tool_session import _run_browser_command
++
++    session_key = _last_session_key(task_id)
++    if session_key not in _active_sessions:
++        return None
++    try:
++        supervisor = _ensure_supervisor(task_id)
++    except Exception:
++        supervisor = None
++    if supervisor is None:
++        return None
++    mark = json.dumps(secrets.token_hex(8))
++    marked = _run_browser_command(session_key, "eval", [f"window.__hermesOwnTab={mark};location.origin"])
++    try:
++        origin = normalize_origin(str((marked.get("data") or {}).get("result") or ""))
++    except Exception:  # about:blank and other pages with no origin
++        return None
++    if not marked.get("success") or not origin:
++        return None
++    probe = _TAB_PROBES.get(kind)
++    accept = f"window.__hermesOwnTab==={mark}" + (f" && ({probe})" if probe else "")
++    return origin if supervisor.focus_page(origin, accept=accept).get("ok") else None
++
+ 
+ def _focus_bound_origin(task_id: str, origin: str, kind: str) -> Optional[str]:
+-    """Point the supervisor's page session at the open tab on ``origin`` that holds a ``kind`` form
+-    (browser_exec sessions open their own tabs, so the tab the supervisor attached to first is rarely the
+-    login page). Returns the origin when a tab was focused, else None (caller falls back to the current page)."""
++    """Point the supervisor's page session at the open tab on ``origin`` that holds a ``kind`` form: the agent's own
++    tab when it qualifies, else the first that does (browser_exec sessions open their own tabs, so the tab the
++    supervisor attached to first is rarely the login page). Returns the origin when a tab was focused, else None
++    (caller falls back to the current page)."""
++    own = _focus_own_tab(task_id, kind)
++    if own and (not origin or own == origin):
++        return own
+     try:
+         supervisor = _ensure_supervisor(task_id)
+     except Exception:
+@@ -239,7 +420,9 @@ def browser_vault_list() -> str:
+             continue
+         for meta in metas:
+             entry = {"handle": meta.id, "backend": backend.name, "label": meta.label, "kind": meta.kind,
+-                     "origin": meta.origin, "available": meta.kind == "login" or bool(meta.origin)}
++                     "origin": meta.origin, "available": True}
++            if meta.kind in _NEEDS_APPROVAL:
++                entry["needs_approval"] = True
+             if len(meta.allowed_origins) > 1:
+                 entry["allowed_origins"] = list(meta.allowed_origins)
+             if meta.has_otp or backend.needs_unlock:
+@@ -397,7 +580,7 @@ def browser_vault_enter_code(handle: str = "", task_id: Optional[str] = None) ->
+                        "next": "Submit the form (many sites auto-submit when the last digit lands)."})
+ 
+ 
+-def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
++def browser_vault_fill(handle: str, task_id: Optional[str] = None, approval: Optional[str] = None) -> str:
+     """Fill the current page's password field from a vault handle.
+ 
+     Password-only: the identifier is agent-visible metadata (see
+@@ -412,12 +595,14 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
+         build_fill_js,
+         build_inspection_js,
+         classify_checkout_control,
++        classify_identity_control,
+         classify_login_control,
+         select_checkout_fills,
++        select_identity_fill,
+         select_password_fill,
+     )
+     from agent.vault_backends import UnlockRequired, backend_for_handle
+-    from agent.vault_store import ADDRESS_FIELDS, PAYMENT_FIELDS, scrub_secret_from_text
++    from agent.vault_store import ADDRESS_FIELDS, PAYMENT_FIELDS, redaction_values, scrub_secret_from_text
+ 
+     effective_task_id = task_id or "default"
+     backend = backend_for_handle(handle)
+@@ -442,30 +627,40 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
+                 ),
+             }
+         )
+-    if meta.kind != "login" and not meta.origin:
++    if meta.kind == "login" and not meta.origin:
+         return json.dumps({"success": False, "error_type": "no_origin",
+-                           "error": f"Vault item {handle!r} has no bound origin; {meta.kind} items are filled only on the site they were saved for."})
+-    if meta.kind == "payment" and not _confirm_payment_fill(meta.label, str(meta.origin)):
+-        return json.dumps({"success": False, "error_type": "payment_declined",
+-                           "error": "The user did not confirm filling this payment card. Do not retry; ask them instead."})
++                           "error": f"Vault item {handle!r} has no bound origin; logins are filled only on the site they were saved for."})
++    if meta.kind in _NEEDS_APPROVAL and not approval:
++        return json.dumps({"success": False, "error_type": "needs_approval",
++                           "error": ("This card or ID number fills only with a one-time approval for this page. Get one "
++                                     "first, then call browser_vault_fill again with it as approval.")})
+ 
+     # ── Origin binding pre-check (cheap early exit; the authoritative check
+     # runs synchronously inside the fill script itself) ──────────────────────
+     # Manager items can bind several websites (e.g. amazon.co.uk + www.amazon.co.uk);
+-    # every saved origin is a valid fill target. Matching stays exact-origin —
+-    # nothing wildcard/parent-domain is ever inferred.
+-    allowed = list(meta.allowed_origins) or ([str(meta.origin)] if meta.origin else [])
+-    page_origin = None
++    # every saved origin is a valid fill target. A login also fills on an https page of the
++    # same site (_same_login_site); every other kind matches exact origins only.
++    # A payment or identity fill targets the origin its approval is redeemed for (below), and an item saved
++    # without an origin (an address) fills the open tab that holds its form, on that tab's own origin.
++    allowed = [] if meta.kind in _NEEDS_APPROVAL else (
++        list(meta.allowed_origins) or ([str(meta.origin)] if meta.origin else []))
++    # The agent's own tab comes first, so a second tab on a saved origin or on another page of the site can't take the fill.
++    own = _focus_own_tab(effective_task_id, meta.kind)
++    page_origin = own if own and (own in allowed or (meta.kind == "login" and _same_login_site(own, allowed))) else None
+     for candidate in allowed:
+-        page_origin = _focus_bound_origin(effective_task_id, candidate, meta.kind)
+         if page_origin:
+             break
++        page_origin = _focus_bound_origin(effective_task_id, candidate, meta.kind)
++    if not allowed:   # only tabs on the open page's site, the one the gate checked and locked (Claude review of zero-private #109)
++        here = _current_page_origin(effective_task_id)
++        page_origin = _focus_bound_origin(effective_task_id, here, meta.kind) if here else None
+     page_origin = page_origin or _current_page_origin(effective_task_id)
+     if not page_origin:
+         return json.dumps(
+             {"success": False, "error": "Could not determine the current page origin. Navigate to the login page first."}
+         )
+-    if page_origin not in allowed:
++    allowed = allowed or [page_origin]
++    if page_origin not in allowed and not (meta.kind == "login" and _same_login_site(page_origin, allowed)):
+         return json.dumps(
+             {
+                 "success": False,
+@@ -473,7 +668,7 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
+                 "error": (
+                     f"Refused: current page origin ({page_origin}) does not match "
+                     f"the vault item's bound origin(s) ({', '.join(allowed)}). Vault fills "
+-                    "only run on the exact origin(s) the credential was saved for."
++                    "only run on the site the credential was saved for."
+                 ),
+             }
+         )
+@@ -491,7 +686,21 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
+     if not isinstance(raw_controls, list):
+         return json.dumps({"success": False, "error": "Page input inspection returned no usable controls."})
+ 
+-    classify = classify_login_control if meta.kind == "login" else classify_checkout_control
++    # ── Resolve secret (secret never enters any logged string) ─────────────
++    try:
++        secret = ({"password": backend.resolve_password(handle)} if meta.kind == "login"
++                  else backend.resolve_secret(handle))
++    except UnlockRequired:
++        return json.dumps({"success": False, "error_type": "unlock_required",
++                           "error": f"{backend.display_name} locked again; call browser_vault_unlock."})
++
++    if meta.kind == "login":
++        classify = classify_login_control
++    elif meta.kind == "identity":
++        id_type = str(secret.get("id_type") or "")
++        classify = lambda control: classify_identity_control(control, id_type)  # noqa: E731
++    else:
++        classify = classify_checkout_control
+     classified: list[ClassifiedLoginControl] = []
+     for raw in raw_controls:
+         if not isinstance(raw, dict):
+@@ -499,87 +708,102 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
+         result = classify(LoginControl.from_dict(raw))
+         if result is not None:
+             classified.append(result)
+-    if not classified:
++    # A checkout with no card number field of its own may hold the card fields in a payment processor's iframe.
++    frame_fills = (_card_frame_fills(effective_task_id, page_origin, secret)
++                   if meta.kind == "payment" and not any(c.token == "cc-number" for c in classified) else [])
++    if not classified and not frame_fills:
+         return json.dumps({"success": False, "error": f"No {meta.kind} form fields were found on the current page."})
+ 
+-    # ── Resolve secret and fill (secret never enters any logged string) ─────
+-    try:
+-        if meta.kind == "login":
+-            secret = {"password": backend.resolve_password(handle)}
+-            fills = select_password_fill(classified, secret["password"])
+-        else:
+-            secret = backend.resolve_secret(handle)
+-            fills = select_checkout_fills(classified, secret, PAYMENT_FIELDS if meta.kind == "payment" else ADDRESS_FIELDS)
+-    except UnlockRequired:
+-        return json.dumps({"success": False, "error_type": "unlock_required",
+-                           "error": f"{backend.display_name} locked again; call browser_vault_unlock."})
+-    if not fills:
++    if not classified:
++        fills = []
++    elif meta.kind == "login":
++        fills = select_password_fill(classified, secret["password"])
++    elif meta.kind == "identity":
++        fills = select_identity_fill(classified, str(secret.get("value") or ""))
++    else:
++        fills = select_checkout_fills(classified, secret, PAYMENT_FIELDS if meta.kind == "payment" else ADDRESS_FIELDS)
++    if not fills and not frame_fills:
+         return json.dumps(
+             {"success": False, "error": f"No fillable {meta.kind} field matched the saved item on this page."}
+         )
+ 
++    # The approval is spent only once the page has fields to fill: a refusal here writes nothing. Every result after
++    # that names the purchase it spent, so a failed fill gives back that one (Codex review of zero-private #109).
++    spent = ""
++    if meta.kind in _NEEDS_APPROVAL:
++        total = _read_order_total(effective_task_id) if meta.kind == "payment" else None
++        verdict = _redeem_approval(str(approval), handle, page_origin, total)
++        if not verdict.get("ok"):
++            return json.dumps({"success": False, "error_type": "approval_refused",
++                               "error": str(verdict.get("error") or "The approval was not accepted.")[:300]})
++        spent = str(verdict.get("purchase_id") or "")
++
++    def _result(out: Dict[str, Any]) -> str:
++        if spent:
++            out["purchase"] = spent
++        return json.dumps(out)
++
+     # Register the secret bytes with the model-egress redaction boundary
+     # BEFORE they touch the page: any later browser_* result (including
+     # browser_cdp Runtime.evaluate reads) that echoes them is scrubbed.
+-    # Address values are not secrets but the card fields are: register every payment value.
+-    for value in (secret.values() if meta.kind == "payment" else [secret.get("password", "")]):
++    # Every secret field of every kind, plus the ways a card or ID number is reformatted on a page.
++    for value in redaction_values(meta.kind, secret):
+         register_vault_redaction_value(value)
+ 
+-    try:
+-        fill_result = _eval_js_secret(
+-            effective_task_id, build_fill_js(fills, expected_origin=page_origin, nonce=nonce)
+-        )
+-    except Exception as exc:
+-        # Strip any secret material from exception text before surfacing.
+-        return json.dumps(
+-            {"success": False, "error": scrub_secret_from_text(str(exc), secret)}
+-        )
+-    if not fill_result.get("success"):
+-        err = scrub_secret_from_text(str(fill_result.get("error") or "fill failed"), secret)
+-        out = {"success": False, "error": err}
+-        if fill_result.get("error_type"):
+-            out["error_type"] = fill_result["error_type"]
+-        return json.dumps(out)
++    # Card frames first, then the page. A frame fill also checks that the page holding it is still page_origin, and a
++    # page that navigated takes its frames with it, so a refusal at any step leaves no card on another site.
++    writes = [(target, build_fill_js(frame_fill, expected_origin=origin, nonce=frame_nonce, top_origin=page_origin,
++                                         frame_origins=_CARD_FRAME_ORIGINS))
++              for target, origin, frame_nonce, frame_fill in frame_fills]
++    if fills:
++        writes.append((None, build_fill_js(fills, expected_origin=page_origin, nonce=nonce)))
++    filled, failure = 0, None
++    for frame, expression in writes:
++        try:
++            fill_result = _eval_js_secret(effective_task_id, expression, frame=frame)
++        except Exception as exc:
++            # Strip any secret material from exception text before surfacing.
++            failure = {"success": False, "error": scrub_secret_from_text(str(exc), secret)}
++            break
++        if not fill_result.get("success"):
++            err = scrub_secret_from_text(str(fill_result.get("error") or "fill failed"), secret)
++            failure = {"success": False, "error": err}
++            if fill_result.get("error_type"):
++                failure["error_type"] = fill_result["error_type"]
++            break
+ 
+-    parsed = _parse_json_result(fill_result.get("result"))
+-    if isinstance(parsed, str):
+-        parsed = _parse_json_result(parsed)
+-    if isinstance(parsed, dict) and parsed.get("refused") == "origin_changed":
+-        return json.dumps(
+-            {
++        parsed = _parse_json_result(fill_result.get("result"))
++        if isinstance(parsed, str):
++            parsed = _parse_json_result(parsed)
++        if isinstance(parsed, dict) and parsed.get("refused") == "origin_changed":
++            failure = {
+                 "success": False,
+                 "error_type": "origin_changed",
+                 "error": (
+                     "Refused: the page navigated away from the bound origin "
+                     f"({page_origin}) before the fill could run "
+-                    f"(now on {parsed.get('found') or 'unknown'}). "
+-                    "Nothing was written."
++                    f"(now on {parsed.get('found') or 'unknown'})."
+                 ),
+             }
+-        )
+-    filled = parsed.get("filled", 0) if isinstance(parsed, dict) else 0
++            break
++        filled += int(parsed.get("filled", 0)) if isinstance(parsed, dict) else 0
++    if failure is not None and not filled:
++        if failure.get("error_type") == "origin_changed":
++            failure["error"] += " Nothing was written."
++        return _result(failure)
+ 
+     out = {"success": bool(filled), "filled_fields": int(filled), "backend": backend.name,
+            "kind": meta.kind, "origin": page_origin}
++    if failure is not None:
++        # A card frame was filled before a later write failed. The card is on the page, so this counts as a fill: the
++        # plugin keeps the screen lock and the spent approval (Claude review of zero-private #128).
++        out["warning"] = f"Filled {filled} field(s), then stopped: {failure['error']}"
+     if meta.kind == "login":
+         out["next"] = ("Submit. If the site then asks for a verification code, call browser_vault_enter_code with this handle"
+                        + (" (a code will be generated automatically)." if meta.has_otp else "."))
+     if meta.kind != "login":
+-        out["fields"] = sorted(f["token"] for f in fills)  # which controls were targeted, never the values
+-    return json.dumps(out)
+-
+-
+-def _confirm_payment_fill(label: str, origin: str) -> bool:
+-    """Human confirmation before a card is written into a page: a prompt injection that reaches a checkout
+-    must not be able to spend. Routes through the approval surface of the active session (gateway button
+-    round-trip or CLI panel); headless sessions cannot confirm and the fill is refused."""
+-    from tools.approval_prompt import request_elicitation_consent
+-
+-    return request_elicitation_consent(
+-        f"Fill payment card '{label}' on {origin}",
+-        "The agent wants to enter your saved card details into this checkout page. The card number and "
+-        "CVC never enter the conversation. Approve only if you intend to pay here.",
+-        surface="vault-payment", title="Confirm payment card fill?") == "accept"
++        out["fields"] = sorted(f["token"] for f in fills + [x for *_, ff in frame_fills for x in ff])  # never the values
++    return _result(out)
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -623,11 +847,12 @@ BROWSER_VAULT_FILL_SCHEMA = {
+     "description": (
+         "Fill the CURRENT browser page from a vault handle (see browser_vault_list): a login item fills ONLY "
+         "the password field (type the identifier/username yourself first with the browser's input tool); a "
+-        "payment item fills card number/name/expiry/CVC after the user confirms in their UI; an address item "
+-        "fills the address fields. Values are resolved server-side and never appear in the conversation. "
+-        "Refused unless the page origin exactly matches the item's bound origin (re-checked atomically at "
+-        "fill time). If a password manager is locked the user is prompted to unlock first. Never retry a "
+-        "payment_declined result."
++        "payment item fills card number/name/expiry/CVC and an identity item fills its ID field, each only with "
++        "the one-time approval you were given for this page; an address item fills the address fields. Values are "
++        "resolved server-side and never appear in the conversation. A login is refused unless the page is on "
++        "the site it was saved for, and a card or ID fill unless the page is the one it was approved for "
++        "(re-checked atomically at fill time). If a password manager is locked the user is prompted to unlock "
++        "first. Never retry an approval_refused result with the same approval."
+     ),
+     "parameters": {
+         "type": "object",
+@@ -635,7 +860,12 @@ BROWSER_VAULT_FILL_SCHEMA = {
+             "handle": {
+                 "type": "string",
+                 "description": "Handle from browser_vault_list (vault_… local, op:… 1Password, bw:… Bitwarden)",
+-            }
++            },
++            "approval": {
++                "type": "string",
++                "description": "Card and ID items only: the one-time approval you were given for this page. It "
++                               "works once.",
++            },
+         },
+         "required": ["handle"],
+     },
+@@ -717,7 +947,8 @@ def _handle_vault_unlock(args: Dict[str, Any], **kwargs) -> str:
+ 
+ def _handle_vault_fill(args: Dict[str, Any], **kwargs) -> str:
+     tid = kwargs.get("task_id")
+-    return _fenced_page_op(tid, lambda: browser_vault_fill(handle=str(args.get("handle") or ""), task_id=tid))
++    return _fenced_page_op(tid, lambda: browser_vault_fill(handle=str(args.get("handle") or ""), task_id=tid,
++                                                           approval=str(args.get("approval") or "") or None))
+ 
+ 
+ from tools.registry import no_cache_check_fn, registry  # noqa: E402

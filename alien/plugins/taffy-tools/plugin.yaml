@@ -1,0 +1,79 @@
+name: taffy-tools
+version: 0.1.0
+description: "Tools for a Zero home's Zips: connectors through the home's own plan, mail, calendars, Tally where it is set up, the Mac, teammates, and the permission gate. Which tools a home gets comes from its home.json."
+author: Zero
+provides_tools:
+  # connectors, tally, email and calendar are registered only when the home's settings say it can use them (home.py).
+  - connectors
+  - tally
+  - email
+  - calendar
+  # trello, drive and the read-only app tools reach apps connected in Zero's Connect Apps (apps_tool.py).
+  # bank reads Plaid when the home has it set up (bank_tool.py). make_media makes a picture or a short video (media_tool.py).
+  - bank
+  # bills keeps one record per bill in the hub (bills_tool.py).
+  - bills
+  - make_media
+  # messages reads the person's texts on their Mac, behind the Mac's own switch (messages_tool.py).
+  - messages
+  # watch_texts wakes a Zip when someone it named texts (watch_texts_tool.py).
+  - watch_texts
+  # look_up searches every place above the Zip may read in one call (lookup.py).
+  - look_up
+  # team_chats searches what was said in every Zip's past chats, Zero's included (teamchats.py).
+  - team_chats
+  - trello
+  - drive
+  - outlook
+  - dropbox
+  - notion
+  - linear
+  - github
+  # browser_steps is registered only while Colin has paid calls on (fast_steps.paid_calls_on), so it is not listed.
+  - browser_actions
+  - react
+  - browser_download
+  - post_to_x
+  - ask_for_api_key
+  - service_api
+  - mac_start
+  - mac_open
+  - mac_run
+  - mac_codex
+  - mac_screenshot
+  - mac_ui
+  - mac_press
+  - mac_click
+  - mac_type
+  - mac_upload
+  - mac_key
+  - mac_scroll
+  - mac_steps
+  - mac_copy
+  - mac_done
+  - ask_teammate
+  - tell_teammate
+  - team_note
+  - save_fact
+  - recall
+  - offer_choices
+  - share_result
+  - preview_screenshot
+  - share_page
+  - team_propose
+  - team_start
+  - team_milestone
+  - team_need
+  - team_post
+  - team_site_publish
+  - offer_project
+  - session_card
+  - card
+  - app_todo_list
+  - work_project
+  - code_session
+  - wallet_list
+  - use_card
+  - use_id
+  - ask_for_wallet_item
+  - report_purchase

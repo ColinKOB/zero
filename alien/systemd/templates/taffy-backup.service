@@ -1,0 +1,11 @@
+# Rendered by zero-home-render for the home "{{home_id}}". Edit the template in alien/systemd/templates.
+[Unit]
+Description=Zero nightly encrypted backup for {{person}}'s home (restic)
+
+[Service]
+Type=oneshot
+Environment=ZERO_HOME=%h/taffy/home.json
+Environment=PATH=%h/taffy/bin:%h/.local/bin:/srv/zero/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/taffy/.venv/bin/python %h/taffy/bin/taffy-backup
+Nice=10
+IOSchedulingClass=idle

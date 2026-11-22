@@ -1,0 +1,243 @@
+Hermes patch: a browser read names the tab it came from, and a slow page is still loading, not a failed one.
+Base: 74943bb889 on Alien. Apply after the other Zero Hermes patches (it sits next to hermes-browser-person-check.patch).
+Not applied by the normal deploy: apply by hand, then restart taffy-gateway.
+Friction list item 20 (Nov 16 2026, Scholar): "navigation repeatedly reported failure even though the requested page loaded;
+other checks showed a FlatWorld address with Cairn content." Test: hub/tests/test_browser_one_tab.py.
+
+--- a/tools/browser_tool.py
++++ b/tools/browser_tool.py
+@@ -713,13 +713,19 @@ def _post_redirect_block(nav_session_key: str, url: str, final_url: str, auto_lo
+ def _snapshot_fields(snap_result: Dict[str, Any]) -> Dict[str, Any]:
+     """``snapshot`` + ``element_count`` fields from a successful snapshot result; oversized
+     snapshots truncate at line boundaries with the full tree stored for read_file paging."""
+     data = snap_result.get("data", {})
+     snapshot_text = data.get("snapshot", "")
+     refs = data.get("refs", {})
+     threshold = get_browser_snapshot_threshold()
+     if len(snapshot_text) > threshold:
+         snapshot_text = _snapshot._truncate_snapshot(snapshot_text, max_chars=threshold)
+-    return {"snapshot": _snapshot._redact_browser_output(snapshot_text), "element_count": len(refs) if refs else 0}
++    fields = {"snapshot": _snapshot._redact_browser_output(snapshot_text), "element_count": len(refs) if refs else 0}
++    # Zero, Nov 16 2026 (friction list item 20; Scholar: "other checks showed a FlatWorld address with Cairn content"):
++    # agent-browser reads the address of the tab it took the snapshot from in the same command ("origin"), and this
++    # dropped it. Every read now names the address it came from.
++    if data.get("origin"):
++        fields["url"] = str(data["origin"])
++    return fields
+ 
+ 
+ def _merge_fallback_warning(response: Dict[str, Any], result: Dict[str, Any]) -> None:
+@@ -729,66 +735,124 @@ def _merge_fallback_warning(response: Dict[str, Any], result: Dict[str, Any]) ->
+ 
+ 
+ def _attach_auto_snapshot(response: Dict[str, Any], nav_session_key: str) -> None:
+-    """Add a compact snapshot to a navigate response so the model can act without browser_snapshot."""
++    """Add a compact snapshot to a navigate response so the model can act without browser_snapshot. The response's
++    ``url`` is the address the snapshot was read from; ``opened_url`` keeps the opened one when the two differ."""
+     try:
+         snap_result = _session._run_browser_command(nav_session_key, "snapshot", ["-c"])
+-        if snap_result.get("success"):
+-            response.update(_snapshot_fields(snap_result))
+-            _merge_fallback_warning(response, snap_result)
++        if not snap_result.get("success"):
++            return
++        fields = _snapshot_fields(snap_result)
++        opened = str(response.get("url") or "")
++        if fields.get("url") and opened and fields["url"] != opened:
++            # agent-browser makes every new tab in the browser its active tab, whoever opened it (another session on
++            # the same Chromium, a pop-up), so the snapshot after an open can come from another tab (Nov 16 2026,
++            # item 20). The tab that was opened is read again instead.
++            again = _read_tab_showing(nav_session_key, opened)
++            if again is not None:
++                snap_result, fields = again, _snapshot_fields(again)
++            if fields.get("url") != opened:
++                response["opened_url"] = opened
++        response.update(fields)
++        _merge_fallback_warning(response, snap_result)
+     except Exception as e:
+         logger.debug("Auto-snapshot after navigate failed: %s", e)
+ 
+ 
++def _read_tab_showing(session_key: str, url: str) -> Optional[Dict[str, Any]]:
++    """When a tab that opened after this one took over as the active tab, make the one showing ``url`` active again and
++    snapshot it. agent-browser adds a new tab at the end of its list and makes it active, so that is the case only when
++    the active tab is the last one and another shows ``url``. Otherwise None: the page itself moved on (a redirect
++    after load), and the snapshot as taken is the truth."""
++    listed = _session._run_browser_command(session_key, "tab", ["list"])
++    tabs = ((listed.get("data") or {}).get("tabs") or []) if listed.get("success") else []
++    if not tabs or not tabs[-1].get("active"):
++        return None
++    tab = next((t for t in tabs[:-1] if t.get("url") == url and t.get("tabId")), None)
++    if tab is None or not _session._run_browser_command(session_key, "tab", [str(tab["tabId"])]).get("success"):
++        return None
++    again = _session._run_browser_command(session_key, "snapshot", ["-c"])
++    return again if again.get("success") else None
++
++
++# agent-browser waits for the page's load event for 25 s, then answers "Timeout waiting for Page.loadEventFired" while the
++# page carries on loading in its tab. Scholar, Nov 16 2026 (friction list item 20): "navigation repeatedly reported
++# failure even though the requested page loaded ... distinguish a slow load from failure. That would prevent false access
++# blockers and repeated sign-ins." Hermes's own command timeout (the browser itself stuck) stays a failure.
++_STILL_LOADING_ERRORS = ("timeout waiting for page.loadeventfired", "timeout waiting for page.domcontenteventfired")
++STILL_LOADING_NOTE = ("The page hasn't finished loading, so this is what it shows so far. Don't open it again: read it "
++                      "with browser_snapshot in a few seconds if something you need is missing.")
++STILL_LOADING_UNREAD = ("The page hasn't finished loading and can't be read yet. Don't open it again: wait a few seconds, "
++                        "then read it with browser_snapshot.")
++
++
++def _still_loading(error: str) -> bool:
++    return any(words in str(error or "").lower() for words in _STILL_LOADING_ERRORS)
++
++
+ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
+     """Navigate to ``url``; JSON with title, compact snapshot and, on first nav, stealth features.
+     Hybrid routing decides BEFORE the safety checks whether this URL goes to a local sidecar
+     (the cloud provider never sees it then, so the private-address checks are relaxed)."""
+     url, safety_error = _secret_url_error_normalized(url)
+     if safety_error is not None:
+         return json.dumps(safety_error)
+ 
+     effective_task_id = task_id or "default"
+     nav_session_key = _navigation_session_key(effective_task_id, url)
+     auto_local_this_nav = _is_local_sidecar_key(nav_session_key)
+ 
+     safety_error = _url_policy_error(url, auto_local=auto_local_this_nav)
+     if safety_error is not None:
+         return json.dumps(safety_error)
+ 
+     if _is_camofox_mode():
+         return _camofox("camofox_navigate", url, task_id)
+ 
+     if auto_local_this_nav:
+         logger.info("browser_navigate: auto-routing %s to local Chromium sidecar (cloud provider %s stays on "
+                     "cloud for public URLs; set browser.auto_local_for_private_urls: false to disable)",
+                     url, type(_cloud._get_cloud_provider()).__name__ if _cloud._get_cloud_provider() else "none")
+ 
+     session_info = _session._get_session_info(nav_session_key)
+     is_first_nav = session_info.get("_first_nav", True)
+     if is_first_nav:
+         session_info["_first_nav"] = False
+         _maybe_start_recording(nav_session_key)
+ 
+     result = _session._run_browser_command(nav_session_key, "open", [url],
+                                   timeout=_get_open_command_timeout(first_open=is_first_nav))
++    if not result.get("success") and _still_loading(result.get("error", "")):
++        # The address went to the tab and the page is still loading: what it shows so far, never a failure.
++        # The open never said where it landed, so the snapshot's own address is the only one ("url" left empty).
++        response = {"success": True, "url": "", "title": "", "still_loading": True, "note": STILL_LOADING_NOTE}
++        _attach_auto_snapshot(response, nav_session_key)
++        response["url"] = response["url"] or url
++        blocked = _post_redirect_block(nav_session_key, url, response["url"], auto_local_this_nav)
++        if blocked is not None:
++            return blocked
++        _last_active_session_key[effective_task_id] = nav_session_key
++        if "snapshot" not in response:
++            return _dumps(_err(STILL_LOADING_UNREAD, still_loading=True, url=url))
++        _add_navigate_warnings(response, "", session_info if is_first_nav else None)
++        return _dumps(response)
+     if not result.get("success"):
+         return _dumps(_err(result.get("error", "Navigation failed")))
+ 
+     data = result.get("data", {})
+     title = data.get("title", "")
+     final_url = data.get("url", url)
+     blocked = _post_redirect_block(nav_session_key, url, final_url, auto_local_this_nav)
+     if blocked is not None:
+         return blocked
+ 
+     response = {"success": True, "url": final_url, "title": title}
+     features = session_info.get("features") or {}
+     if features.get("real_profile"):  # auditability: this ran on the user's real-profile copy-browser
+         response["used_real_profile"] = True
+     # Only a successful, non-blocked navigation becomes the task owner: failed opens
+     # and blocked redirects must not retarget follow-up clicks to an irrelevant session.
+     _last_active_session_key[effective_task_id] = nav_session_key
+     _lp._copy_fallback_warning(response, result)
+     _add_navigate_warnings(response, title, session_info if is_first_nav else None)
+     _attach_auto_snapshot(response, nav_session_key)
+     return _dumps(response)
+@@ -1217,6 +1281,15 @@ def browser_get_images(task_id: Optional[str] = None) -> str:
+ from tools import browser_tool_vision as _vision
+ 
+ 
++def _page_url(session_key: str) -> str:
++    """The address of the session's active tab, or "" when it can't be read."""
++    try:
++        got = _session._run_browser_command(session_key, "get", ["url"])
++    except Exception:
++        return ""
++    return str((got.get("data") or {}).get("url") or "") if got.get("success") else ""
++
++
+ def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screenshot_path: Path, lp_prerouted: bool):
+     """Take (or adopt the pre-routed) screenshot; returns ``(result, path, error_json_or_None)``."""
+     if lp_prerouted and screenshot_path.exists():
+@@ -1255,58 +1328,67 @@ def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screensho
+ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+     """Screenshot the current page for visual inspection. Native-vision models get the image
+     attached to the conversation; otherwise the auxiliary vision model returns a text
+     analysis. The file is kept and its path returned (MEDIA:<path>)."""
+     if _is_camofox_mode():
+         return _camofox("camofox_vision", question, annotate, task_id)
+ 
+     import uuid as uuid_mod
+     from hermes_constants import get_hermes_dir
+     screenshots_dir = get_hermes_dir("cache/screenshots", "browser_screenshots")
+     screenshot_path = screenshots_dir / f"browser_screenshot_{uuid_mod.uuid4().hex}.png"
+     effective_task_id = _last_session_key(task_id or "default")
+     blocked = _blocked_private_page_content(effective_task_id)
+     if blocked is not None:
+         return blocked
+ 
+     _lp_prerouted, _lp_fallback_warning, screenshot_path = _vision._lightpanda_vision_preroute(
+         effective_task_id, annotate, screenshot_path)
+     result: Dict[str, Any] = {}
+     try:
+         screenshots_dir.mkdir(parents=True, exist_ok=True)
+         _lifecycle._cleanup_old_screenshots(screenshots_dir, max_age_hours=24)
+         result, screenshot_path, error = _capture_vision_screenshot(
+             effective_task_id, annotate, screenshot_path, _lp_prerouted)
+         if error is not None:
+             return error
+         # Native image routing: attach the screenshot directly instead of describing it
+         # through an aux vision LLM (no information loss).
++        # Nov 16 2026 (item 20): the picture names the address of the tab it was taken from, read from the same
++        # browser session right after the capture.
++        page_url = _page_url(effective_task_id)
+         from tools.vision_tools import _should_use_native_vision_fast_path
+         if _should_use_native_vision_fast_path():
+-            return _vision._native_vision_result(screenshot_path, question, annotate, result, _lp_fallback_warning)
++            native = _vision._native_vision_result(screenshot_path, question, annotate, result, _lp_fallback_warning)
++            if page_url:
++                native.setdefault("meta", {})["url"] = page_url
++                native["text_summary"] = f"{native.get('text_summary', '')} Page address: {page_url}".strip()
++            return native
+ 
+         analysis = _vision._analyze_screenshot_with_aux_llm(screenshot_path, question)
+         response_data = {"success": True, "analysis": analysis or "Vision analysis returned no content.",
+                          "screenshot_path": str(screenshot_path)}
++        if page_url:
++            response_data["url"] = page_url
+         _lp._copy_fallback_warning(response_data, result)
+         if annotate and result.get("data", {}).get("annotations"):
+             response_data["annotations"] = result["data"]["annotations"]
+         return _dumps(response_data)
+     except Exception as e:
+         # Keep a captured screenshot — the failure is in the analysis, not the capture,
+         # and deleting it loses evidence. The 24-hour cleanup bounds disk growth.
+         logger.warning("browser_vision failed: %s", e, exc_info=True)
+         error_info = _err(f"Error during vision analysis: {str(e)}")
+         if screenshot_path.exists():
+             error_info["screenshot_path"] = str(screenshot_path)
+             error_info["note"] = "Screenshot was captured but vision analysis failed. You can still share it via MEDIA:<path>."
+         _lp._copy_fallback_warning(error_info, result)
+         return _dumps(error_info)
+ 
+ 
+ # ---------------------------------------------------------------------------
+ # Registry
+ # ---------------------------------------------------------------------------
+ from tools.registry import registry, tool_error
+ from tools.browser_extension_router import extension_controller_available, routed_browser_handler
+ 
+ _BROWSER_SCHEMA_MAP = {s["name"]: s for s in BROWSER_TOOL_SCHEMAS}

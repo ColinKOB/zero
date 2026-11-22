@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import csv
+import html
+import io
+import re
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+SCAN_CHARS = 25
+OCR_PAGES = 40
+TIMEOUT = 300
+
+
+class Unreadable(Exception):
+    pass
+
+
+def _run(args, timeout=TIMEOUT, data=None) -> str:
+    try:
+        p = subprocess.run(args, input=data, capture_output=True, timeout=timeout)
+    except FileNotFoundError:
+        raise Unreadable(f"{args[0]} isn't installed on this computer")
+    except subprocess.TimeoutExpired:
+        raise Unreadable(f"{args[0]} took longer than {timeout} seconds")
+    if p.returncode != 0 and not p.stdout:
+        raise Unreadable(f"{args[0]} failed: {p.stderr.decode(errors='replace').strip()[-200:]}")
+    return p.stdout.decode(errors="replace")
+
+
+def _ocr_image(path: Path) -> str:
+    return _run(["tesseract", str(path), "-", "-l", "eng", "--psm", "3"])
+
+
+def _pdf(path: Path) -> str:
+    try:
+        pages = int(re.search(r"Pages:\s+(\d+)", _run(["pdfinfo", str(path)])).group(1))
+    except (AttributeError, Unreadable):
+        pages = 0
+    text = _run(["pdftotext", "-layout", str(path), "-"])
+    by_page = text.split("\f")
+
+    if pages and all(len((by_page[n] if n < len(by_page) else "").strip()) >= SCAN_CHARS for n in range(pages)):
+        return text
+
+    out = []
+    with tempfile.TemporaryDirectory(prefix="readfile-") as d:
+        for n in range(1, (pages or 1) + 1):
+            own = by_page[n - 1] if n - 1 < len(by_page) else ""
+            if len(own.strip()) >= SCAN_CHARS:
+                out.append(own)
+                continue
+            if n > OCR_PAGES:
+                out.append(f"[page {n}: a scan, not read; readfile reads the first {OCR_PAGES} scanned pages]")
+                continue
+            stem = Path(d) / f"p{n}"
+            _run(["pdftoppm", "-r", "200", "-gray", "-png", "-f", str(n), "-l", str(n), "-singlefile", str(path),
+                  str(stem)])
+            out.append(_ocr_image(stem.with_suffix(".png")))
+    return "\f".join(out)
+
+
+def _docx(path: Path) -> str:
+    import docx
+    d = docx.Document(str(path))
+    parts = [p.text for p in d.paragraphs]
+    for t in d.tables:
+        for row in t.rows:
+            parts.append("\t".join(c.text.strip() for c in row.cells))
+    return "\n".join(parts)
+
+
+def _pptx(path: Path) -> str:
+    import pptx
+    deck = pptx.Presentation(str(path))
+    out = []
+    for i, slide in enumerate(deck.slides, 1):
+        out.append(f"--- Slide {i} ---")
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                out.append(shape.text_frame.text)
+            if getattr(shape, "has_table", False) and shape.has_table:
+                for row in shape.table.rows:
+                    out.append("\t".join(c.text.strip() for c in row.cells))
+        if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+            out.append("Notes: " + slide.notes_slide.notes_text_frame.text)
+    return "\n".join(out)
+
+
+def _xlsx(path: Path) -> str:
+    import openpyxl
+    book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    out = []
+    for sheet in book.worksheets:
+        out.append(f"--- Sheet {sheet.title} ---")
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter="\t", lineterminator="\n")
+        for row in sheet.iter_rows(values_only=True):
+            if any(v is not None for v in row):
+                w.writerow(["" if v is None else v for v in row])
+        out.append(buf.getvalue())
+    return "\n".join(out)
+
+
+def _open_document(path: Path) -> str:
+    with zipfile.ZipFile(path) as z:
+        xml = z.read("content.xml").decode(errors="replace")
+    xml = re.sub(r"<text:(?:p|h)[^>]*>", "\n", xml)
+    xml = re.sub(r"<text:tab/>|<table:table-cell[^>]*>", "\t", xml)
+    return html.unescape(re.sub(r"<[^>]+>", "", xml))
+
+
+def _rtf(path: Path) -> str:
+    text = path.read_text(errors="replace")
+    text = re.sub(r"\\par[d]?", "\n", text)
+    text = re.sub(r"\\'([0-9a-f]{2})", lambda m: bytes.fromhex(m.group(1)).decode("cp1252", errors="replace"), text)
+    text = re.sub(r"\\[a-z]+-?\d* ?|[{}]", "", text)
+    return text
+
+
+def _html(path: Path) -> str:
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(path.read_bytes(), "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return soup.get_text("\n")
+
+
+def _plain(path: Path) -> str:
+    data = path.read_bytes()
+    if b"\0" in data[:4096]:
+        raise Unreadable("this isn't a kind of file readfile knows")
+    return data.decode(errors="replace")
+
+
+READERS = {".pdf": _pdf, ".docx": _docx, ".docm": _docx, ".pptx": _pptx, ".xlsx": _xlsx, ".xlsm": _xlsx,
+           ".doc": lambda p: _run(["catdoc", "-w", str(p)]), ".ppt": lambda p: _run(["catppt", str(p)]),
+           ".xls": lambda p: _run(["xls2csv", str(p)]), ".odt": _open_document, ".odp": _open_document,
+           ".ods": _open_document, ".rtf": _rtf, ".html": _html, ".htm": _html}
+for _ending in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp", ".pnm"):
+    READERS[_ending] = _ocr_image
+
+
+def _kind(path: Path) -> str:
+    ""
+    ending = path.suffix.lower()
+    head = path.open("rb").read(8)
+    if head.startswith(b"%PDF"):
+        return ".pdf"
+    if head.startswith(b"PK") and ending not in (".docx", ".docm", ".pptx", ".xlsx", ".xlsm", ".odt", ".odp", ".ods"):
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+        for marker, kind in (("word/document.xml", ".docx"), ("ppt/presentation.xml", ".pptx"),
+                             ("xl/workbook.xml", ".xlsx"), ("content.xml", ".odt")):
+            if marker in names:
+                return kind
+    return ending
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.split("\n\n")[0])
+        return 0 if argv else 2
+    status = 0
+    for name in argv:
+        path = Path(name)
+        if len(argv) > 1:
+            print(f"===== {name} =====")
+        if not path.is_file():
+            print(f"readfile: {name}: no such file", file=sys.stderr)
+            status = 2
+            continue
+        try:
+            kind = _kind(path)
+            if kind in READERS and kind != path.suffix.lower():
+
+                with tempfile.TemporaryDirectory(prefix="readfile-") as d:
+                    named = Path(d) / ("file" + kind)
+                    named.write_bytes(path.read_bytes())
+                    text = READERS[kind](named)
+            else:
+                text = READERS.get(kind, _plain)(path)
+        except Unreadable as e:
+            print(f"readfile: {name}: {e}", file=sys.stderr)
+            status = 2
+            continue
+        except Exception as e:
+            print(f"readfile: {name}: couldn't read it ({type(e).__name__}: {str(e)[:200]})", file=sys.stderr)
+            status = 2
+            continue
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        if not text:
+            print(f"readfile: {name}: no text found", file=sys.stderr)
+            status = max(status, 1)
+        sys.stdout.write(text + "\n")
+    return status
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        sys.exit(0)

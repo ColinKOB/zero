@@ -1,0 +1,399 @@
+diff --git a/agent/compaction_carry.py b/agent/compaction_carry.py
+new file mode 100644
+index 0000000..90da0a8
+--- /dev/null
++++ b/agent/compaction_carry.py
+@@ -0,0 +1,142 @@
++"""A summary that an idle compaction finished after the person's next message cancelled it, kept for the next one.
++
++Oct 29 2026 (Zero): an idle compaction takes about two minutes, and a message arriving in that time cancelled it and
++threw the summary away. Over Oct 26 to 29, 28 of Zero's 69 runs went this way (25 minutes of summary calls), and each
++next turn went out with the whole uncompacted history. Now the cancelled summary call keeps running beside the turn
++(``keep_call``), and its text is kept here with the exact turns it covers. The next compaction of that chat, idle or
++not, ends its summarized span where the kept one ended (``pinned_end``), so the turns are the same, and takes the text
++instead of calling the summarizer again (``take``). Everything after that span, the reply included, stays as the
++verbatim tail. The summary is the one the summarizer wrote; nothing about how it is written changes.
++"""
++
++import contextvars
++import hashlib
++import json
++import logging
++import threading
++import time
++from typing import Any, Callable, Dict, List, Optional
++
++logger = logging.getLogger(__name__)
++
++KEEP_SECONDS = 3600.0   # a kept summary older than this is dropped; the chat has moved on
++POLL_SECONDS = 0.2
++
++_lock = threading.Lock()
++_kept: Dict[str, Dict[str, Any]] = {}
++
++
++def _digest(value: Any) -> str:
++    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
++
++
++def row_digests(messages: List[Dict[str, Any]]) -> List[str]:
++    """One digest per message, from what the summarizer reads of it (role, content, tool calls and their ids)."""
++    return [_digest([m.get("role"), m.get("content"), m.get("tool_calls"), m.get("tool_call_id")]) for m in messages]
++
++
++def summary_key(content_to_summarize: str, previous_summary: Optional[str]) -> str:
++    return _digest([content_to_summarize, previous_summary or ""])
++
++
++def _live(session_id: str) -> Optional[Dict[str, Any]]:
++    entry = _kept.get(session_id)
++    if entry is not None and time.monotonic() - entry["at"] > KEEP_SECONDS:
++        _kept.pop(session_id, None)
++        return None
++    return entry
++
++
++def pinned_end(session_id: str, messages: List[Dict[str, Any]], start: int, end: int) -> int:
++    """``end``, or where the kept summary's span ends when ``messages`` still hold that span from ``start``."""
++    with _lock:
++        entry = _live(session_id)
++    if entry is None:
++        return end
++    window = entry["window"]
++    stop = start + len(window)
++    if start < stop <= end and row_digests(messages[start:stop]) == window:
++        return stop
++    return end
++
++
++def take(session_id: str, key: str, cancelled: Callable[[], bool]) -> Optional[str]:
++    """The kept summary text for exactly these turns and previous summary, once. While its call is still running,
++    wait for it rather than start a second one; ``cancelled()`` ends the wait and leaves it kept."""
++    from agent.auxiliary_client import AuxiliaryExplicitCancellation
++
++    with _lock:
++        entry = _live(session_id)
++    if entry is None:
++        return None
++    if entry["key"] != key:   # its turns are gone, or the summary before them changed: it no longer fits
++        with _lock:
++            if _kept.get(session_id) is entry:
++                _kept.pop(session_id)
++        return None
++    while not entry["done"].wait(POLL_SECONDS):
++        if cancelled():
++            raise AuxiliaryExplicitCancellation()
++    with _lock:
++        if _kept.get(session_id) is entry:
++            _kept.pop(session_id)
++    if entry["content"]:
++        logger.info("Using the kept compaction summary for session %s", session_id)
++    return entry["content"]
++
++
++def keep_call(session_id: str, window: List[str], key: str, call: Callable[[], str],
++              cancelled: Callable[[], bool]) -> str:
++    """Run ``call`` on its own thread and return its text. When ``cancelled()`` turns true first, raise
++    AuxiliaryExplicitCancellation at once and keep the call going: its text is kept for ``take`` with ``window``
++    and ``key``. An error reaches the caller as before; a late one only drops the kept entry."""
++    from agent.auxiliary_client import AuxiliaryExplicitCancellation
++
++    entry = {"window": list(window), "key": key, "content": None, "done": threading.Event(), "at": time.monotonic()}
++    box: Dict[str, Any] = {}
++    finished = threading.Event()
++    context = contextvars.copy_context()
++
++    def run_hooked() -> None:
++        try:
++            box["content"] = context.run(hooked)
++        except BaseException as exc:   # the caller's, or logged once the caller has gone
++            box["error"] = exc
++        with _lock:
++            finished.set()
++            entry["content"] = box.get("content")
++            entry["done"].set()
++        if entry.get("kept"):
++            if "error" in box:
++                logger.info("Kept compaction summary call for session %s failed: %s", session_id, box["error"])
++            else:
++                logger.info("Kept compaction summary for session %s is ready (%d messages)", session_id,
++                            len(window))
++
++    from agent import auxiliary_client as aux
++
++    # The waiting host's progress hook and stream deadline are thread-local: carry them, so its stall check sees the
++    # summary moving and an abandoned stream still ends at the host's own deadline.
++    progress, deadline = getattr(aux._aux_progress, "hook", None), aux._current_aux_stream_deadline()
++
++    def hooked() -> str:
++        with aux.aux_progress_hook(progress), aux.aux_stream_deadline(deadline):
++            return call()
++
++    threading.Thread(target=lambda: run_hooked(), name="compaction-summary-kept", daemon=True).start()
++    while not finished.wait(POLL_SECONDS):
++        if cancelled():
++            with _lock:
++                if session_id and window:
++                    entry["kept"] = True
++                    _kept[session_id] = entry
++            logger.info("Compaction summary for session %s keeps running after a cancel", session_id)
++            raise AuxiliaryExplicitCancellation()
++    if "error" in box:
++        raise box["error"]
++    return box["content"]
++
++
++def clear() -> None:
++    with _lock:
++        _kept.clear()
+diff --git a/agent/context_compressor.py b/agent/context_compressor.py
+index 0965232..93573e0 100644
+--- a/agent/context_compressor.py
++++ b/agent/context_compressor.py
+@@ -4046,7 +4046,36 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
+         self.summary_model = ""  # empty = use main model
+         self._clear_compression_failure_cooldown()  # no cooldown — retry immediately
+ 
+-    def _call_summary_llm(self, prompt: str, prompt_started_at: float) -> str:
++    def _summary_text(self, prompt: str, prompt_started_at: float, content_to_summarize: str) -> str:
++        """The summarizer's text for this prompt. A summary kept from a cancelled idle compaction of the same turns
++        comes first (compaction_carry). An idle compaction's own call keeps running when the person's next message
++        cancels it, so its text is kept for the next compaction instead of thrown away."""
++        from agent import compaction_carry
++
++        key = compaction_carry.summary_key(content_to_summarize, self._previous_summary)
++        keep_if = getattr(self, "_keep_summary_if", None)   # the idle job's cancel flag (api_server_idle_compaction)
++
++        def cancelled() -> bool:
++            return bool(keep_if is not None and keep_if.is_set()) or self._compression_cancelled()
++
++        kept = compaction_carry.take(self._session_id, key, cancelled)
++        if kept:
++            return kept
++        window = getattr(self, "_carry_window", None)
++        if keep_if is None or not window or not self._session_id:
++            return self._call_summary_llm(prompt, prompt_started_at)
++        self._in_kept_call = True
++        try:
++            content = compaction_carry.keep_call(
++                self._session_id, window, key,
++                lambda: self._call_summary_llm(prompt, prompt_started_at, check_cancel=False), cancelled)
++        finally:
++            self._in_kept_call = False
++        if self._compression_cancelled():
++            raise AuxiliaryExplicitCancellation()
++        return content
++
++    def _call_summary_llm(self, prompt: str, prompt_started_at: float, check_cancel: bool = True) -> str:
+         """Issue the single aux summary call; return validated content text.
+         Raises RuntimeError for empty content or a length-truncated (PARTIAL) summary so the failure
+         routes through main-model fallback + cooldown instead of wiping the compacted turns."""
+@@ -4097,7 +4126,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
+                 effective_aux_context=self.context_length if route_known and _aux_model == self.model else None,
+                 phase_timings=_latency_info,
+             )
+-        if self._compression_cancelled():
++        if check_cancel and self._compression_cancelled():
+             raise AuxiliaryExplicitCancellation()
+         # Reasoning-field fallback (DeepSeek/Qwen/Kimi put the summary in reasoning_content); capped.
+         content = extract_content_or_reasoning(response, max_reasoning_chars=8000)
+@@ -4172,7 +4201,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
+             has_user_turn = self._transcript_has_real_user_turn(turns_to_summarize)
+         prompt = self._build_summary_prompt(content_to_summarize, summary_budget, focus_topic, memory_context, has_user_turn)
+         try:
+-            content = self._call_summary_llm(prompt, prompt_started_at)
++            content = self._summary_text(prompt, prompt_started_at, content_to_summarize)
+             # Strip <think> blocks: they would be stored, injected, and compounded on every iterative update.
+             from agent.agent_runtime_helpers import strip_think_blocks
+             content = strip_think_blocks(None, content).strip() or content
+@@ -5742,6 +5771,12 @@ Write only the summary body. Do not include any preamble or prefix."""
+         n_messages = len(messages)
+         # Phase 2: Determine boundaries (on the pruned copy so a pressure-demoted tail can compress, #61932)
+         compress_start, compress_end = self._compress_window(messages)
++        # A summary kept from a cancelled idle compaction covers turns up to its own end; ending this span there
++        # lets it be used, with the newer turns kept after it (compaction_carry).
++        from agent import compaction_carry
++
++        compress_end = compaction_carry.pinned_end(self._session_id, messages, compress_start, compress_end)
++        self._carry_window = compaction_carry.row_digests(messages[compress_start:compress_end])
+         if compress_start >= compress_end:
+             self._record_compression_regions(
+                 head_messages=messages[:compress_start], middle_messages=[], tail_messages=messages[compress_end:],
+diff --git a/gateway/platforms/api_server_idle_compaction.py b/gateway/platforms/api_server_idle_compaction.py
+index 2086cd7..a2f95cd 100644
+--- a/gateway/platforms/api_server_idle_compaction.py
++++ b/gateway/platforms/api_server_idle_compaction.py
+@@ -3,7 +3,9 @@
+ The event loop owns the job registry and admission generations. A worker owns a
+ fresh agent and both durable leases. Foreground admission cancels the candidate
+ and joins its owner before loading history, so neither a stale summary nor stale
+-caller history can overwrite the next turn.
++caller history can overwrite the next turn. A candidate cancelled during its
++summary call leaves that call running, and the next compaction uses its text
++(agent/compaction_carry.py).
+ """
+ 
+ import asyncio
+@@ -61,7 +63,10 @@ async def foreground(owner, session_id):
+     if job is not None:
+         job.cancelled.set()
+         job.wake.set()
+-        if job.agent is not None:
++        # The summary call stops waiting on its own (compaction_carry.keep_call) and keeps running for the next
++        # compaction; a hard interrupt is for the rest of the job.
++        compressor = getattr(job.agent, "context_compressor", None)
++        if job.agent is not None and not getattr(compressor, "_in_kept_call", False):
+             from gateway.platforms.api_server import request_hard_interrupt
+             await asyncio.to_thread(request_hard_interrupt, job.agent, "Foreground turn arrived")
+         await asyncio.shield(job.task)
+@@ -191,6 +196,7 @@ def _compact(owner, run, job):
+                 return
+             logger.info("Idle compaction: session=%s pressure=%d trigger=%d", run.session_id,
+                         pressure, agent.context_compressor.threshold_tokens)
++            agent.context_compressor._keep_summary_if = job.cancelled
+             agent._compress_context(history, agent._cached_system_prompt or "",
+                                     approx_tokens=pressure, task_id=run.session_id, trigger="idle")
+         finally:
+diff --git a/tests/agent/test_compaction_carry.py b/tests/agent/test_compaction_carry.py
+new file mode 100644
+index 0000000..fded6f0
+--- /dev/null
++++ b/tests/agent/test_compaction_carry.py
+@@ -0,0 +1,137 @@
++"""A summary an idle compaction finished after the person's next message cancelled it is used by the next compaction.
++
++Oct 28 2026, 8:44 to 8:50 a.m. (Zero): six idle compactions in a row were cancelled by the next message, each after up
++to two minutes of summary work, and each next one summarized a longer span from scratch (79,858 to 119,649 prompt
++characters).
++"""
++
++import threading
++import time
++from unittest.mock import patch
++
++import pytest
++
++from agent import compaction_carry as carry
++from agent.auxiliary_client import AuxiliaryExplicitCancellation
++from agent.context_compressor import ContextCompressor
++
++SUMMARY = ("## Goal\nPlan the PodGuard social posts.\n\n## Progress\nThe two-week calendar for Nov 2 to 15 is ready "
++           "with 10 X posts and 6 Instagram posts.")
++
++
++@pytest.fixture(autouse=True)
++def _clear():
++    carry.clear()
++    yield
++    carry.clear()
++
++
++def _compressor(session_id="api_zero") -> ContextCompressor:
++    with patch("agent.context_compressor.get_model_context_length", return_value=8000):
++        comp = ContextCompressor(model="test-model", threshold_percent=0.75, protect_first_n=3, protect_last_n=4,
++                                 quiet_mode=True)
++    comp._session_id = session_id
++    return comp
++
++
++def _history(turns=12):
++    messages = [{"role": "system", "content": "sys"}]
++    for i in range(turns):
++        messages += [{"role": "user", "content": f"Question {i}: " + "what about the calendar? " * 20},
++                     {"role": "assistant", "content": f"Answer {i}: " + "the calendar is on track. " * 20}]
++    return messages
++
++
++def _plain(messages):
++    return [{k: m.get(k) for k in ("role", "content", "tool_calls", "tool_call_id")} for m in messages]
++
++
++def _summary_row(messages):
++    return next(m for m in messages if ContextCompressor._is_context_summary_message(m))
++
++
++def test_a_cancelled_call_keeps_running_and_its_text_is_taken_once():
++    gate, cancel = threading.Event(), threading.Event()
++    threading.Timer(0.3, cancel.set).start()
++    started = time.monotonic()
++    with pytest.raises(AuxiliaryExplicitCancellation):
++        carry.keep_call("api_zero", ["d1"], "k1", lambda: gate.wait(5) and "the summary", cancel.is_set)
++    assert time.monotonic() - started < 2   # the turn does not wait for the summary
++    gate.set()
++    assert carry.take("api_zero", "k1", lambda: False) == "the summary"   # waits for the running call
++    assert carry.take("api_zero", "k1", lambda: False) is None
++
++
++def test_a_kept_summary_for_other_turns_is_dropped():
++    carry.keep_call("api_zero", ["d1"], "k1", lambda: "x", lambda: False)   # finished normally: nothing kept
++    assert carry.take("api_zero", "k1", lambda: False) is None
++    cancel = threading.Event()
++    cancel.set()
++    with pytest.raises(AuxiliaryExplicitCancellation):
++        carry.keep_call("api_zero", ["d1"], "k1", lambda: time.sleep(0.3) or "x", cancel.is_set)
++    assert carry.take("api_zero", "other", lambda: False) is None
++    assert carry.take("api_zero", "k1", lambda: False) is None
++
++
++def test_the_next_compaction_uses_the_cancelled_summary_with_the_reply_kept_after_it():
++    history = _history()
++    gate, keep = threading.Event(), threading.Event()
++    prompts = []
++
++    def slow_summary(prompt, started, check_cancel=True):
++        prompts.append(prompt)
++        gate.wait(10)
++        return SUMMARY
++
++    first = _compressor()
++    first._keep_summary_if = keep
++    threading.Timer(0.3, keep.set).start()   # Colin writes back while the summary is being written
++    with patch.object(first, "_call_summary_llm", slow_summary), pytest.raises(AuxiliaryExplicitCancellation):
++        first.compress([dict(m) for m in history], current_tokens=7000)
++    gate.set()
++
++    reply = [{"role": "user", "content": "Add a post for Friday."},
++             {"role": "assistant", "content": "Added a Friday post to the calendar."}]
++    second = _compressor()   # the next idle job builds a fresh agent
++    with patch.object(second, "_call_summary_llm", side_effect=AssertionError("summarized again")):
++        out = second.compress([dict(m) for m in history + reply], current_tokens=7200)
++    assert len(prompts) == 1
++    assert _plain(out[-2:]) == _plain(reply)
++
++    plain = _compressor()   # the same turns, never cancelled (the kept entry was used up)
++    with patch.object(plain, "_call_summary_llm", return_value=SUMMARY):
++        expected = plain.compress([dict(m) for m in history], current_tokens=7000)
++    assert _summary_row(out)["content"] == _summary_row(expected)["content"]
++    assert _plain(out[:-2]) == _plain(expected)   # same head, summary and tail; the reply comes after
++
++
++def test_a_foreground_compaction_waits_for_the_running_call_instead_of_a_second_one():
++    history = _history()
++    gate, keep = threading.Event(), threading.Event()
++    calls = []
++
++    def slow_summary(prompt, started, check_cancel=True):
++        calls.append(prompt)
++        gate.wait(10)
++        return SUMMARY
++
++    first = _compressor()
++    first._keep_summary_if = keep
++    keep.set()
++    with patch.object(first, "_call_summary_llm", slow_summary), pytest.raises(AuxiliaryExplicitCancellation):
++        first.compress([dict(m) for m in history], current_tokens=7000)
++    threading.Timer(0.3, gate.set).start()
++    second = _compressor()
++    with patch.object(second, "_call_summary_llm", side_effect=AssertionError("summarized again")):
++        out = second.compress([dict(m) for m in history + [{"role": "user", "content": "next"}]],
++                              current_tokens=7200)
++    assert len(calls) == 1
++    assert SUMMARY.splitlines()[1] in _summary_row(out)["content"]
++
++
++def test_without_the_idle_flag_a_summary_call_runs_as_before():
++    comp = _compressor()
++    with patch.object(comp, "_call_summary_llm", return_value=SUMMARY) as call:
++        comp.compress([dict(m) for m in _history()], current_tokens=7000)
++    call.assert_called_once()
++    assert carry._kept == {}

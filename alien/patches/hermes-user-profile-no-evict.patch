@@ -1,0 +1,234 @@
+diff --git a/tests/tools/test_memory_user_full.py b/tests/tools/test_memory_user_full.py
+new file mode 100644
+index 0000000..56ea758
+--- /dev/null
++++ b/tests/tools/test_memory_user_full.py
+@@ -0,0 +1,114 @@
++"""A full user profile never makes room by removing or shortening other entries (Zero, Oct 29 2026).
++
++Zero's USER.md held 16 entries in 4,927 of its 5,000 characters, eleven of them Colin's rules for how to work. When a
++new rule did not fit, the tool told the model to remove or shorten "stale" entries in the same batch, so the model
++chose which of his rules to drop. These tests use that shape: a store a few dozen characters under its cap and a new
++rule of about 200 characters.
++"""
++
++import pytest
++
++from tools.memory_tool import MemoryStore, memory_tool
++from tools.memory_tool_store import ENTRY_DELIMITER
++
++LIMIT = 5000
++RULE = ("Brain dumps: when Colin says he is brain dumping, reply only 'Got it. What else?' after each item "
++        "until he says done, then give the whole list back in order.")
++
++
++def _entries():
++    """Sixteen entries filling 4,927 characters, like Zero's live USER.md on Oct 28."""
++    entries = [f"Entry {i}: " + " ".join(["rule text"] * 29) for i in range(16)]
++    pad = 4927 - len(ENTRY_DELIMITER.join(entries))
++    entries[0] += "x" * pad
++    assert len(ENTRY_DELIMITER.join(entries)) == 4927
++    return entries
++
++
++@pytest.fixture()
++def store(tmp_path, monkeypatch):
++    monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
++    (tmp_path / "USER.md").write_text(ENTRY_DELIMITER.join(_entries()), encoding="utf-8")
++    s = MemoryStore(memory_char_limit=LIMIT, user_char_limit=LIMIT)
++    s.load_from_disk()
++    return s
++
++
++def _on_disk(tmp_path):
++    return MemoryStore._read_file(tmp_path / "USER.md")
++
++
++def test_full_user_add_points_to_save_fact_and_changes_nothing(store, tmp_path):
++    result = store.add("user", RULE)
++    assert result["success"] is False and result["done"] is True
++    assert "save_fact" in result["error"] and "preference" in result["error"]
++    assert "Do not remove or shorten" in result["error"]
++    assert "current_entries" not in result
++    assert _on_disk(tmp_path) == _entries()
++
++
++def test_batch_that_removes_to_make_room_is_refused(store, tmp_path):
++    entries = _entries()
++    result = store.apply_batch("user", [
++        {"action": "remove", "old_text": entries[7]},
++        {"action": "add", "content": RULE},
++    ])
++    assert result["success"] is False and "save_fact" in result["error"]
++    assert _on_disk(tmp_path) == entries
++
++
++def test_batch_that_shortens_to_make_room_is_refused(store, tmp_path):
++    entries = _entries()
++    result = store.apply_batch("user", [
++        {"action": "replace", "old_text": entries[12], "content": "Entry 12: short."},
++        {"action": "add", "content": RULE},
++    ])
++    assert result["success"] is False and "save_fact" in result["error"]
++    assert _on_disk(tmp_path) == entries
++
++
++def test_remove_after_a_refused_add_waits_for_the_next_turn(store, tmp_path):
++    entries = _entries()
++    store.add("user", RULE)
++    result = store.remove("user", entries[5])
++    assert result["success"] is False and "save_fact" in result["error"]
++    replaced = store.replace("user", entries[6], "Entry 6: shorter.")
++    assert replaced["success"] is False
++    assert _on_disk(tmp_path) == entries
++
++    store.reset_consolidation_failures()
++    assert store.remove("user", entries[5])["success"] is True
++    assert entries[5] not in _on_disk(tmp_path)
++
++
++def test_replace_that_grows_past_the_cap_is_refused(store, tmp_path):
++    entries = _entries()
++    result = store.replace("user", entries[3], entries[3] + " and more" * 20)
++    assert result["success"] is False and "save_fact" in result["error"]
++    assert _on_disk(tmp_path) == entries
++
++
++def test_corrections_that_fit_still_work(store, tmp_path):
++    entries = _entries()
++    assert store.replace("user", entries[2], "Entry 2: lives in Boston now.")["success"] is True
++    assert store.apply_batch("user", [
++        {"action": "remove", "old_text": entries[4]},
++        {"action": "add", "content": "Entry 16: short new fact."},
++    ])["success"] is True
++    on_disk = _on_disk(tmp_path)
++    assert "Entry 2: lives in Boston now." in on_disk and entries[4] not in on_disk
++
++
++def test_memory_target_keeps_the_consolidation_path(tmp_path, monkeypatch):
++    monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
++    s = MemoryStore(memory_char_limit=500, user_char_limit=500)
++    s.load_from_disk()
++    s.add("memory", "x" * 490)
++    result = s.add("memory", "this will exceed the limit")
++    assert result["success"] is False and "current_entries" in result and "save_fact" not in result["error"]
++
++
++def test_tool_entry_point_returns_the_refusal(store):
++    import json
++    result = json.loads(memory_tool(action="add", target="user", content=RULE, store=store))
++    assert result["success"] is False and "save_fact" in result["error"]
+diff --git a/tools/memory_tool.py b/tools/memory_tool.py
+index 67efdf0..c3dab76 100644
+--- a/tools/memory_tool.py
++++ b/tools/memory_tool.py
+@@ -362,7 +362,9 @@ MEMORY_SCHEMA = {
+         "where it loads only when relevant; memory is injected into every turn and must "
+         "stay small.\n\n"
+         "IF FULL: an add is rejected with the current entries shown. Reissue as ONE batch that "
+-        "removes or shortens enough stale entries and adds the new one together.\n\n"
++        "removes or shortens enough stale entries and adds the new one together. The 'user' target "
++        "is the exception: never remove or shorten user entries to make room; when it is full, "
++        "save the new fact with save_fact, kind preference.\n\n"
+         "TARGETS: 'user' = who the user is (name, role, preferences, style). 'memory' = your "
+         "notes (environment, conventions, tool quirks, lessons).\n\n"
+         "SKIP: trivial/obvious info, easily re-discovered facts, raw data dumps, task progress, "
+diff --git a/tools/memory_tool_store.py b/tools/memory_tool_store.py
+index ee12729..5a13997 100644
+--- a/tools/memory_tool_store.py
++++ b/tools/memory_tool_store.py
+@@ -24,6 +24,13 @@ MEMORY_BLOCK_HEADERS = {
+ 
+ ENTRY_DELIMITER = "\n§\n"
+ 
++# Zero, Oct 29 2026: Colin's rules lived in USER.md, and a full USER.md told the model to remove or shorten "stale"
++# entries, so the model picked which of his rules to drop mid-turn. The user profile now never makes room by editing
++# other entries: an add that does not fit is refused and pointed at the facts store, whose preferences always reach
++# the model, and the rest of that turn may not remove or rewrite user entries.
++USER_FULL_MESSAGE = ("Not saved here: the user profile is full. Save it with save_fact, kind preference. "
++                     "Do not remove or shorten other entries to make room.")
++
+ 
+ def _scan_memory_content(content: str) -> Optional[str]:
+     """Error string if *content* matches injection/exfil patterns. Strict scope:
+@@ -157,6 +164,7 @@ class MemoryStore:
+         self.memory_enabled, self.user_profile_enabled = memory_enabled, user_profile_enabled
+         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
+         self._consolidation_failures = 0  # per turn; reset by reset_consolidation_failures()
++        self._user_full_this_turn = False  # an add to the user profile was refused for room this turn
+ 
+     # Per-turn counter of failed at-capacity consolidation attempts; reset at each turn boundary by
+     # reset_consolidation_failures() (#42405).
+@@ -166,6 +174,12 @@ class MemoryStore:
+     def reset_consolidation_failures(self) -> None:
+         """Call at turn start."""
+         self._consolidation_failures = 0
++        self._user_full_this_turn = False
++
++    def _user_full(self) -> Dict[str, Any]:
++        """TERMINAL refusal for a user-profile write that would need room taken from other entries."""
++        self._user_full_this_turn = True
++        return {**_error(USER_FULL_MESSAGE, "over_budget"), "done": True}
+ 
+     def _consolidation_failure(self, response: Dict[str, Any]) -> Dict[str, Any]:
+         """Count a consolidation failure: under the per-turn cap return ``response``
+@@ -343,6 +357,8 @@ class MemoryStore:
+             if content in entries:
+                 return self._success_response(target, "Entry already exists (no duplicate added).")
+             if len(ENTRY_DELIMITER.join(entries + [content])) > limit:
++                if target == "user":
++                    return self._user_full()
+                 new_total = len(ENTRY_DELIMITER.join(entries + [content]))
+                 return self._failure_with_entries(target, (
+                     f"Memory at {self._char_count(target):,}/{limit:,} chars; adding this entry ({len(content)} chars) "
+@@ -402,6 +418,9 @@ class MemoryStore:
+     def _edit(self, target: str, old_text: str, new_content: Optional[str],
+               matched_entry: Optional[str] = None) -> Dict[str, Any]:
+         """Locked replace (``new_content`` set) or remove (None) of the entry matching *old_text*."""
++        if target == "user" and self._user_full_this_turn:
++            return self._user_full()
++
+         def _apply(entries, limit):
+             idx = self._locate(entries, old_text, "replace" if new_content else "remove", matched_entry)
+             if isinstance(idx, dict):
+@@ -410,6 +429,8 @@ class MemoryStore:
+             if new_content is None:
+                 return replaced, "Entry removed.", {"removed_entry": entries[idx]}
+             new_total = len(ENTRY_DELIMITER.join(replaced))
++            if new_total > limit and target == "user":
++                return self._user_full()
+             if new_total > limit:
+                 return self._failure_with_entries(target, (
+                     f"Replacement {_over_limit(new_total, limit)}. Shorten the new content, or retry as ONE "
+@@ -469,6 +490,13 @@ class MemoryStore:
+         entry its replace/remove selects now (None for add), in batch order."""
+         return self._batch(target, operations, commit=False)
+ 
++    @staticmethod
++    def _batch_frees_room_for_adds(entries: List[str], ops: List[Dict[str, Any]], limit: int) -> bool:
++        """True when the batch's adds alone would not fit, so its removes and replaces are there to make room."""
++        added = [c for op in ops if op.get("action") == "add"
++                 and (c := (op.get("content") or op.get("new_text") or "").strip()) and c not in entries]
++        return bool(added) and len(ENTRY_DELIMITER.join(entries + list(dict.fromkeys(added)))) > limit
++
+     def _batch(self, target: str, operations: List[Dict[str, Any]], *, commit: bool) -> Dict[str, Any]:
+         if not operations:
+             return _error("operations list is empty.", "invalid_args")
+@@ -480,6 +508,8 @@ class MemoryStore:
+                 return _error(f"Operation {i + 1}: {scan_error}", "scan_blocked")
+ 
+         def _apply(entries, limit):
++            if target == "user" and (self._user_full_this_turn or self._batch_frees_room_for_adds(entries, ops, limit)):
++                return self._user_full()
+             working = list(entries)  # only committed if the whole batch validates
+             matched = []  # per op, the entry a replace/remove selected (None for add)
+             for i, op in enumerate(ops):
+@@ -502,6 +532,8 @@ class MemoryStore:
+                     f"entries into a shorter one instead of removing the last one. To delete the "
+                     f"final entry deliberately, use single remove() calls."), "would_empty")
+             new_total = len(ENTRY_DELIMITER.join(working))  # budget check against the FINAL state only
++            if new_total > limit and target == "user":
++                return self._user_full()
+             if new_total > limit:
+                 return self._batch_failure(target, (
+                     f"Applying all {len(operations)} operations {_over_limit(new_total, limit)} more. Add "

@@ -1,0 +1,161 @@
+diff --git a/hermes_cli/kanban_db.py b/hermes_cli/kanban_db.py
+index 8992fc39..2a448a81 100644
+--- a/hermes_cli/kanban_db.py
++++ b/hermes_cli/kanban_db.py
+@@ -4076,7 +4076,9 @@ def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
+     _ctx_prior_attempts(lines, conn, task_id, now)
+     _ctx_parent_results(lines, conn, task_id, now)
+     _ctx_role_history(lines, conn, task, now)
+-    _ctx_comments(lines, list_comments(conn, task_id), now)
++    comments = list_comments(conn, task_id)
++    _ctx_person_answers(lines, person_answers(conn, comments), now)
++    _ctx_comments(lines, comments, now)
+     return "\n".join(lines).rstrip() + "\n"
+ 
+ 
+@@ -4250,6 +4252,58 @@ def _ctx_role_history(lines: list[str], conn: sqlite3.Connection, task: Task, no
+     lines.append("")
+ 
+ 
++# Zero (Nov 19 2026): a Zip read the person's answer "To the question \"What country and state were you born in?\", the
++# answer is: ...", called it unsupported because its own earlier note doubted it, and asked again. The comment thread
++# framed the answer as "comment from worker `<name>`" among fifteen others, and keeps only the newest 30. The person's
++# answers now have their own section, always whole, each with its question. An answer given on a card reaches the task
++# as the person's comment, or as the hub's unblock note "<name> answered in the app: ...".
++_APP_ANSWER = re.compile(r"\banswered in the app:\s*(.*)$", re.S)
++_ANSWER_QUESTION = re.compile(r'^To the question "(.+?)", the answer is:\s*(.*)$', re.S)
++
++
++def is_person_comment(comment: Comment, assistants: set[str]) -> bool:
++    """A comment in the person's own words: by an author who is no assistant profile (and no hub note), or an answer
++    the person gave on a card."""
++    body = (comment.body or "").lstrip()
++    if _APP_ANSWER.search(body):
++        return True
++    return (comment.author or "") not in assistants and not body.startswith("[Hub note")
++
++
++def assistant_profiles(conn: sqlite3.Connection) -> set[str]:
++    """Every profile that has had a task on the board. A comment by any other author is from a person."""
++    return {r[0] for r in conn.execute("SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL")}
++
++
++def person_answers(conn: sqlite3.Connection, comments: list[Comment]) -> list[dict]:
++    """The person's answers on a task, oldest first: comment_id, created_at, the question it answered (None when it
++    named none) and the answer."""
++    assistants = assistant_profiles(conn)
++    out = []
++    for c in comments:
++        if not is_person_comment(c, assistants):
++            continue
++        text = (c.body or "").strip()
++        found = _APP_ANSWER.search(text)
++        text = found.group(1).strip() if found else text
++        asked = _ANSWER_QUESTION.match(text)
++        out.append({"comment_id": c.id, "created_at": c.created_at, "question": asked.group(1) if asked else None,
++                    "answer": asked.group(2).strip() if asked else text})
++    return out
++
++
++def _ctx_person_answers(lines: list[str], answers: list[dict], now: int) -> None:
++    if not answers:
++        return
++    lines.append("## The person's answers on this task")
++    lines.append("_The person's own words. They are the source of truth for this task: use them as given, never ask "
++                 "for them again, and never set them aside as unverified, even where an earlier note doubted them._")
++    for a in answers:
++        asked = f' to "{a["question"]}"' if a["question"] else ""
++        lines.append(f"- {_ctx_stamp(a['created_at'], now)}, answer{asked}: {a['answer']}")
++    lines.append("")
++
++
+ def _ctx_comments(lines: list[str], comments: list[Comment], now: int) -> None:
+     """Newest ``_CTX_MAX_COMMENTS`` comments. The explicit "comment from
+     worker" framing stops an operator-controlled HERMES_PROFILE like
+diff --git a/tools/kanban_tools.py b/tools/kanban_tools.py
+index 11878bcc..d635e563 100644
+--- a/tools/kanban_tools.py
++++ b/tools/kanban_tools.py
+@@ -677,10 +677,12 @@ SHOW_EVENTS = 12
+ SHOW_PAGE_SIZE = 8
+ SHOW_CONTEXT_MAX = 4_000
+ # Sections of build_worker_context that this answer already carries in its own keys.
+-_SHOW_CONTEXT_DUPLICATES = ("## Body", "## Prior attempts on this task", "## Comment thread")
+-_SHOW_HOW = ("This is the task's current state. Older comments are one line each, or left out when there are many: call "
+-             "kanban_show with page=1 (then 2, 3...) to read them. A long comment that is cut says so; call kanban_show "
+-             "with comment_id=<its id> for all of it. Call kanban_show again any time you need this.")
++_SHOW_CONTEXT_DUPLICATES = ("## Body", "## Prior attempts on this task", "## Comment thread",
++                            "## The person's answers on this task")
++_SHOW_HOW = ("answers_from_the_person: the person's own answers on this task, each with its question. They are the "
++             "source of truth: use them as given, never ask for them again, never set them aside as unverified. Call "
++             "kanban_show again any time. Older comments are one line each or left out: page=1, 2... reads them. A "
++             "comment that says it was cut: comment_id=<its id> reads all of it.")
+ 
+ 
+ def _show_line(text: Any, limit: int = SHOW_LINE_CHARS) -> str:
+@@ -694,9 +696,16 @@ def _show_cap(text: Any, limit: int) -> Any:
+     return text[:limit].rstrip() + f"... [{len(text) - limit} more characters]"
+ 
+ 
++def _show_person(c, assistants: set[str]) -> bool:
++    # The person's answers lead the view (kanban_db.person_answers, Nov 19 2026), and are never cut or left out.
++    from hermes_cli.kanban_db import is_person_comment
++    return is_person_comment(c, assistants)
++
++
+ def _show_assistants(conn) -> set[str]:
+     """Every profile that has had a task on the board. A comment by any other author is from a person."""
+-    return {r[0] for r in conn.execute("SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL")}
++    from hermes_cli.kanban_db import assistant_profiles
++    return assistant_profiles(conn)
+ 
+ 
+ def _show_comment(c, full: bool, person: bool = False) -> dict[str, Any]:
+@@ -738,7 +747,7 @@ def _show_page(kb, conn, tid: str, page: int) -> str:
+     end = len(older) - SHOW_PAGE_SIZE * (page - 1)
+     chunk = older[max(0, end - SHOW_PAGE_SIZE):max(0, end)]
+     more = end - SHOW_PAGE_SIZE > 0
+-    return json.dumps({"task_id": tid, "page": page, "comments": [_show_comment(c, True, (c.author or "") not in assistants) for c in chunk],
++    return json.dumps({"task_id": tid, "page": page, "comments": [_show_comment(c, True, _show_person(c, assistants)) for c in chunk],
+                        "next_page": page + 1 if more else None,
+                        "note": "Older comments in full, oldest first." if chunk else "No older comments on this page."})
+ 
+@@ -781,8 +790,9 @@ def _handle_show(args: dict, **kw) -> str:
+         assistants = _show_assistants(conn)
+         recent = {c.id for c in comments[-SHOW_RECENT_COMMENTS:]}
+         # Kept whole: the newest comments and every one a person wrote (an answer the work waits on).
+-        whole = {c.id for c in comments if c.id in recent or (c.author or "") not in assistants}
++        whole = {c.id for c in comments if c.id in recent or _show_person(c, assistants)}
+         dropped: set[int] = set()
++        answers = kb.person_answers(conn, comments)
+         runs = kb.list_runs(conn, tid)
+         events = [e for e in kb.list_events(conn, tid) if e.kind != "heartbeat"][-SHOW_EVENTS:]
+         task_row = _fields(task, _TASK_FIELDS)
+@@ -792,6 +802,7 @@ def _handle_show(args: dict, **kw) -> str:
+         def build() -> dict[str, Any]:
+             return {
+                 "how_to_read": _SHOW_HOW,
++                "answers_from_the_person": answers,
+                 "task": task_row,
+                 "parents": kb.parent_ids(conn, tid),
+                 # Non-terminal parents; on a running card this means the dependency
+@@ -799,7 +810,7 @@ def _handle_show(args: dict, **kw) -> str:
+                 "unsatisfied_parents": [
+                     {"id": pid, "status": status} for pid, status in kb.unsatisfied_parents(conn, tid)],
+                 "children": kb.child_ids(conn, tid),
+-                "comments": [_show_comment(c, c.id in whole, (c.author or "") not in assistants) for c in comments
++                "comments": [_show_comment(c, c.id in whole, _show_person(c, assistants)) for c in comments
+                              if c.id not in dropped],
+                 "older_comments_left_out": len(dropped),
+                 "older_comment_pages": -(-max(0, len(comments) - SHOW_RECENT_COMMENTS) // SHOW_PAGE_SIZE),
+@@ -820,8 +831,8 @@ def _handle_show(args: dict, **kw) -> str:
+         # Over budget, cheapest loss first: an assistant's older full comments become one line (oldest first), the
+         # oldest one-line comments leave (page=1... still has them), the context shrinks, then an assistant's newest
+         # comments become one line, never the last comment and never a person's.
+-        steps = [c for c in comments if c.id in whole and c.id not in recent and (c.author or "") in assistants]
+-        steps += [None] + [c for c in comments[:-1] if c.id in recent and (c.author or "") in assistants]
++        steps = [c for c in comments if c.id in whole and c.id not in recent and not _show_person(c, assistants)]
++        steps += [None] + [c for c in comments[:-1] if c.id in recent and not _show_person(c, assistants)]
+         for c in steps:
+             if len(out) <= SHOW_MAX_CHARS:
+                 break

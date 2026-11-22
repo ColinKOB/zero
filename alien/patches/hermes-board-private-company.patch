@@ -1,0 +1,96 @@
+diff --git a/hermes_cli/kanban_db.py b/hermes_cli/kanban_db.py
+index cc6df260..1562e47f 100644
+--- a/hermes_cli/kanban_db.py
++++ b/hermes_cli/kanban_db.py
+@@ -4071,14 +4071,22 @@ def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
+     # One clock reading so every relative age in this rendering agrees.
+     now = int(time.time())
+     lines: list[str] = []
++    hidden = withheld_from(task.assignee or "default")
++    if hidden and (task.created_by or "") in hidden:   # a body a private Zip wrote: its title alone crosses
++        import dataclasses
++        task = dataclasses.replace(task, body="(Written by a Zip whose work stays with its own AI company. Only the "
++                                              "title above reaches you.)", result=None)
+     _ctx_header(lines, task)
+     _ctx_attachments(lines, list_attachments(conn, task_id))
+     _ctx_prior_attempts(lines, conn, task_id, now)
+     _ctx_parent_results(lines, conn, task_id, now)
+     _ctx_role_history(lines, conn, task, now)
+     comments = list_comments(conn, task_id)
+-    _ctx_person_answers(lines, person_answers(conn, comments), now)
+-    _ctx_comments(lines, comments, now)
++    kept = [c for c in comments if (c.author or "") not in hidden]
++    _ctx_person_answers(lines, person_answers(conn, kept), now)
++    _ctx_comments(lines, kept, now)
++    if len(kept) < len(comments):
++        lines.append(_withheld_note(len(comments) - len(kept)))
+     return "\n".join(lines).rstrip() + "\n"
+ 
+ 
+@@ -4199,7 +4207,50 @@ PRIVATE_ZIPS = frozenset(z.strip() for z in os.environ.get("ZERO_PRIVATE_ZIPS",
+ def _private_parent(pt, child) -> bool:
+     owners = {pt.assignee or "default", pt.created_by or ""}
+     private = owners & PRIVATE_ZIPS
+-    return bool(private) and (child is None or not ((child.assignee or "default") in owners or child.created_by in private))
++    if not private:
++        return False
++    if child is None or not ((child.assignee or "default") in owners or child.created_by in private):
++        return True
++    return bool(withheld_from(child.assignee or "default") & private)
++
++
++# Zero (Nov 20 2026, Colin): a private Zip's words go only to the company its own model runs on. A Zip whose model
++# another company runs (Muse Ember, on Meta) reads them as a third Zip would, even on its own task: the private Zip's
++# comments, the body it wrote and its results stay out of everything assembled for that Zip here. The one answer to
++# "same company" is the Zero plugin's models.same_company, read by path from the home's settings (ZERO_HOME), so the
++# hub, the plugin and the board can never disagree. Settings that can't be read count as one company, as before.
++_SAME_COMPANY_CACHE: dict = {}
++
++
++def reads_privately(reader: str, private: str) -> bool:
++    if not reader or reader == private:
++        return True
++    try:
++        import importlib.util
++        settings = Path(os.environ.get("ZERO_HOME") or Path.home() / "taffy" / "home.json").expanduser()
++        home = json.loads(settings.read_text())
++        plugin = Path(os.path.expanduser(str((home.get("paths") or {}).get("plugin") or "~/taffy/plugins/taffy-tools")))
++        stamp = (str(plugin), (plugin / "models.py").stat().st_mtime)
++        models = _SAME_COMPANY_CACHE.get(stamp)
++        if models is None:
++            spec = importlib.util.spec_from_file_location("zero_board_models", plugin / "models.py")
++            models = importlib.util.module_from_spec(spec)
++            spec.loader.exec_module(models)
++            _SAME_COMPANY_CACHE.clear()
++            _SAME_COMPANY_CACHE[stamp] = models
++        return bool(models.same_company(models.setup(home.get("models")), private, reader))
++    except Exception:
++        return True
++
++
++def withheld_from(reader: str) -> set:
++    """The private Zips whose words `reader` may not read (reads_privately)."""
++    return {p for p in PRIVATE_ZIPS if not reads_privately(reader or "default", p)}
++
++
++def _withheld_note(n: int) -> str:
++    return (f"_({n} comment{'s' if n != 1 else ''} from a Zip whose work stays with its own AI company "
++            f"{'are' if n != 1 else 'is'} left out.)_")
+ 
+ 
+ def _ctx_parent_results(lines: list[str], conn: sqlite3.Connection, task_id: str, now: int) -> None:
+diff --git a/tools/kanban_tools.py b/tools/kanban_tools.py
+index 1d31931b..d89da735 100644
+--- a/tools/kanban_tools.py
++++ b/tools/kanban_tools.py
+@@ -643,7 +643,9 @@ def inject_new_comments_from_env(agent: Any) -> bool:
+     # when the dispatcher did not pin HERMES_PROFILE (echoed notes would otherwise
+     # re-enter the live turn as fake operator steering).
+     own = _persisted_identity()
+-    fresh = [c for c in rows if (c.author or "").strip() != own and (c.body or "").strip()]
++    hidden = kb.withheld_from(own)   # Zero, Nov 20 2026: a private Zip's notes stay off another company's model
++    fresh = [c for c in rows if (c.author or "").strip() != own and (c.body or "").strip()
++             and (c.author or "").strip() not in hidden]
+     if not fresh:
+         return False
+     lines = [f"- {c.author or 'operator'}: {c.body.strip()}" for c in fresh]
